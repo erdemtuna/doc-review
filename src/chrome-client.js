@@ -41,7 +41,7 @@ const state = {
 function handoffPrompt(pollCommand) {
   const cmd = String(pollCommand || "").trim();
   if (!cmd) return "";
-  return `Run \`${cmd} --timeout 600\`, apply the feedback it returns, then keep polling with --ack until I end the review.`;
+  return `Run \`${cmd} --timeout 600\`, apply the feedback it returns, then run its exact \`next_step\` command with \`--ack <batch_id>\` until I end the review.`;
 }
 
 // ------------------------------------------------------------------- server

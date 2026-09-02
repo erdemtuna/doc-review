@@ -5,7 +5,7 @@ import fs from "node:fs";
 
 // Bump this when the CLI and detached server no longer share the same request
 // contract. A new CLI must not silently reuse an older background server.
-export const SERVER_PROTOCOL = 8;
+export const SERVER_PROTOCOL = 9;
 
 export function stateDir() {
   const override = process.env.HUMAN_REVIEW_STATE_DIR;
@@ -18,6 +18,10 @@ export function statePath() {
 
 export function serverPath() {
   return path.join(stateDir(), "server.json");
+}
+
+export function serverLockPath() {
+  return path.join(stateDir(), "server.lock");
 }
 
 export function ensureStateDir() {

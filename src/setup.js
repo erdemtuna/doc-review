@@ -54,7 +54,8 @@ it as a static file. Then block on
 \`npx -y human-review poll <target> --timeout 600\` until they send feedback.
 If it prints \`{"status":"timeout"}\`, no feedback arrived yet — run the same
 poll command again to keep waiting. When a \`{"status":"feedback"}\` batch
-arrives, apply it, then poll again with \`--ack\`.
+arrives, apply it, then run the exact acknowledgement command in its
+\`next_step\`, which uses \`--ack <batch_id>\`.
 
 Keep the poll command in the foreground and do not end the turn while it waits.
 If the shell returns a process or session handle, keep waiting on that handle until

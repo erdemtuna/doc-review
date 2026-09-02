@@ -4,7 +4,6 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { once } from "node:events";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-url-"));
 process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
@@ -59,13 +58,10 @@ test("a localhost route is visually editable and returns source-directed feedbac
     );
   });
   const appPort = await listen(app);
-  t.after(async () => {
-    app.close();
-    await once(app, "close");
-  });
+  t.after(() => new Promise((resolve, reject) => app.close((err) => (err ? reject(err) : resolve()))));
 
   const review = await start();
-  t.after(() => review.dispose());
+  t.after(async () => review.dispose());
   const target = `http://localhost:${appPort}/wiki`;
 
   const opened = await request(review.port, review.token, {

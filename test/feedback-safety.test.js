@@ -45,16 +45,16 @@ const j = (res) => JSON.parse(res.raw);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Fire `poll --ack` the way an agent whose feedback is already delivered
+ * Fire `poll --ack <batch_id>` the way an agent whose feedback is already delivered
  * does: the ack clears the batch, then the request long-polls for the next
  * one. The test only needs the ack side effect, so the poll is abandoned.
  */
-function ackAndAbandon(port, token, target, ms = 200) {
+function ackAndAbandon(port, token, target, batchId, ms = 200) {
   return new Promise((resolve) => {
     const req = http.request({
       host: "127.0.0.1",
       port,
-      path: `/api/poll?target=${encodeURIComponent(target)}&ack=1`,
+      path: `/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batchId)}`,
       headers: { "x-human-review-token": token },
     });
     req.on("error", () => {});
@@ -70,7 +70,7 @@ test("ack after a timeout delivers a stranded batch instead of destroying it", a
   const file = path.join(tmp, "plan.html");
   fs.writeFileSync(file, "<!DOCTYPE html>\n<html><head></head><body><h1>Head</h1><p>Alpha</p></body></html>\n");
   const { port, token, dispose } = await start(0);
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
   const key = opened.key;
@@ -89,10 +89,10 @@ test("ack after a timeout delivers a stranded batch instead of destroying it", a
   const sent = j(await request(port, token, { method: "POST", route: `/api/page/${key}/send`, body: { sessionId: opened.sessionId, note: "" } }));
   assert.equal(sent.ok, true);
 
-  // The agent's previous poll timed out, so it re-runs the same `poll --ack`.
-  // That ack refers to a batch it already applied — it must not destroy the
+  // The agent's previous poll timed out, so a stale receipt accompanies the
+  // next poll. It must not destroy the
   // stranded one, which must be delivered instead.
-  const polled = await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}&ack=1` });
+  const polled = await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}&ack=b_stale` });
   const batch = JSON.parse(polled.raw);
   assert.equal(batch.status, "feedback");
   assert.equal(batch.pages[0].comments[0].feedback, "Tighten this.");
@@ -113,7 +113,7 @@ test("ack after a timeout delivers a stranded batch instead of destroying it", a
     body: { kind: "selection", quote: "Head", feedback: "Late comment." },
   });
 
-  await ackAndAbandon(port, token, file);
+  await ackAndAbandon(port, token, file, batch.batch_id);
 
   const after = j(await request(port, token, { route: `/api/status?target=${encodeURIComponent(file)}` }));
   assert.equal(after.feedback_waiting, false, "a delivered batch acks normally");
@@ -128,14 +128,14 @@ test("ack after a timeout delivers a stranded batch instead of destroying it", a
   const next = JSON.parse((await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` })).raw);
   const shipped = next.pages[0].edits.find((e) => e.label === "h1");
   assert.equal(shipped.after_html, "New <strong>head</strong>");
-  await ackAndAbandon(port, token, file);
+  await ackAndAbandon(port, token, file, next.batch_id);
 });
 
 test("a comment can be reworded before it is sent", async (t) => {
   const file = path.join(tmp, "reword.html");
   fs.writeFileSync(file, "<!DOCTYPE html>\n<html><head></head><body><p>Draft</p></body></html>\n");
   const { port, token, dispose } = await start(0);
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
   const key = opened.key;
@@ -163,14 +163,14 @@ test("a comment can be reworded before it is sent", async (t) => {
   await request(port, token, { method: "POST", route: `/api/page/${key}/send`, body: { sessionId: opened.sessionId, note: "" } });
   const batch = JSON.parse((await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` })).raw);
   assert.deepEqual(batch.pages[0].comments.map((c) => c.feedback), ["Sharper thoughts"]);
-  await ackAndAbandon(port, token, file);
+  await ackAndAbandon(port, token, file, batch.batch_id);
 });
 
 test("rewording replaces a waiting batch and becomes a correction after delivery", async (t) => {
   const file = path.join(tmp, "reword-after-send.html");
   fs.writeFileSync(file, "<!DOCTYPE html><html><body><p>Draft</p></body></html>");
   const { port, token, dispose } = await start(0);
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
   const added = j(await request(port, token, {
@@ -202,7 +202,7 @@ test("rewording replaces a waiting batch and becomes a correction after delivery
   assert.equal(correction.page.comments[0].correctionOf, "Shorten this");
   assert.notEqual(correction.page.comments[0].id, added.comment.id, "the delivered id is retired so ack cannot clear the correction");
 
-  await ackAndAbandon(port, token, file);
+  await ackAndAbandon(port, token, file, delivered.batch_id);
   const afterAck = j(await request(port, token, { route: `/api/page/${opened.key}` }));
   assert.equal(afterAck.comments.length, 1);
   assert.equal(afterAck.comments[0].feedback, "Keep it, but add an example");
@@ -213,7 +213,7 @@ test("rewording replaces a waiting batch and becomes a correction after delivery
   assert.equal(shipped.correction, true);
   assert.equal(shipped.correction_of, "Shorten this");
   assert.match(correctedBatch.next_step, /replace their `correction_of` instruction/);
-  await ackAndAbandon(port, token, file);
+  await ackAndAbandon(port, token, file, correctedBatch.batch_id);
 });
 
 test("a save based on a stale version of the file is refused", async (t) => {
@@ -221,7 +221,7 @@ test("a save based on a stale version of the file is refused", async (t) => {
   const v1 = "<!DOCTYPE html>\n<html><head></head><body><p>One</p></body></html>\n";
   fs.writeFileSync(file, v1);
   const { port, token, dispose } = await start(0);
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
   const key = opened.key;
@@ -249,7 +249,7 @@ test("ending a review releases the waiting agent and keeps unsent feedback", asy
   const file = path.join(tmp, "ended.html");
   fs.writeFileSync(file, "<!DOCTYPE html>\n<html><head></head><body><p>Alpha</p></body></html>\n");
   const { port, token, dispose } = await start(0);
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
   const key = opened.key;
@@ -299,6 +299,30 @@ test("poll --timeout rejects malformed values instead of waiting forever", async
     const result = await run(args);
     assert.equal(result.code, 1, `${args.join(" ")} must fail`);
     assert.match(result.stderr, /--timeout/, `${args.join(" ")} names the flag`);
+  }
+});
+
+test("poll requires an explicit batch ID after --ack", async () => {
+  const env = { ...process.env, HUMAN_REVIEW_STATE_DIR: process.env.HUMAN_REVIEW_STATE_DIR };
+  const run = (args) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ["src/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.on("error", reject);
+      child.on("exit", (code) => resolve({ code, stderr }));
+    });
+
+  for (const args of [
+    ["poll", "x.html", "--ack"],
+    ["poll", "x.html", "--ack", "--timeout", "1"],
+    ["poll", "x.html", "--ack=b_legacy"],
+  ]) {
+    const result = await run(args);
+    assert.equal(result.code, 1, `${args.join(" ")} must fail`);
+    assert.match(result.stderr, /--ack/);
   }
 });
 

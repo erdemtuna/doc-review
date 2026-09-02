@@ -37,7 +37,7 @@ function request(port, { method = "GET", route = "/", headers = {}, body = null 
 
 test("the local server refuses strangers", async (t) => {
   const { port, token, dispose } = await start();
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const file = path.join(tmp, "page.html");
   fs.writeFileSync(file, "<!doctype html><html><body><p>Hi</p></body></html>");

@@ -50,6 +50,16 @@ Human Review opens the file in your browser. Make direct edits, leave comments, 
 
 Note: For HTML files, direct edits and resizes save automatically. For Markdown and localhost pages, click Send so your agent can apply them to the source.
 
+Agent polling returns an immutable `batch_id`. After applying the batch, the
+agent acknowledges that exact receipt and keeps waiting:
+
+```sh
+human-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
+```
+
+A stale or repeated batch ID is harmless: it never clears newer feedback. The
+complete acknowledgement command is included in each response's `next_step`.
+
 ## What this skill lets you do
 
 - **Edit text directly and tweak basic formatting** (e.g., bold, italic).

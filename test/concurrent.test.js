@@ -1,44 +1,83 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-concurrent-"));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-lock-"));
 process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { Store } = await import("../src/state.js");
+const { start } = await import("../src/server.js");
+const { acquireServerLock, readServerLock, releaseServerLock } = await import("../src/server-lock.js");
+const { ensureStateDir, serverLockPath, serverPath } = await import("../src/paths.js");
 
-function page(name) {
-  const file = path.join(tmp, name);
-  fs.writeFileSync(file, `<p>${name}</p>`);
-  return file;
-}
+const listen = (server) =>
+  new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve(server.address().port));
+  });
 
-test("a second server does not wipe the first server's comments", () => {
-  const alpha = new Store();
-  const a = alpha.openPage(page("alpha.html"), "<p>a</p>");
-  alpha.addComment(a.key, { id: "c1", feedback: "from the first server" });
+const close = (server) =>
+  new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
 
-  // A second process starts, sees alpha's state, and adds a page of its own.
-  const beta = new Store();
-  const b = beta.openPage(page("beta.html"), "<p>b</p>");
-  beta.addComment(b.key, { id: "c2", feedback: "from the second server" });
+test("a startup race leaves one live writer and one matching server record", async () => {
+  const first = await start();
+  try {
+    await assert.rejects(start(), (err) => err.code === "SERVER_LOCKED");
+    const lock = readServerLock();
+    const record = JSON.parse(fs.readFileSync(serverPath(), "utf8"));
+    assert.equal(lock.instance_id, first.instanceId);
+    assert.equal(record.instance_id, first.instanceId);
+    assert.equal(record.pid, process.pid);
+  } finally {
+    await first.dispose();
+  }
+  assert.equal(fs.existsSync(serverLockPath()), false);
+  assert.equal(fs.existsSync(serverPath()), false);
+});
 
-  // The first server keeps working against its own in-memory copy.
-  alpha.addComment(a.key, { id: "c3", feedback: "still going" });
+test("a demonstrably dead lock owner is reclaimed", () => {
+  ensureStateDir();
+  fs.writeFileSync(serverLockPath(), JSON.stringify({ pid: 2147483647, instance_id: "dead-owner" }), { flag: "wx" });
+  const owner = acquireServerLock({ instanceId: "replacement" });
+  assert.equal(owner.instance_id, "replacement");
+  assert.equal(readServerLock().instance_id, "replacement");
+  assert.equal(releaseServerLock(owner), true);
+});
 
-  const final = new Store();
-  assert.ok(final.page(a.key), "the first server's page survived");
-  assert.ok(final.page(b.key), "the second server's page survived");
-  assert.deepEqual(
-    final.page(a.key).comments.map((c) => c.id),
-    ["c1", "c3"]
-  );
-  assert.deepEqual(
-    final.page(b.key).comments.map((c) => c.id),
-    ["c2"]
-  );
+test("a live lock is never reclaimed", () => {
+  const owner = acquireServerLock({ instanceId: "live-owner" });
+  try {
+    assert.throws(() => acquireServerLock({ instanceId: "intruder" }), (err) => err.code === "SERVER_LOCKED");
+    assert.equal(readServerLock().instance_id, owner.instance_id);
+  } finally {
+    releaseServerLock(owner);
+  }
+});
+
+test("an old owner cannot remove a replacement lock", () => {
+  const replacement = acquireServerLock({ instanceId: "replacement-owner" });
+  try {
+    assert.equal(releaseServerLock({ pid: process.pid, instance_id: "old-owner" }), false);
+    assert.equal(readServerLock().instance_id, replacement.instance_id);
+  } finally {
+    releaseServerLock(replacement);
+  }
+});
+
+test("listen failure releases the lock and leaves no server record", async () => {
+  const blocker = http.createServer();
+  const port = await listen(blocker);
+  try {
+    await assert.rejects(start(port), (err) => err.code === "EADDRINUSE");
+    assert.equal(fs.existsSync(serverLockPath()), false);
+    assert.equal(fs.existsSync(serverPath()), false);
+  } finally {
+    await close(blocker);
+  }
 });
 
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));

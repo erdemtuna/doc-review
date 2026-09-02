@@ -7,6 +7,7 @@ import { atomicWrite, Store, resolveAsset } from "./state.js";
 import { injectSdk, stripSdk } from "./html-transform.js";
 import { isMarkdown, renderMarkdownPage } from "./markdown.js";
 import { canonicalTarget, ensureStateDir, localUrl, SERVER_PROTOCOL, serverPath, stateDir, targetKey } from "./paths.js";
+import { acquireServerLock, releaseServerLock, removeOwnedServerRecord } from "./server-lock.js";
 import { invocation, shellQuote } from "./setup.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -102,9 +103,10 @@ async function fetchLocalPage(target, redirects = 0) {
   return { html: await readCapped(response, url), resolvedUrl: response.url || url };
 }
 
-export function createServer() {
-  const store = new Store();
+export function createServer({ store: suppliedStore, storeOptions, owner = null } = {}) {
+  const store = suppliedStore || new Store(storeOptions);
   const cliInvocation = invocation();
+  const instanceId = owner?.instance_id || crypto.randomBytes(16).toString("hex");
 
   /**
    * Random per-run secret. Every /api route requires it, so a malicious web
@@ -117,12 +119,12 @@ export function createServer() {
   const sessions = new Map(); // sessionId -> { id, entryKey, activeKey, visited, clients:Set<res>, lastSeen }
   /** Agent long-polls, keyed by the entry page they were started on. */
   const pollers = new Map(); // entryKey -> Set<{ res, timer }>
-  /** Pending batches awaiting --ack; mirrored to the store so they survive restarts. */
-  const batches = new Map(
-    Object.entries(store.allBatches()).map(([key, record]) => [key, { batch: record.batch, cleanup: record.cleanup, delivered: false }])
-  );
+  const sseResponses = new Map(); // res -> heartbeat timer
   const watched = new Map(); // key -> { file }
   const lastWritten = new Map(); // key -> content hash human-review itself wrote
+  const sockets = new Set();
+  let everListened = false;
+  let serverClosed = false;
 
   let lastActivity = Date.now();
   const touch = () => {
@@ -153,8 +155,8 @@ export function createServer() {
    * Feedback sent with nothing listening is "stranded", and the browser says so.
    */
   function agentState(entryKey) {
-    const pending = batches.get(entryKey);
-    if (pending && pending.delivered) return "working";
+    const pending = store.batch(entryKey);
+    if (pending?.delivery_state === "delivered") return "working";
     const set = pollers.get(entryKey);
     if (set && set.size) return "listening";
     return pending ? "stranded" : "idle";
@@ -201,14 +203,17 @@ export function createServer() {
 
   // ------------------------------------------------------------------ batch
 
-  function deliver(entryKey, batch) {
+  function deliver(entryKey) {
     const set = pollers.get(entryKey);
     if (!set || set.size === 0) return false;
+    const pending = store.markBatchDelivered(entryKey);
+    if (!pending) return false;
     for (const poller of [...set]) {
       clearInterval(poller.timer);
       set.delete(poller);
-      poller.res.end(JSON.stringify(batch));
+      poller.res.end(JSON.stringify(pending.batch));
     }
+    pollers.delete(entryKey);
     return true;
   }
 
@@ -267,7 +272,12 @@ export function createServer() {
     const hasMarkdown = pages.some((p) => p.kind === "file" && isMarkdown(p.file));
     const hasUrl = pages.some((p) => p.kind === "url");
     const hasCorrections = pages.some((p) => p.comments.some((c) => c.correction));
+    const id = `b_${crypto.randomBytes(12).toString("hex")}`;
+    const entry = store.page(session.entryKey);
+    const pollTarget = entry?.kind === "url" ? entry.url : entry?.file;
+    const ackCommand = `${cliInvocation} poll ${shellQuote(pollTarget)} --ack ${id} --timeout 600`;
     const batch = {
+      batch_id: id,
       status: "feedback",
       pages: pages.map(({ kind, file, url, comments, edits }) => ({ kind, file, ...(url ? { url } : {}), comments, edits })),
       overall_note: note || "",
@@ -290,13 +300,11 @@ export function createServer() {
         (hasCorrections
           ? "Comments marked `correction` replace their `correction_of` instruction; follow the correction and do not apply the older wording. "
           : "") +
-        "When every page is updated, run the same poll command again with --ack to clear this " +
-        "batch and wait for more.",
+        `When every page is updated, acknowledge only this batch and wait for more by running: ${ackCommand}`,
     };
 
     const record = {
       batch,
-      delivered: false,
       cleanup: pages.map((p) => ({
         key: p.key,
         ids: p.comments.map((c) => c.id),
@@ -304,36 +312,41 @@ export function createServer() {
         sentAt: Date.now(),
       })),
     };
-    batches.set(session.entryKey, record);
     store.setBatch(session.entryKey, record);
-    record.delivered = deliver(session.entryKey, batch);
+    deliver(session.entryKey);
     broadcastAgent(session.entryKey);
     return { ok: true };
   }
 
-  function ack(entryKey) {
-    const pending = batches.get(entryKey);
-    // Only a delivered batch can be acknowledged. An agent whose previous poll
-    // timed out re-runs `poll --ack`; if feedback arrived in between, that ack
-    // refers to an older batch and must not destroy the one it never saw.
-    if (!pending || !pending.delivered) return false;
-    batches.delete(entryKey);
-    store.clearBatch(entryKey);
+  function deleteStagedAsset(file) {
     const stagedRoot = path.join(stateDir(), "pasted");
-    for (const file of pending.cleanup.flatMap((entry) => entry.staged || [])) {
-      const resolved = path.resolve(file);
-      const relative = path.relative(stagedRoot, resolved);
-      if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
-      try {
-        fs.unlinkSync(resolved);
-        fs.rmdirSync(path.dirname(resolved));
-      } catch {}
+    const resolved = path.resolve(file);
+    const relative = path.relative(stagedRoot, resolved);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return;
+    try {
+      fs.unlinkSync(resolved);
+    } catch (err) {
+      if (err.code !== "ENOENT") console.error(`Could not remove acknowledged staged asset ${resolved}: ${err.message}`);
     }
-    for (const { key, ids, sentAt } of pending.cleanup) store.clearSent(key, ids, sentAt);
+    try {
+      fs.rmdirSync(path.dirname(resolved));
+    } catch (err) {
+      if (err.code !== "ENOENT" && err.code !== "ENOTEMPTY") {
+        console.error(`Could not remove acknowledged staged asset directory ${path.dirname(resolved)}: ${err.message}`);
+      }
+    }
+  }
+
+  function ack(entryKey, id) {
+    const result = store.acknowledgeBatch(entryKey, id);
+    if (!result.acknowledged) return false;
+    // The JSON transition is already durable. Files are cleanup only and must
+    // never disappear before the receipt and page cleanup commit succeeds.
+    for (const file of result.staged) deleteStagedAsset(file);
     for (const session of sessionsForEntry(entryKey)) emit(session, "refresh", {});
     // File targets reload through fs.watch. URL targets have no source file to
     // watch, so acknowledgement is the signal to fetch the rebuilt route.
-    for (const { key } of pending.cleanup) {
+    for (const key of result.keys) {
       if (store.page(key)?.kind === "url") {
         for (const session of sessionsForKey(key)) emit(session, "reload", { key });
       }
@@ -483,7 +496,9 @@ export function createServer() {
         return res.end("Forbidden");
       }
 
-      if (route === "/health") return json(res, 200, { ok: true, pid: process.pid, protocol: SERVER_PROTOCOL });
+      if (route === "/health") {
+        return json(res, 200, { ok: true, pid: process.pid, instance_id: instanceId, protocol: SERVER_PROTOCOL });
+      }
 
       // Every API route needs the per-run token; static assets and the
       // unguessable /s/<id> chrome page do not.
@@ -608,7 +623,7 @@ export function createServer() {
       // --- agent status probe: is feedback waiting? is anyone listening?
       if (route === "/api/status" && req.method === "GET") {
         const entryKey = targetKey(url.searchParams.get("target") || url.searchParams.get("file") || "");
-        const pending = batches.get(entryKey);
+        const pending = store.batch(entryKey);
         const listening = (pollers.get(entryKey) || new Set()).size > 0;
         // Unsent feedback lives on every page reachable from this entry.
         const keys = new Set([entryKey]);
@@ -693,34 +708,8 @@ export function createServer() {
           const existing = store.page(key).comments.find((comment) => comment.id === tail);
           if (!existing) return json(res, 404, { error: "unknown comment" });
 
-          const matchingCleanup = (record) =>
-            record.cleanup.some((item) => item.key === key && item.ids.includes(tail));
-          const wasDelivered = [...batches.values()].some((record) => record.delivered && matchingCleanup(record));
-
-          if (wasDelivered) {
-            // The agent already received the old wording, so the revision must
-            // survive that batch's ack and explicitly supersede it next time.
-            store.updateComment(key, tail, feedback, {
-              replacementId: uid("c"),
-              correctionOf: existing.feedback,
-            });
-            return json(res, 200, { delivery: "correction", page: pageState(key) });
-          }
-
-          store.updateComment(key, tail, feedback);
-          let updatedPending = false;
-          const target = store.page(key);
-          const targetName = target.kind === "url" ? target.url : target.file;
-          for (const [entryKey, record] of batches) {
-            if (record.delivered || !matchingCleanup(record)) continue;
-            const batchPage = record.batch.pages.find((page) => page.file === targetName || page.url === targetName);
-            const batchComment = batchPage?.comments.find((comment) => comment.id === tail);
-            if (!batchComment) continue;
-            batchComment.feedback = feedback;
-            store.setBatch(entryKey, record);
-            updatedPending = true;
-          }
-          return json(res, 200, { delivery: updatedPending ? "updated-pending" : "unsent", page: pageState(key) });
+          const revised = store.reviseComment(key, tail, feedback, { replacementId: uid("c") });
+          return json(res, 200, { delivery: revised.delivery, page: pageState(key) });
         }
 
         if (action === "edit" && req.method === "POST") {
@@ -919,8 +908,10 @@ export function createServer() {
         seen(session);
         emit(session, "agent", { state: agentState(session.entryKey) });
         const beat = setInterval(() => res.write(": beat\n\n"), POLL_HEARTBEAT_MS);
+        sseResponses.set(res, beat);
         req.on("close", () => {
           clearInterval(beat);
+          sseResponses.delete(res);
           session.clients.delete(res);
           seen(session);
         });
@@ -931,13 +922,14 @@ export function createServer() {
       if (route === "/api/poll") {
         const target = url.searchParams.get("target") || url.searchParams.get("file") || "";
         const entryKey = targetKey(target);
-        if (url.searchParams.get("ack") === "1") ack(entryKey);
+        const ackId = url.searchParams.get("ack");
+        if (ackId !== null) ack(entryKey, ackId);
 
-        const pending = batches.get(entryKey);
+        const pending = store.batch(entryKey);
         if (pending) {
-          pending.delivered = true;
+          const delivered = store.markBatchDelivered(entryKey);
           broadcastAgent(entryKey);
-          return json(res, 200, pending.batch);
+          return json(res, 200, delivered.batch);
         }
 
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
@@ -964,6 +956,17 @@ export function createServer() {
       return json(res, 500, { error: String(err.message || err) });
     }
   });
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+  server.on("listening", () => {
+    everListened = true;
+    serverClosed = false;
+  });
+  server.on("close", () => {
+    serverClosed = true;
+  });
 
   const sweep = setInterval(() => {
     const now = Date.now();
@@ -986,38 +989,114 @@ export function createServer() {
     // Busy means a connected browser or a listening agent — a session record
     // alone must not keep the process alive forever.
     const busy = [...sessions.values()].some((s) => s.clients.size > 0) || [...pollers.values()].some((s) => s.size > 0);
-    if (!busy && now - lastActivity > IDLE_SHUTDOWN_MS) process.exit(0);
+    if (!busy && now - lastActivity > IDLE_SHUTDOWN_MS) {
+      void dispose().catch((err) => {
+        console.error(`human-review server shutdown failed: ${err.message}`);
+        process.exitCode = 1;
+      });
+    }
   }, 60000);
   sweep.unref();
 
+  let disposePromise = null;
   const dispose = () => {
-    clearInterval(sweep);
-    for (const entry of watched.values()) fs.unwatchFile(entry.file);
-    watched.clear();
-    server.close();
+    if (disposePromise) return disposePromise;
+    disposePromise = (async () => {
+      clearInterval(sweep);
+      for (const entry of watched.values()) fs.unwatchFile(entry.file);
+      watched.clear();
+      lastWritten.clear();
+
+      for (const set of pollers.values()) {
+        for (const poller of set) {
+          clearInterval(poller.timer);
+          if (!poller.res.writableEnded) {
+            poller.res.end(JSON.stringify({ status: "closed", next_step: "The local review server stopped. Run the poll command again to continue." }));
+          }
+        }
+      }
+      pollers.clear();
+
+      for (const [res, timer] of sseResponses) {
+        clearInterval(timer);
+        if (!res.writableEnded) res.end();
+      }
+      sseResponses.clear();
+      for (const session of sessions.values()) session.clients.clear();
+      sessions.clear();
+
+      try {
+        // A caller may dispose immediately after server.listen(), before the
+        // listening event flips server.listening. Give that pending transition
+        // one turn so it can be closed instead of escaping cleanup.
+        if (!server.listening && !everListened) {
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+        if (server.listening) {
+          const closed = new Promise((resolve, reject) => {
+            server.close((err) => {
+              if (err && err.code !== "ERR_SERVER_NOT_RUNNING") reject(err);
+              else resolve();
+            });
+          });
+          server.closeIdleConnections?.();
+          for (const socket of sockets) socket.end();
+          server.closeAllConnections?.();
+          await closed;
+        } else {
+          for (const socket of sockets) socket.destroy();
+          if (everListened && !serverClosed) {
+            await new Promise((resolve) => server.once("close", resolve));
+          }
+        }
+      } finally {
+        sockets.clear();
+        if (owner) {
+          removeOwnedServerRecord(owner);
+          releaseServerLock(owner);
+        }
+      }
+    })();
+    return disposePromise;
   };
 
-  return { server, store, token, dispose };
+  return { server, store, token, instanceId, dispose };
 }
 
-export function start(port = 0) {
-  const { server, store, token, dispose } = createServer();
-  return new Promise((resolve, reject) => {
-    // Without this, a busy HUMAN_REVIEW_PORT dies as an uncaught exception.
-    server.once("error", (err) => {
-      console.error(`human-review server could not listen on port ${port}: ${err.message}`);
-      reject(err);
+export async function start(port = 0, options = {}) {
+  const owner = acquireServerLock(options.lock);
+  let review;
+  try {
+    review = createServer({ store: options.store, storeOptions: options.storeOptions, owner });
+    await new Promise((resolve, reject) => {
+      const onError = (err) => reject(err);
+      review.server.once("error", onError);
+      review.server.listen(port, "127.0.0.1", () => {
+        review.server.off("error", onError);
+        resolve();
+      });
     });
-    server.listen(port, "127.0.0.1", () => {
-      const actual = server.address().port;
-      ensureStateDir();
-      fs.writeFileSync(serverPath(), JSON.stringify({ port: actual, pid: process.pid, token, protocol: SERVER_PROTOCOL }));
-      try {
-        fs.chmodSync(serverPath(), 0o600);
-      } catch {
-        // Windows has no meaningful chmod; the state dir mode covers it.
-      }
-      resolve({ server, store, port: actual, token, dispose });
-    });
-  });
+    const actual = review.server.address().port;
+    ensureStateDir();
+    atomicWrite(
+      serverPath(),
+      JSON.stringify({
+        port: actual,
+        pid: process.pid,
+        instance_id: owner.instance_id,
+        token: review.token,
+        protocol: SERVER_PROTOCOL,
+      })
+    );
+    try {
+      fs.chmodSync(serverPath(), 0o600);
+    } catch (err) {
+      if (process.platform !== "win32") throw err;
+    }
+    return { ...review, port: actual };
+  } catch (err) {
+    if (review) await review.dispose();
+    else releaseServerLock(owner);
+    throw err;
+  }
 }

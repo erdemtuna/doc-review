@@ -47,9 +47,7 @@ test("a review keeps the CLI invocation resolved when its server starts", async 
 
     assert.match(stateResponse.page.pollCommand, /^human-review poll /);
   } finally {
-    const closed = once(review.server, "close");
-    review.dispose();
-    await closed;
+    await review.dispose();
     process.env.PATH = originalPath;
     if (originalStateDir === undefined) delete process.env.HUMAN_REVIEW_STATE_DIR;
     else process.env.HUMAN_REVIEW_STATE_DIR = originalStateDir;

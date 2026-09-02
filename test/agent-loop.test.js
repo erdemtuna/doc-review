@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { SERVER_PROTOCOL } from "../src/paths.js";
+import { SERVER_PROTOCOL, serverLockPath, serverPath } from "../src/paths.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-loop-"));
 process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
@@ -127,8 +127,10 @@ test("status is idle before feedback, waiting after", async () => {
 
 test("a restarted server still delivers the sent batch", async () => {
   await stop(first);
-  // Clear the dead server's record so nothing races against a stale port.
-  fs.rmSync(path.join(process.env.HUMAN_REVIEW_STATE_DIR, "server.json"), { force: true });
+  if (process.platform !== "win32") {
+    assert.equal(fs.existsSync(serverLockPath()), false, "SIGTERM releases the writer lock");
+    assert.equal(fs.existsSync(serverPath()), false, "SIGTERM removes only its server record");
+  }
 
   const second = spawnServer();
   try {

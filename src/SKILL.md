@@ -44,11 +44,15 @@ keeping its formatting syntax.
    browser — stop polling and do not run the poll command again. Unsent
    feedback is kept and ships the next time this target is reviewed.
 
-4. Apply what comes back, then wait again. `--ack` clears the batch you just handled:
+4. Apply what comes back, then wait again. Copy `batch_id` from the response;
+   only that exact receipt can clear the batch you handled:
 
    ```sh
-   npx -y human-review poll path/to/file.html --ack --timeout 600
+   npx -y human-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
    ```
+
+   The response's `next_step` contains the complete acknowledgement command.
+   Never acknowledge a different or guessed ID.
 
 Repeat 3–4 until the user says they are done.
 
@@ -68,6 +72,7 @@ One batch covers every page the user visited, grouped by file or localhost URL.
 
 ```json
 {
+  "batch_id": "b_0123456789abcdef",
   "status": "feedback",
   "pages": [
     {
@@ -85,7 +90,8 @@ One batch covers every page the user visited, grouped by file or localhost URL.
       ]
     }
   ],
-  "overall_note": "feedback not tied to any one page"
+  "overall_note": "feedback not tied to any one page",
+  "next_step": "Apply this feedback, then run: npx -y human-review poll ... --ack b_0123456789abcdef --timeout 600"
 }
 ```
 

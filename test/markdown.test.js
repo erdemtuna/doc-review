@@ -89,7 +89,7 @@ test("normal Markdown links and images remain available", () => {
 
 test("a markdown review is rendered, flagged, and never writable", async (t) => {
   const { port, token, dispose } = await start();
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const file = path.join(tmp, "notes.md");
   fs.writeFileSync(file, "# Notes\n\nFirst draft.\n\nSee [the spec](./spec.md).\n");

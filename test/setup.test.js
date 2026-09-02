@@ -14,7 +14,9 @@ test("global setup installs the skill for Claude Code, Codex, and shared agents"
     for (const root of [".claude", ".codex", ".agents"]) {
       const skill = path.join(home, root, "skills", "human-review", "SKILL.md");
       assert.equal(fs.existsSync(skill), true);
-      assert.match(fs.readFileSync(skill, "utf8"), /human-review poll/);
+      const contents = fs.readFileSync(skill, "utf8");
+      assert.match(contents, /human-review poll/);
+      assert.match(contents, /--ack b_0123456789abcdef/);
     }
     assert.match(result.join("\n"), /Claude Code skill/);
     assert.match(result.join("\n"), /Codex skill/);
