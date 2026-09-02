@@ -4,9 +4,9 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-const root = path.join(process.cwd(), `.human-review-redirect-test-${process.pid}`);
+const root = path.join(process.cwd(), `.doc-review-redirect-test-${process.pid}`);
 fs.rmSync(root, { recursive: true, force: true });
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(root, "state");
+process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
 
 const { localUrl } = await import("../src/paths.js");
 const { start } = await import("../src/server.js");
@@ -35,7 +35,7 @@ function openTarget(review, target) {
         method: "POST",
         path: "/api/session",
         headers: {
-          "x-human-review-token": review.token,
+          "x-doc-review-token": review.token,
           "content-type": "application/json",
           "content-length": Buffer.byteLength(body),
         },

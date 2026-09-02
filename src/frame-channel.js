@@ -1,7 +1,7 @@
 let channel = null;
 
 export function initializeChannel(capability, generation, pageKey) {
-  if (channel) throw new Error("Human Review frame channel is already initialized.");
+  if (channel) throw new Error("Doc Review frame channel is already initialized.");
   channel = {
     capability: String(capability),
     generation: Number(generation),
@@ -11,19 +11,19 @@ export function initializeChannel(capability, generation, pageKey) {
 
 export function initializeChannelFromDocument() {
   const script = document.querySelector("script[data-eh-sdk][data-eh-bootstrap]");
-  if (!script) throw new Error("Human Review frame bootstrap is missing.");
+  if (!script) throw new Error("Doc Review frame bootstrap is missing.");
   const capability = script.nonce;
   const generation = Number(script.dataset.generation);
   const pageKey = String(script.dataset.pageKey || "");
   script.remove();
   if (!capability || !Number.isSafeInteger(generation) || !pageKey) {
-    throw new Error("Human Review frame bootstrap is invalid.");
+    throw new Error("Doc Review frame bootstrap is invalid.");
   }
   initializeChannel(capability, generation, pageKey);
 }
 
 export function frameMessage(type, payload = {}) {
-  if (!channel) throw new Error("Human Review frame channel is not initialized.");
+  if (!channel) throw new Error("Doc Review frame channel is not initialized.");
   return {
     ...payload,
     type,

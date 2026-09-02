@@ -1,5 +1,5 @@
 /**
- * human-review artifact SDK.
+ * doc-review artifact SDK.
  *
  * Runs inside the sandboxed iframe alongside the artifact. It owns the
  * document: editing, highlights, target resolution and serialization. It never

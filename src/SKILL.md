@@ -1,9 +1,9 @@
 ---
-name: human-review
+name: doc-review
 description: Open an HTML file, Markdown file, or localhost page in the browser so the user can edit text directly and leave comments on specific parts, then send all edits and comments back to you. Use after writing or updating something the user will read — specs, plans, reports, newsletter drafts, landing pages, slide decks, and locally running web pages.
 ---
 
-# human-review
+# doc-review
 
 The user reviews your HTML, Markdown, or localhost page in a real browser: they fix small things
 by typing, select anything to comment on it, and send you the whole batch at once.
@@ -18,20 +18,20 @@ keeping its formatting syntax.
 2. Open it for the user:
 
    ```sh
-   npx -y human-review path/to/file.html
+   npx -y @erdemtuna/doc-review path/to/file.html
    ```
 
    For a page served by a local development server, open the real route instead
    of recreating it as a separate HTML file:
 
    ```sh
-   npx -y human-review http://localhost:3000/wiki
+   npx -y @erdemtuna/doc-review http://localhost:3000/wiki
    ```
 
 3. Wait for feedback. This blocks until they hit Send, or the timeout passes:
 
    ```sh
-   npx -y human-review poll path/to/file.html --timeout 600
+   npx -y @erdemtuna/doc-review poll path/to/file.html --timeout 600
    ```
 
    Keep this command in the foreground. Do not end your turn while it is waiting.
@@ -48,7 +48,7 @@ keeping its formatting syntax.
    only that exact receipt can clear the batch you handled:
 
    ```sh
-   npx -y human-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
+   npx -y @erdemtuna/doc-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
    ```
 
    The response's `next_step` contains the complete acknowledgement command.
@@ -60,7 +60,7 @@ Not sure whether feedback is already waiting — say, at the start of a new turn
 This answers instantly without blocking:
 
 ```sh
-npx -y human-review status path/to/file.html
+npx -y @erdemtuna/doc-review status path/to/file.html
 ```
 
 It prints `{"status": "feedback-waiting"}` when a batch is ready for a poll,
@@ -91,7 +91,7 @@ One batch covers every page the user visited, grouped by file or localhost URL.
     }
   ],
   "overall_note": "feedback not tied to any one page",
-  "next_step": "Apply this feedback, then run: npx -y human-review poll ... --ack b_0123456789abcdef --timeout 600"
+  "next_step": "Apply this feedback, then run: npx -y @erdemtuna/doc-review poll ... --ack b_0123456789abcdef --timeout 600"
 }
 ```
 

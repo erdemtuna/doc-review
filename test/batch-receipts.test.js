@@ -5,8 +5,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-receipts-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-receipts-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { start } = await import("../src/server.js");
 const { atomicWrite } = await import("../src/state.js");
@@ -21,7 +21,7 @@ function request(review, { method = "GET", route = "/", body } = {}) {
         method,
         path: route,
         headers: {
-          "x-human-review-token": review.token,
+          "x-doc-review-token": review.token,
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },
@@ -74,7 +74,7 @@ async function poll(review, file, ackId = "") {
 async function ackAndCancel(review, file, id) {
   const response = await fetch(
     `http://127.0.0.1:${review.port}/api/poll?target=${encodeURIComponent(file)}&ack=${encodeURIComponent(id)}`,
-    { headers: { "x-human-review-token": review.token } }
+    { headers: { "x-doc-review-token": review.token } }
   );
   await response.body.cancel();
 }
@@ -217,7 +217,7 @@ test("a failed durable acknowledgement never deletes staged assets", async (t) =
   ensureStateDir();
   const target = "http://localhost:43210/staged";
   const key = targetKey(target);
-  const staged = path.join(process.env.HUMAN_REVIEW_STATE_DIR, "pasted", key, "asset.png");
+  const staged = path.join(process.env.DOC_REVIEW_STATE_DIR, "pasted", key, "asset.png");
   fs.mkdirSync(path.dirname(staged), { recursive: true });
   fs.writeFileSync(staged, "asset");
   const now = Date.now();

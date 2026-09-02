@@ -1,5 +1,5 @@
 /**
- * human-review chrome. Owns the rail UI and every call to the local server.
+ * doc-review chrome. Owns the rail UI and every call to the local server.
  * It never touches the artifact DOM directly — the SDK does that, over
  * postMessage, because the artifact iframe lives on the other loopback
  * hostname: a separate origin that can never reach this page or its token.
@@ -57,7 +57,7 @@ function handoffPrompt(pollCommand) {
 async function api(path, options) {
   const res = await fetch(path, {
     ...options,
-    headers: { "content-type": "application/json", "x-human-review-token": state.token, ...(options && options.headers) },
+    headers: { "content-type": "application/json", "x-doc-review-token": state.token, ...(options && options.headers) },
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
@@ -208,7 +208,7 @@ const clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute:
 function render() {
   const page = state.page;
   if (!page) return;
-  document.title = page.filename || 'human-review';
+  document.title = page.filename || 'doc-review';
 
   const comments = newestComments(page.comments);
   const edits = page.edits || [];
@@ -699,7 +699,7 @@ window.addEventListener("message", async (event) => {
       try {
         const saved = await fetch(`/api/page/${state.key}/asset?type=${encodeURIComponent(msg.assetType || "")}`, {
           method: "POST",
-          headers: { "content-type": "application/octet-stream", "x-human-review-token": state.token },
+          headers: { "content-type": "application/octet-stream", "x-doc-review-token": state.token },
           body: msg.bytes,
         });
         const data = await saved.json();
@@ -872,7 +872,7 @@ $("handle").addEventListener("click", () => {
   handle.title = collapsed ? "Show comments panel" : "Hide comments panel";
   handle.setAttribute("aria-label", handle.title);
   try {
-    localStorage.setItem("human-review:collapsed", collapsed ? "1" : "0");
+    localStorage.setItem("doc-review:collapsed", collapsed ? "1" : "0");
   } catch {}
 });
 
@@ -880,7 +880,7 @@ $("theme").addEventListener("click", () => {
   const dark = document.documentElement.dataset.theme !== "dark";
   applyTheme(dark);
   try {
-    localStorage.setItem("human-review:theme", dark ? "dark" : "light");
+    localStorage.setItem("doc-review:theme", dark ? "dark" : "light");
   } catch {}
 });
 
@@ -964,8 +964,8 @@ function connect() {
 
 (async function start() {
   try {
-    applyTheme(localStorage.getItem("human-review:theme") === "dark");
-    if (localStorage.getItem("human-review:collapsed") === "1") $("handle").click();
+    applyTheme(localStorage.getItem("doc-review:theme") === "dark");
+    if (localStorage.getItem("doc-review:collapsed") === "1") $("handle").click();
   } catch {}
 
   const bootstrap = await api(`/api/session/${state.sessionId}/page`).catch(() => null);

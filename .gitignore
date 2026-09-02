@@ -4,7 +4,7 @@ node_modules/
 .DS_Store
 
 # Local review state, never committed
-.human-review/
+.doc-review/
 
 # Claude Design runtime, not part of the product
 design-ref/support.js

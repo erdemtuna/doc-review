@@ -1,8 +1,8 @@
-# Human Review
+# Doc Review
 
 Edit HTML and Markdown files directly, leave comments like a Google Doc, and send all your feedback to your AI agent at once.
 
-[Read the full launch post](https://creatoreconomy.so/p/use-my-human-review-skill-to-edit-html-markdown-visually)
+[Read the original Human Review launch post](https://creatoreconomy.so/p/use-my-human-review-skill-to-edit-html-markdown-visually)
 
 https://github.com/user-attachments/assets/7cab09c9-eaa0-4e8b-984d-2925e810b5c2
 
@@ -16,37 +16,42 @@ Sometimes you want to change one sentence yourself. Instead, you end up typing:
 
 Then the agent changes the file and you have to check whether it understood every instruction. This gets even harder when you’re reviewing a long plan, Markdown document, landing page, or multi-page website.
 
-## How to install /human-review
+## How to install /doc-review
 
 The easiest way to install the skill is to paste this into ChatGPT, Claude Code, Codex, or your favorite coding agent:
 
 ```text
-Install the /human-review skill globally from https://github.com/petergyang/human-review
+Install the /doc-review skill globally from https://github.com/erdemtuna/doc-review
 ```
 
 You can also install it with `npx`:
 
 ```sh
-npx -y human-review setup --global
+npx -y @erdemtuna/doc-review setup --global
 ```
 
-## How to use /human-review
+This fork uses the `doc-review` command, `/doc-review` skill, and
+`~/.doc-review` state directory. It does not install a `human-review` alias or
+migrate upstream state and skill files; remove those old files manually if you
+no longer need them.
 
-![Human Review visual editor](assets/human-review.png)
+## How to use /doc-review
+
+![Doc Review visual editor](assets/doc-review.png)
 
 Open an HTML or Markdown file:
 
 ```text
-/human-review (your file)
+/doc-review (your file)
 ```
 
 Review a page running on localhost:
 
 ```text
-/human-review (localhost URL)
+/doc-review (localhost URL)
 ```
 
-Human Review opens the file in your browser. Make direct edits, leave comments, and click Send. Your agent receives all your feedback in one batch, updates the source, and refreshes the page for another review.
+Doc Review opens the file in your browser. Make direct edits, leave comments, and click Send. Your agent receives all your feedback in one batch, updates the source, and refreshes the page for another review.
 
 Note: For HTML files, direct edits and resizes save automatically. For Markdown and localhost pages, click Send so your agent can apply them to the source.
 
@@ -70,7 +75,7 @@ Agent polling returns an immutable `batch_id`. After applying the batch, the
 agent acknowledges that exact receipt and keeps waiting:
 
 ```sh
-human-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
+npx -y @erdemtuna/doc-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
 ```
 
 A stale or repeated batch ID is harmless: it never clears newer feedback. The
@@ -90,24 +95,22 @@ complete acknowledgement command is included in each response's `next_step`.
 - **Command-click links** to review multiple pages without losing your feedback.
 - **Send every edit and comment at once** instead of writing a long chat message.
 
-I use Human Review to edit AI-generated plans, update landing pages, review localhost apps, and remove the extra copy AI likes to add to UX.
+Doc Review works well for editing AI-generated plans, updating landing pages, reviewing localhost apps, and removing extra copy from a UX.
 
 ## What’s inside
 
-- [`cli.js`](src/cli.js) contains the `human-review`, `poll`, `status`, and `setup` commands.
+- [`cli.js`](src/cli.js) contains the `doc-review`, `poll`, `status`, and `setup` commands.
 - [`server.js`](src/server.js) runs the local review session.
 - [`sdk.js`](src/sdk.js) handles editing, comments, highlights, and feedback.
 - [`chrome-client.js`](src/chrome-client.js) contains the visual review interface.
 - [`markdown.js`](src/markdown.js) renders Markdown files for review.
-- [`SKILL.md`](src/SKILL.md) teaches Claude Code, Codex, and other agents how to use Human Review.
+- [`SKILL.md`](src/SKILL.md) teaches Claude Code, Codex, and other agents how to use Doc Review.
 
-Everything runs on your computer. Human Review doesn’t require an account, cloud service, database, or API key.
+Everything runs on your computer. Doc Review doesn’t require an account, cloud service, database, or API key.
 
-## Want more great AI skills?
+## Upstream project
 
-Check out [Behind the Craft](https://behindthecraft.com), my personal AI system with over a dozen other quality skills and courses.
-
-Subscribe to my [YouTube channel](https://www.youtube.com/@PeterYangYT?sub_confirmation=1) and [newsletter](https://creatoreconomy.so) for practical AI tutorials and interviews.
+Doc Review is an independent fork of [Human Review](https://github.com/petergyang/human-review), originally created by Peter Yang. The fork preserves the upstream MIT license and continues from the upstream `v0.6.1` release.
 
 ## License
 

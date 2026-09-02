@@ -12,7 +12,7 @@ export const test = base.extend({
       );
       fs.rmSync(root, { recursive: true, force: true });
       fs.mkdirSync(root, { recursive: true });
-      process.env.HUMAN_REVIEW_STATE_DIR = path.join(root, "state");
+      process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
       const { start } = await import("../src/server.js");
       const server = await start();
       try {
@@ -32,7 +32,7 @@ export async function reviewApi(review, route, { method = "GET", body } = {}) {
   const response = await fetch(`http://127.0.0.1:${review.port}${route}`, {
     method,
     headers: {
-      "x-human-review-token": review.token,
+      "x-doc-review-token": review.token,
       ...(body ? { "content-type": "application/json" } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
