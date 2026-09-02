@@ -37,7 +37,7 @@ const MIME = {
 const MAX_BODY = 24 * 1024 * 1024;
 const POLL_HEARTBEAT_MS = 15000;
 const WATCH_INTERVAL_MS = 400;
-const IDLE_SHUTDOWN_MS = Number(process.env.HUMAN_REVIEW_IDLE_MS || 45 * 60 * 1000);
+const IDLE_SHUTDOWN_MS = Number(process.env.DOC_REVIEW_IDLE_MS || 45 * 60 * 1000);
 /** A window with no live connection this long is treated as closed for good. */
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const MAX_LOCAL_REDIRECTS = 5;
@@ -48,7 +48,7 @@ const MAX_LOCAL_PAGE_BYTES = 24 * 1024 * 1024;
 
 /**
  * File reviews may contain agent-generated or otherwise untrusted JavaScript.
- * Only the nonce-bearing Human Review SDK may execute in those artifacts;
+ * Only the nonce-bearing Doc Review SDK may execute in those artifacts;
  * authored scripts and inline event handlers remain in the source but stay inert.
  */
 const fileReviewCsp = (nonce) =>
@@ -124,7 +124,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
   const pollers = new Map(); // entryKey -> Set<{ res, timer }>
   const sseResponses = new Map(); // res -> heartbeat timer
   const watched = new Map(); // key -> { file }
-  const lastWritten = new Map(); // key -> content hash human-review itself wrote
+  const lastWritten = new Map(); // key -> content hash doc-review itself wrote
   const sockets = new Set();
   let everListened = false;
   let serverClosed = false;
@@ -552,7 +552,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       // Header only — a token in a query string would leak into logs and
       // history. Constant-time compare, so timing can't narrow the secret.
       if (route.startsWith("/api/")) {
-        const provided = Buffer.from(String(req.headers["x-human-review-token"] || ""));
+        const provided = Buffer.from(String(req.headers["x-doc-review-token"] || ""));
         const expected = Buffer.from(token);
         const ok = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
         if (!ok) return json(res, 401, { error: "missing or invalid token" });
@@ -605,7 +605,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         const id = route.slice(3);
         if (!sessions.has(id)) {
           res.writeHead(404, { "content-type": "text/plain" });
-          return res.end("This review session has ended. Run human-review <target> again.");
+          return res.end("This review session has ended. Run doc-review <target> again.");
         }
         seen(sessions.get(id));
         const shell = fs.readFileSync(path.join(here, "chrome.html"), "utf8");
@@ -746,7 +746,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           return res.end(injectSdk(html, renderId, sdkOptions));
         }
         if (page.kind === "url") {
-          const stagedPrefix = "__human_review_paste__/";
+          const stagedPrefix = "__doc_review_paste__/";
           if (asset.startsWith(stagedPrefix)) {
             const name = asset.slice(stagedPrefix.length);
             if (!name || path.basename(name) !== name) {
@@ -915,7 +915,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           const saved = path.join(dir, name);
           fs.writeFileSync(saved, bytes);
           return json(res, 200, {
-            src: staged ? `__human_review_paste__/${name}` : `assets/${name}`,
+            src: staged ? `__doc_review_paste__/${name}` : `assets/${name}`,
             ...(staged ? { stagedId: name } : {}),
           });
         }
@@ -1153,7 +1153,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
     const busy = [...sessions.values()].some((s) => s.clients.size > 0) || [...pollers.values()].some((s) => s.size > 0);
     if (!busy && now - lastActivity > IDLE_SHUTDOWN_MS) {
       void dispose().catch((err) => {
-        console.error(`human-review server shutdown failed: ${err.message}`);
+        console.error(`doc-review server shutdown failed: ${err.message}`);
         process.exitCode = 1;
       });
     }

@@ -4,10 +4,10 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-const root = path.join(process.cwd(), `.human-review-render-test-${process.pid}`);
+const root = path.join(process.cwd(), `.doc-review-render-test-${process.pid}`);
 fs.rmSync(root, { recursive: true, force: true });
 fs.mkdirSync(root, { recursive: true });
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(root, "state");
+process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
 
 const { start } = await import("../src/server.js");
 
@@ -20,7 +20,7 @@ function request(port, token, { method = "GET", route = "/", body } = {}) {
         method,
         path: route,
         headers: {
-          ...(token ? { "x-human-review-token": token } : {}),
+          ...(token ? { "x-doc-review-token": token } : {}),
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },

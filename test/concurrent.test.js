@@ -5,8 +5,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-lock-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-lock-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { start } = await import("../src/server.js");
 const { acquireServerLock, readServerLock, releaseServerLock } = await import("../src/server-lock.js");

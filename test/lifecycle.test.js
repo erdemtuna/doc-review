@@ -5,8 +5,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-lifecycle-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-lifecycle-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { start } = await import("../src/server.js");
 const { serverLockPath, serverPath } = await import("../src/paths.js");
@@ -25,7 +25,7 @@ function post(review, route, body) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-human-review-token": review.token,
+      "x-doc-review-token": review.token,
     },
     body: JSON.stringify(body),
   }).then(async (response) => ({ status: response.status, body: await response.json() }));
@@ -42,7 +42,7 @@ function beginPoll(review, file) {
         host: "127.0.0.1",
         port: review.port,
         path: `/api/poll?target=${encodeURIComponent(file)}`,
-        headers: { "x-human-review-token": review.token },
+        headers: { "x-doc-review-token": review.token },
       },
       (res) => {
         startedResolve();

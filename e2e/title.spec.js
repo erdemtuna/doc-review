@@ -70,5 +70,5 @@ test("title assignment treats markup as text and keeps the empty fallback", asyn
   replacement = "";
   await page.reload();
   await waitForSdk(page);
-  await expect(page).toHaveTitle("human-review");
+  await expect(page).toHaveTitle("doc-review");
 });

@@ -5,8 +5,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-paste-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-paste-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { start } = await import("../src/server.js");
 
@@ -43,7 +43,7 @@ test("pasted images land in assets/ next to the reviewed file", async (t) => {
       await request(port, {
         method: "POST",
         route: "/api/session",
-        headers: { "x-human-review-token": token, "content-type": "application/json" },
+        headers: { "x-doc-review-token": token, "content-type": "application/json" },
         body: JSON.stringify({ file }),
       })
     ).raw
@@ -52,7 +52,7 @@ test("pasted images land in assets/ next to the reviewed file", async (t) => {
     (
       await request(port, {
         route: `/api/session/${opened.sessionId}/page`,
-        headers: { "x-human-review-token": token },
+        headers: { "x-doc-review-token": token },
       })
     ).raw
   ).page.key;
@@ -61,7 +61,7 @@ test("pasted images land in assets/ next to the reviewed file", async (t) => {
     const res = await request(port, {
       method: "POST",
       route: `/api/page/${key}/asset?type=${encodeURIComponent("image/png")}`,
-      headers: { "x-human-review-token": token, "content-type": "application/octet-stream" },
+      headers: { "x-doc-review-token": token, "content-type": "application/octet-stream" },
       body: PNG,
     });
     assert.equal(res.status, 200);
@@ -75,7 +75,7 @@ test("pasted images land in assets/ next to the reviewed file", async (t) => {
     const res = await request(port, {
       method: "POST",
       route: `/api/page/${key}/asset?type=${encodeURIComponent("image/png")}`,
-      headers: { "x-human-review-token": token, "content-type": "application/octet-stream" },
+      headers: { "x-doc-review-token": token, "content-type": "application/octet-stream" },
       body: PNG,
     });
     assert.equal(JSON.parse(res.raw).src, "assets/My-Spec-paste-2.png");
@@ -85,7 +85,7 @@ test("pasted images land in assets/ next to the reviewed file", async (t) => {
     const res = await request(port, {
       method: "POST",
       route: `/api/page/${key}/asset?type=${encodeURIComponent("image/svg+xml")}`,
-      headers: { "x-human-review-token": token, "content-type": "application/octet-stream" },
+      headers: { "x-doc-review-token": token, "content-type": "application/octet-stream" },
       body: Buffer.from("<svg onload=alert(1)></svg>"),
     });
     assert.equal(res.status, 400);
@@ -95,7 +95,7 @@ test("pasted images land in assets/ next to the reviewed file", async (t) => {
     const res = await request(port, {
       method: "POST",
       route: `/api/page/${key}/edit`,
-      headers: { "x-human-review-token": token, "content-type": "application/json" },
+      headers: { "x-doc-review-token": token, "content-type": "application/json" },
       body: JSON.stringify({
         label: "Hi block",
         kind: "moved",
@@ -131,7 +131,7 @@ test("localhost image pastes are staged, previewed, and delivered to the agent",
       await request(review.port, {
         method: "POST",
         route: "/api/session",
-        headers: { "x-human-review-token": review.token, "content-type": "application/json" },
+        headers: { "x-doc-review-token": review.token, "content-type": "application/json" },
         body: JSON.stringify({ target }),
       })
     ).raw
@@ -140,20 +140,20 @@ test("localhost image pastes are staged, previewed, and delivered to the agent",
   const pasted = await request(review.port, {
     method: "POST",
     route: `/api/page/${opened.key}/asset?type=${encodeURIComponent("image/png")}`,
-    headers: { "x-human-review-token": review.token, "content-type": "application/octet-stream" },
+    headers: { "x-doc-review-token": review.token, "content-type": "application/octet-stream" },
     body: PNG,
   });
   assert.equal(pasted.status, 200, pasted.raw);
   const asset = JSON.parse(pasted.raw);
-  assert.equal(asset.src, "__human_review_paste__/localhost-paste-1.png");
+  assert.equal(asset.src, "__doc_review_paste__/localhost-paste-1.png");
   assert.equal(asset.stagedId, "localhost-paste-1.png");
-  const stagedPath = path.join(process.env.HUMAN_REVIEW_STATE_DIR, "pasted", opened.key, asset.stagedId);
+  const stagedPath = path.join(process.env.DOC_REVIEW_STATE_DIR, "pasted", opened.key, asset.stagedId);
   assert.deepEqual(fs.readFileSync(stagedPath), PNG);
 
   const registered = await request(review.port, {
     method: "POST",
     route: `/api/session/${opened.sessionId}/render`,
-    headers: { "x-human-review-token": review.token, "content-type": "application/json" },
+    headers: { "x-doc-review-token": review.token, "content-type": "application/json" },
     body: JSON.stringify({ key: opened.key, generation: 1 }),
   });
   assert.equal(registered.status, 200, registered.raw);
@@ -167,7 +167,7 @@ test("localhost image pastes are staged, previewed, and delivered to the agent",
   await request(review.port, {
     method: "POST",
     route: `/api/page/${opened.key}/edit`,
-    headers: { "x-human-review-token": review.token, "content-type": "application/json" },
+    headers: { "x-doc-review-token": review.token, "content-type": "application/json" },
     body: JSON.stringify({
       label: "Intro",
       kind: "edited",
@@ -180,13 +180,13 @@ test("localhost image pastes are staged, previewed, and delivered to the agent",
   await request(review.port, {
     method: "POST",
     route: `/api/page/${opened.key}/send`,
-    headers: { "x-human-review-token": review.token, "content-type": "application/json" },
+    headers: { "x-doc-review-token": review.token, "content-type": "application/json" },
     body: JSON.stringify({ sessionId: opened.sessionId, note: "" }),
   });
 
   const polled = await request(review.port, {
     route: `/api/poll?target=${encodeURIComponent(target)}`,
-    headers: { "x-human-review-token": review.token },
+    headers: { "x-doc-review-token": review.token },
   });
   const batch = JSON.parse(polled.raw);
   const edit = batch.pages[0].edits[0];
@@ -195,7 +195,7 @@ test("localhost image pastes are staged, previewed, and delivered to the agent",
 
   const acknowledged = await fetch(
     `http://127.0.0.1:${review.port}/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batch.batch_id)}`,
-    { headers: { "x-human-review-token": review.token } }
+    { headers: { "x-doc-review-token": review.token } }
   );
   await acknowledged.body.cancel();
   assert.equal(fs.existsSync(stagedPath), false, "the staged copy is removed after the agent acknowledges the batch");

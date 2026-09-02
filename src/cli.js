@@ -11,15 +11,15 @@ import { installSkills, shellQuote } from "./setup.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8"));
 
-const HELP = `human-review ${pkg.version}
+const HELP = `doc-review ${pkg.version}
 
-  human-review <file-or-localhost-url> Open a file or localhost page for review
-  human-review poll <target>          Wait for feedback, print it as JSON (for agents)
+  doc-review <file-or-localhost-url> Open a file or localhost page for review
+  doc-review poll <target>          Wait for feedback, print it as JSON (for agents)
       --ack <batch_id>             Acknowledge that exact delivered batch, then keep waiting
       --timeout <secs>             Exit with {"status":"timeout"} if nothing arrives
-  human-review status <target>        Report whether feedback is waiting, without blocking
-  human-review setup                  Teach Claude Code / Codex how to use human-review
-  human-review setup --global         ...for every project, not just this one
+  doc-review status <target>        Report whether feedback is waiting, without blocking
+  doc-review setup                  Teach Claude Code / Codex how to use doc-review
+  doc-review setup --global         ...for every project, not just this one
 
 Everything runs locally. No account, no cloud, no database.
 `;
@@ -43,7 +43,7 @@ function request(server, options, body) {
         host: "127.0.0.1",
         port,
         ...options,
-        headers: { ...(token ? { "x-human-review-token": token } : {}), ...(options.headers || {}) },
+        headers: { ...(token ? { "x-doc-review-token": token } : {}), ...(options.headers || {}) },
       },
       (res) => {
         let raw = "";
@@ -99,7 +99,7 @@ async function ensureServer() {
       if (child.exitCode !== null && !readServerLock()) break;
     }
   }
-  throw new Error("Could not start the local human-review server.");
+  throw new Error("Could not start the local doc-review server.");
 }
 
 function openBrowser(url) {
@@ -131,7 +131,7 @@ async function openCommand(input) {
   openBrowser(url);
   console.log(`Reviewing ${target.kind === "url" ? target.value : path.basename(target.value)}`);
   console.log(url);
-  console.log(`\nWaiting for feedback? Run:\n  human-review poll ${shellQuote(target.value)}`);
+  console.log(`\nWaiting for feedback? Run:\n  doc-review poll ${shellQuote(target.value)}`);
 }
 
 /**
@@ -154,7 +154,7 @@ function pollOnce(server, target, ackId, timeoutMs) {
         port: server.port,
         method: "GET",
         path: `/api/poll?${query}`,
-        headers: { "x-human-review-token": server.token || "" },
+        headers: { "x-doc-review-token": server.token || "" },
       },
       (res) => {
         let raw = "";
@@ -190,7 +190,7 @@ function printTimeout(waitedSecs) {
     status: "timeout",
     waited_seconds: waitedSecs,
     next_step:
-      "No feedback yet. Run the same poll command again to keep waiting, or `human-review status <target>` to check without blocking.",
+      "No feedback yet. Run the same poll command again to keep waiting, or `doc-review status <target>` to check without blocking.",
   };
   return writeStdout(`${JSON.stringify(payload, null, 2)}\n`);
 }
@@ -224,7 +224,7 @@ async function pollCommand(input, { ackId = "", timeoutSecs = 0 } = {}) {
       await writeStdout(`${JSON.stringify(batch, null, 2)}\n`);
       return;
     } catch {
-      process.stderr.write("Unexpected response from the human-review server; retrying.\n");
+      process.stderr.write("Unexpected response from the doc-review server; retrying.\n");
     }
   }
   process.stderr.write("Gave up waiting for feedback.\n");
@@ -323,11 +323,11 @@ function parsePollArgs(rest) {
 try {
   if (argv[0] === "poll") {
     const { file, ackId, timeoutSecs } = parsePollArgs(argv.slice(1));
-    if (!file) throw new Error("Usage: human-review poll <file-or-localhost-url> [--ack <batch_id>] [--timeout <secs>]");
+    if (!file) throw new Error("Usage: doc-review poll <file-or-localhost-url> [--ack <batch_id>] [--timeout <secs>]");
     await pollCommand(file, { ackId, timeoutSecs });
   } else if (argv[0] === "status") {
     const file = argv.find((a, i) => i > 0 && !a.startsWith("-"));
-    if (!file) throw new Error("Usage: human-review status <file-or-localhost-url>");
+    if (!file) throw new Error("Usage: doc-review status <file-or-localhost-url>");
     await statusCommand(file);
   } else if (argv[0] === "setup") {
     const isGlobal = argv.includes("--global") || argv.includes("-g");

@@ -2,7 +2,7 @@
 <html lang="en"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>human-review — Product spec</title>
+  <title>doc-review — Product spec</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&amp;family=Playfair+Display:ital,wght@1,700&amp;display=swap" rel="stylesheet">
@@ -268,7 +268,7 @@
   <header class="masthead">
     <div class="masthead-copy">
       <p class="kicker">Product spec · Updated August 3, 2026</p>
-      <h1 class="title">human-review</h1>
+      <h1 class="title">doc-review</h1>
       <p class="tagline">Edit and comment on agent work in the browser, then send one clean batch back to the agent.</p>
     </div>
     <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">◐</button>
@@ -285,7 +285,7 @@
     <section class="panel active wrap" id="panel-product" role="tabpanel" aria-labelledby="tab-product" data-panel="product">
       <span class="status">Built · v0.4.0</span>
       <h2>What it does</h2>
-      <p>human-review gives any shell-capable coding agent a browser review loop. The human fixes small things directly, comments on exact text or elements, and sends everything together. The agent receives structured feedback, updates the source, and refreshes the page.</p>
+      <p>doc-review gives any shell-capable coding agent a browser review loop. The human fixes small things directly, comments on exact text or elements, and sends everything together. The agent receives structured feedback, updates the source, and refreshes the page.</p>
 
       <h2>Why it exists</h2>
       <p>Reviewing agent output through chat is slow and imprecise. A person should be able to rewrite a sentence, remove a block, or point at the exact issue without describing where it is. The agent should then handle the source changes without undoing the human's edits.</p>
@@ -356,11 +356,11 @@
           </tbody>
         </table>
       </div>
-      <p class="subtle">A ten-minute timeout limits how long one poll stays open; it does not keep the computer awake. Agents can run the same poll again, or use <code>human-review status &lt;target&gt;</code> to check for saved feedback after returning.</p>
+      <p class="subtle">A ten-minute timeout limits how long one poll stays open; it does not keep the computer awake. Agents can run the same poll again, or use <code>doc-review status &lt;target&gt;</code> to check for saved feedback after returning.</p>
 
       <h2>Experience principles</h2>
       <div class="cards">
-        <article class="card"><h3>The page stays recognizable</h3><p>The reviewed content keeps its own layout, styling, and behavior. human-review adds only the review chrome and edit affordances.</p></article>
+        <article class="card"><h3>The page stays recognizable</h3><p>The reviewed content keeps its own layout, styling, and behavior. doc-review adds only the review chrome and edit affordances.</p></article>
         <article class="card"><h3>Nothing sent is lost</h3><p>Pending batches persist across poll timeouts, server restarts, and computer sleep until an agent acknowledges them.</p></article>
         <article class="card"><h3>One primary action</h3><p>Review first, then Send. The agent responds through the changed page rather than another chat thread.</p></article>
         <article class="card"><h3>Status tells the truth</h3><p>The UI distinguishes waiting, working, and not listening instead of implying an agent is active when it is not.</p></article>
@@ -372,11 +372,11 @@
       <p>These screens show the core review experience: the artifact stays visually intact while comments, direct edits, deletions, and the final Send action live in the rail.</p>
       <div class="mock-grid">
         <figure class="mock">
-          <img src="spec-assets/main-value-screen.png" alt="The /human-review interface with an editable product spec on the left and two anchored feedback cards in the right rail.">
+          <img src="spec-assets/main-value-screen.png" alt="The /doc-review interface with an editable product spec on the left and two anchored feedback cards in the right rail.">
           <figcaption><strong>Reviewing</strong>Select exact text or click a whole element to leave anchored feedback without describing where the issue is.</figcaption>
         </figure>
         <figure class="mock">
-          <img src="spec-assets/main-action-screen.png" alt="The /human-review interface while composing an element comment, with direct edits and a deletion listed in the right rail.">
+          <img src="spec-assets/main-action-screen.png" alt="The /doc-review interface while composing an element comment, with direct edits and a deletion listed in the right rail.">
           <figcaption><strong>Composing and editing</strong>Direct edits, deletions, comments, and an overall note are collected into one batch for the agent.</figcaption>
         </figure>
       </div>
@@ -397,11 +397,11 @@
         <table>
           <thead><tr><th>Command</th><th>Purpose</th></tr></thead>
           <tbody>
-            <tr><td><code>human-review &lt;target&gt;</code></td><td>Open the file or localhost page for review.</td></tr>
-            <tr><td><code>human-review poll &lt;target&gt; --timeout 600</code></td><td>Wait for a feedback batch and print it as JSON.</td></tr>
-            <tr><td><code>human-review poll &lt;target&gt; --ack --timeout 600</code></td><td>Acknowledge the handled batch, reload, and keep listening.</td></tr>
-            <tr><td><code>human-review status &lt;target&gt;</code></td><td>Check whether feedback is waiting without blocking.</td></tr>
-            <tr><td><code>human-review setup --global</code></td><td>Install the usage skill for Claude Code, Codex, and compatible agent directories.</td></tr>
+            <tr><td><code>doc-review &lt;target&gt;</code></td><td>Open the file or localhost page for review.</td></tr>
+            <tr><td><code>doc-review poll &lt;target&gt; --timeout 600</code></td><td>Wait for a feedback batch and print it as JSON.</td></tr>
+            <tr><td><code>doc-review poll &lt;target&gt; --ack --timeout 600</code></td><td>Acknowledge the handled batch, reload, and keep listening.</td></tr>
+            <tr><td><code>doc-review status &lt;target&gt;</code></td><td>Check whether feedback is waiting without blocking.</td></tr>
+            <tr><td><code>doc-review setup --global</code></td><td>Install the usage skill for Claude Code, Codex, and compatible agent directories.</td></tr>
           </tbody>
         </table>
       </div>

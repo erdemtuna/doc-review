@@ -9,10 +9,10 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { SERVER_PROTOCOL, serverLockPath, serverPath } from "../src/paths.js";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-loop-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-loop-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const env = { ...process.env, HUMAN_REVIEW_STATE_DIR: process.env.HUMAN_REVIEW_STATE_DIR };
+const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
 
 function request(server, method, route, body) {
   return new Promise((resolve, reject) => {
@@ -23,7 +23,7 @@ function request(server, method, route, body) {
         method,
         path: route,
         headers: {
-          "x-human-review-token": server.token || "",
+          "x-doc-review-token": server.token || "",
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },
@@ -64,7 +64,7 @@ function spawnServer() {
 }
 
 async function waitForServer(notPid) {
-  const record = path.join(process.env.HUMAN_REVIEW_STATE_DIR, "server.json");
+  const record = path.join(process.env.DOC_REVIEW_STATE_DIR, "server.json");
   for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
       const saved = JSON.parse(fs.readFileSync(record, "utf8"));

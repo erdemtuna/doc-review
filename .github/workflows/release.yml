@@ -1,0 +1,834 @@
+name: release
+
+# Manual, two-phase release.
+#
+#   prepare  validates, tests, packs and uploads one immutable release candidate.
+#   release  consumes the artifact of an earlier successful prepare run by run ID,
+#            publishes it to npm through trusted publishing (OIDC) and only then
+#            makes the GitHub Release public.
+#
+# Publication always uses the CI-produced tarball. Never pack locally for publication.
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "prepare (build + verify candidate) or release (publish a prepared candidate)"
+        type: choice
+        required: true
+        default: prepare
+        options:
+          - prepare
+          - release
+      version:
+        description: "Version to release, without a leading v. Must equal package.json (e.g. 0.7.0)"
+        type: string
+        required: true
+      prepare_run_id:
+        description: "Actions run ID of the successful prepare run. Required for operation=release."
+        type: string
+        required: false
+        default: ""
+      previous_tag:
+        description: "Existing tag the generated release notes start after (e.g. v0.6.1)"
+        type: string
+        required: false
+        default: v0.6.1
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  NODE_VERSION: "24"
+  # npm >= 11.5.1 is required for trusted publishing (OIDC).
+  NPM_VERSION: "11.19.0"
+  NPM_REGISTRY: "https://registry.npmjs.org"
+  ARTIFACT_RETENTION_DAYS: "30"
+
+jobs:
+  guard:
+    name: Guard release inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      package: ${{ steps.checks.outputs.package }}
+      version: ${{ steps.checks.outputs.version }}
+      filename: ${{ steps.checks.outputs.filename }}
+      artifact: ${{ steps.checks.outputs.artifact }}
+      tag: ${{ steps.checks.outputs.tag }}
+      previous_tag: ${{ steps.checks.outputs.previous_tag }}
+    steps:
+      - name: Check out the dispatched commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate ref, commit and inputs
+        id: checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          INPUT_VERSION: ${{ inputs.version }}
+          PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          fail() { echo "::error::$*"; exit 1; }
+
+          case "$OPERATION" in
+            prepare|release) ;;
+            *) fail "Unsupported operation '$OPERATION'." ;;
+          esac
+
+          # Releases may only ever run from the tip of main. The npm-release
+          # environment enforces the same rule server side; both are required.
+          [ "$REF" = "refs/heads/main" ] || fail "Releases must run from refs/heads/main, got '$REF'."
+
+          MAIN_SHA="$(gh api "repos/$REPO/git/ref/heads/main" --jq '.object.sha')"
+          [ -n "$MAIN_SHA" ] || fail "Could not resolve the current head of main."
+          [ "$MAIN_SHA" = "$SHA" ] || fail "Dispatched commit $SHA is not the current head of main ($MAIN_SHA). Re-dispatch on the current main."
+
+          echo "$INPUT_VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+            || fail "Version '$INPUT_VERSION' is not a plain MAJOR.MINOR.PATCH version."
+
+          PKG_NAME="$(jq -r '.name' package.json)"
+          PKG_VERSION="$(jq -r '.version' package.json)"
+          [ "$PKG_VERSION" = "$INPUT_VERSION" ] \
+            || fail "Input version '$INPUT_VERSION' does not match package.json version '$PKG_VERSION'."
+
+          # npm pack filename: strip the leading @ and replace the scope slash.
+          FILENAME="$(printf '%s' "$PKG_NAME" | sed 's|^@||; s|/|-|g')-$PKG_VERSION.tgz"
+
+          # The notes start tag is used verbatim by `gh release create`; only
+          # accept a plain vMAJOR.MINOR.PATCH tag that already exists.
+          echo "$PREVIOUS_TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+            || fail "previous_tag '$PREVIOUS_TAG' is not a plain vMAJOR.MINOR.PATCH tag."
+
+          if [ "$OPERATION" = "release" ]; then
+            echo "$PREPARE_RUN_ID" | grep -Eq '^[1-9][0-9]*$' \
+              || fail "operation=release requires a numeric prepare_run_id."
+            gh api "repos/$REPO/git/ref/tags/$PREVIOUS_TAG" --silent \
+              || fail "previous_tag '$PREVIOUS_TAG' does not exist in $REPO. Push it before releasing."
+            [ "$PREPARE_RUN_ID" != "${GITHUB_RUN_ID}" ] || fail "prepare_run_id must reference an earlier prepare run."
+          fi
+
+          {
+            echo "package=$PKG_NAME"
+            echo "version=$PKG_VERSION"
+            echo "filename=$FILENAME"
+            echo "artifact=release-candidate-$PKG_VERSION"
+            echo "tag=v$PKG_VERSION"
+            echo "previous_tag=$PREVIOUS_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Operation:  $OPERATION"
+          echo "Package:    $PKG_NAME@$PKG_VERSION"
+          echo "Commit:     $SHA (current head of main)"
+          echo "Tarball:    $FILENAME"
+
+  prepare:
+    name: Prepare release candidate
+    if: inputs.operation == 'prepare'
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      PKG_NAME: ${{ needs.guard.outputs.package }}
+      VERSION: ${{ needs.guard.outputs.version }}
+      FILENAME: ${{ needs.guard.outputs.filename }}
+    steps:
+      - name: Check out the dispatched commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Pin the npm CLI
+        run: |
+          set -euo pipefail
+          npm install --global --no-audit --no-fund "npm@${NPM_VERSION}"
+          ACTUAL_NPM="$(npm --version)"
+          [ "$ACTUAL_NPM" = "$NPM_VERSION" ] || { echo "::error::Expected npm $NPM_VERSION, got $ACTUAL_NPM"; exit 1; }
+          case "$(node --version)" in
+            v${NODE_VERSION}.*) ;;
+            *) echo "::error::Expected Node $NODE_VERSION, got $(node --version)"; exit 1 ;;
+          esac
+          node --version
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: npm run test:browser -- --workers=1
+
+      - name: Pack the release candidate
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          npm pack --json --pack-destination "$PWD/dist" > dist/pack.json
+          jq -e '. | length == 1' dist/pack.json > /dev/null \
+            || { echo "::error::npm pack produced an unexpected number of tarballs"; cat dist/pack.json; exit 1; }
+
+          PACKED_FILENAME="$(jq -r '.[0].filename' dist/pack.json)"
+          [ "$PACKED_FILENAME" = "$FILENAME" ] \
+            || { echo "::error::npm pack produced '$PACKED_FILENAME', expected '$FILENAME'"; exit 1; }
+          test -f "dist/$FILENAME" || { echo "::error::dist/$FILENAME is missing"; exit 1; }
+
+      - name: Validate packed contents
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          TGZ="dist/$FILENAME"
+          tar -tzf "$TGZ" | sed 's#/$##' | grep -v -e '^$' -e '^package$' | sort -u > dist/contents.txt
+          echo "Packed entries:"
+          cat dist/contents.txt
+
+          if grep -v '^package/' dist/contents.txt > dist/unexpected-root.txt; then
+            cat dist/unexpected-root.txt
+            fail "Tarball contains entries outside the package/ root."
+          fi
+
+          if grep -Eqi '(^|/)node_modules/|^package/test/|^package/e2e/|(^|/)[^/]*\.(test|spec)\.[cm]?[jt]s$|(^|/)\.env($|\.)|(^|/)\.git($|/)|(^|/)\.npmrc$|(^|/)\.github/|^package/playwright\.config\.' dist/contents.txt; then
+            fail "Tarball contains forbidden content (node_modules, tests, e2e or environment files)."
+          fi
+
+          # Everything shipped must be covered by the package.json files list or be
+          # a file npm always includes.
+          mapfile -t ALLOWED < <(jq -r '.files[]?' package.json)
+          [ "${#ALLOWED[@]}" -gt 0 ] || fail "package.json has no files allowlist."
+          while read -r entry; do
+            rel="${entry#package/}"
+            case "$rel" in
+              package.json|README|README.md|LICENSE|LICENSE.md|LICENCE|CHANGELOG.md|npm-shrinkwrap.json) continue ;;
+            esac
+            ok=0
+            for allowed in "${ALLOWED[@]}"; do
+              allowed="${allowed#./}"
+              allowed="${allowed%/}"
+              if [ "$rel" = "$allowed" ] || [ "${rel#"$allowed"/}" != "$rel" ]; then ok=1; break; fi
+            done
+            [ "$ok" = 1 ] || fail "Unexpected packed file '$entry'."
+          done < dist/contents.txt
+
+          for required in package/package.json package/README.md package/LICENSE; do
+            grep -qx "$required" dist/contents.txt || fail "Tarball is missing $required."
+          done
+
+          tar -xzOf "$TGZ" package/package.json > dist/packed-package.json
+          PACKED_NAME="$(jq -r '.name' dist/packed-package.json)"
+          PACKED_VERSION="$(jq -r '.version' dist/packed-package.json)"
+          [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Packed name '$PACKED_NAME' != '$PKG_NAME'."
+          [ "$PACKED_VERSION" = "$VERSION" ] || fail "Packed version '$PACKED_VERSION' != '$VERSION'."
+
+          EXPECTED_BIN="${PKG_NAME##*/}"
+          jq -e --arg bin "$EXPECTED_BIN" '(.bin | type) == "object" and (.bin | keys) == [$bin]' \
+            dist/packed-package.json > /dev/null \
+            || fail "Packed bin mapping must expose exactly one command named '$EXPECTED_BIN'."
+          while read -r target; do
+            target="${target#./}"
+            grep -qx "package/$target" dist/contents.txt || fail "bin target '$target' is not present in the tarball."
+          done < <(jq -r '.bin[]' dist/packed-package.json)
+
+          jq -e '.publishConfig.access == "public"' dist/packed-package.json > /dev/null \
+            || fail "Packed publishConfig.access must be public."
+          jq -e --arg registry "$NPM_REGISTRY" '.publishConfig.registry == $registry' dist/packed-package.json > /dev/null \
+            || fail "Packed publishConfig.registry must be $NPM_REGISTRY."
+
+      - name: Smoke test the packed tarball
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          TGZ="$PWD/dist/$FILENAME"
+          SMOKE="$RUNNER_TEMP/smoke"
+          rm -rf "$SMOKE"
+          mkdir -p "$SMOKE/prefix" "$SMOKE/home" "$SMOKE/project"
+
+          cd "$SMOKE/prefix"
+          npm init --yes > /dev/null
+          npm install --no-audit --no-fund --no-package-lock "$TGZ"
+
+          BIN="${PKG_NAME##*/}"
+          CLI="$SMOKE/prefix/node_modules/.bin/$BIN"
+          test -x "$CLI" || fail "Installed tarball did not expose an executable '$BIN'."
+
+          ACTUAL_VERSION="$("$CLI" --version | tr -d '[:space:]')"
+          [ "$ACTUAL_VERSION" = "$VERSION" ] || fail "'$BIN --version' printed '$ACTUAL_VERSION', expected '$VERSION'."
+
+          "$CLI" --help > "$SMOKE/help.txt"
+          grep -q "$BIN" "$SMOKE/help.txt" || fail "'$BIN --help' does not mention '$BIN'."
+          if grep -qi 'human-review' "$SMOKE/help.txt"; then fail "'$BIN --help' still mentions the pre-fork command."; fi
+
+          cd "$SMOKE/project"
+          HOME="$SMOKE/home" "$CLI" setup --global
+          SKILL="$SMOKE/home/.claude/skills/$BIN/SKILL.md"
+          test -f "$SKILL" || fail "setup --global did not create $SKILL."
+          if grep -qi 'human-review' "$SKILL"; then fail "Installed skill still mentions the pre-fork command."; fi
+
+      - name: Build release metadata
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          cd dist
+          SHA256="$(sha256sum "$FILENAME" | cut -d' ' -f1)"
+          sha256sum "$FILENAME" > "$FILENAME.sha256"
+          sha256sum --check --status "$FILENAME.sha256" || fail "SHA-256 checksum file does not verify."
+
+          PACK_INTEGRITY="$(jq -r '.[0].integrity' pack.json)"
+          CALC_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
+          [ "$PACK_INTEGRITY" = "$CALC_INTEGRITY" ] \
+            || fail "npm pack integrity '$PACK_INTEGRITY' does not match recomputed '$CALC_INTEGRITY'."
+
+          jq -n \
+            --arg package "$PKG_NAME" \
+            --arg version "$VERSION" \
+            --arg filename "$FILENAME" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --arg workflow_run_id "$GITHUB_RUN_ID" \
+            --arg workflow_run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg node_version "$(node --version)" \
+            --arg npm_version "$(npm --version)" \
+            --arg registry "$NPM_REGISTRY" \
+            --arg sha256 "$SHA256" \
+            --arg integrity "$CALC_INTEGRITY" \
+            '{
+              package: $package,
+              version: $version,
+              filename: $filename,
+              repository: $repository,
+              commit: $commit,
+              workflow_run_id: $workflow_run_id,
+              workflow_run_attempt: $workflow_run_attempt,
+              node_version: $node_version,
+              npm_version: $npm_version,
+              registry: $registry,
+              sha256: $sha256,
+              integrity: $integrity
+            }' > release-metadata.json
+
+          rm -f pack.json packed-package.json contents.txt unexpected-root.txt
+          ls -l
+          cat release-metadata.json
+
+          {
+            echo "## Release candidate \`$PKG_NAME@$VERSION\`"
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| tarball | \`$FILENAME\` |"
+            echo "| commit | \`$GITHUB_SHA\` |"
+            echo "| prepare run ID | \`$GITHUB_RUN_ID\` |"
+            echo "| sha256 | \`$SHA256\` |"
+            echo "| integrity | \`$CALC_INTEGRITY\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.guard.outputs.artifact }}
+          path: |
+            dist/${{ needs.guard.outputs.filename }}
+            dist/${{ needs.guard.outputs.filename }}.sha256
+            dist/release-metadata.json
+          if-no-files-found: error
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  verify:
+    name: Verify prepared candidate
+    if: inputs.operation == 'release'
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    env:
+      PKG_NAME: ${{ needs.guard.outputs.package }}
+      VERSION: ${{ needs.guard.outputs.version }}
+      FILENAME: ${{ needs.guard.outputs.filename }}
+      PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
+    steps:
+      - name: Check out the dispatched commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Inspect the referenced prepare run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREPARE_RUN_ID" > prepare-run.json \
+            || fail "Prepare run $PREPARE_RUN_ID was not found in $GITHUB_REPOSITORY."
+
+          check() {
+            local field="$1" expected="$2"
+            local actual
+            actual="$(jq -r "$field" prepare-run.json)"
+            [ "$actual" = "$expected" ] || fail "Prepare run $field is '$actual', expected '$expected'."
+          }
+
+          check '.repository.full_name' "$GITHUB_REPOSITORY"
+          check '.path' '.github/workflows/release.yml'
+          check '.event' 'workflow_dispatch'
+          check '.status' 'completed'
+          check '.conclusion' 'success'
+          check '.head_branch' 'main'
+          check '.head_repository.full_name' "$GITHUB_REPOSITORY"
+          check '.head_sha' "$GITHUB_SHA"
+
+          echo "Prepare run $PREPARE_RUN_ID verified against commit $GITHUB_SHA."
+
+      - name: Download the prepared artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.guard.outputs.artifact }}
+          path: candidate
+          run-id: ${{ inputs.prepare_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify the artifact against its metadata
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          cd candidate
+          test -f release-metadata.json || fail "release-metadata.json is missing from the artifact."
+          cat release-metadata.json
+
+          META_PACKAGE="$(jq -r '.package' release-metadata.json)"
+          META_VERSION="$(jq -r '.version' release-metadata.json)"
+          META_FILENAME="$(jq -r '.filename' release-metadata.json)"
+          META_COMMIT="$(jq -r '.commit' release-metadata.json)"
+          META_REPO="$(jq -r '.repository' release-metadata.json)"
+          META_RUN_ID="$(jq -r '.workflow_run_id' release-metadata.json)"
+          META_SHA256="$(jq -r '.sha256' release-metadata.json)"
+          META_INTEGRITY="$(jq -r '.integrity' release-metadata.json)"
+
+          [ "$META_PACKAGE" = "$PKG_NAME" ] || fail "Artifact package '$META_PACKAGE' != '$PKG_NAME'."
+          [ "$META_VERSION" = "$VERSION" ] || fail "Artifact version '$META_VERSION' != '$VERSION'."
+          [ "$META_FILENAME" = "$FILENAME" ] || fail "Artifact filename '$META_FILENAME' != '$FILENAME'."
+          [ "$META_COMMIT" = "$GITHUB_SHA" ] || fail "Artifact commit '$META_COMMIT' != '$GITHUB_SHA'."
+          [ "$META_REPO" = "$GITHUB_REPOSITORY" ] || fail "Artifact repository '$META_REPO' != '$GITHUB_REPOSITORY'."
+          [ "$META_RUN_ID" = "$PREPARE_RUN_ID" ] || fail "Artifact run ID '$META_RUN_ID' != '$PREPARE_RUN_ID'."
+          test -f "$FILENAME" || fail "$FILENAME is missing from the artifact."
+
+          ACTUAL_SHA256="$(sha256sum "$FILENAME" | cut -d' ' -f1)"
+          [ "$ACTUAL_SHA256" = "$META_SHA256" ] || fail "SHA-256 mismatch: $ACTUAL_SHA256 != $META_SHA256."
+          sha256sum --check --status "$FILENAME.sha256" || fail "Recorded checksum file does not verify."
+
+          ACTUAL_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
+          [ "$ACTUAL_INTEGRITY" = "$META_INTEGRITY" ] || fail "Integrity mismatch: $ACTUAL_INTEGRITY != $META_INTEGRITY."
+
+          PACKED_NAME="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.name')"
+          PACKED_VERSION="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.version')"
+          [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Tarball manifest name '$PACKED_NAME' != '$PKG_NAME'."
+          [ "$PACKED_VERSION" = "$VERSION" ] || fail "Tarball manifest version '$PACKED_VERSION' != '$VERSION'."
+
+          echo "Artifact verified: $FILENAME ($ACTUAL_INTEGRITY)"
+
+          {
+            echo "## Verified candidate \`$PKG_NAME@$VERSION\`"
+            echo
+            echo "Prepared by run \`$PREPARE_RUN_ID\` from commit \`$GITHUB_SHA\`."
+            echo
+            echo "- sha256: \`$ACTUAL_SHA256\`"
+            echo "- integrity: \`$ACTUAL_INTEGRITY\`"
+            echo
+            echo "Awaiting \`npm-release\` environment approval."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish release
+    if: inputs.operation == 'release'
+    needs: [guard, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm-release
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+    env:
+      PKG_NAME: ${{ needs.guard.outputs.package }}
+      VERSION: ${{ needs.guard.outputs.version }}
+      FILENAME: ${{ needs.guard.outputs.filename }}
+      TAG: ${{ needs.guard.outputs.tag }}
+      PREVIOUS_TAG: ${{ needs.guard.outputs.previous_tag }}
+      PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Pin the npm CLI and assert tokenless publishing
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          npm install --global --no-audit --no-fund "npm@${NPM_VERSION}"
+          ACTUAL_NPM="$(npm --version)"
+          [ "$ACTUAL_NPM" = "$NPM_VERSION" ] || fail "Expected npm $NPM_VERSION, got $ACTUAL_NPM."
+          case "$(node --version)" in
+            v${NODE_VERSION}.*) ;;
+            *) fail "Expected Node $NODE_VERSION, got $(node --version)." ;;
+          esac
+
+          # Trusted publishing must be the only credential in play.
+          [ -z "${NODE_AUTH_TOKEN:-}" ] || fail "NODE_AUTH_TOKEN is set; trusted publishing must run tokenless."
+          [ -z "${NPM_TOKEN:-}" ] || fail "NPM_TOKEN is set; trusted publishing must run tokenless."
+          [ -z "${NPM_CONFIG__AUTH:-}" ] || fail "NPM_CONFIG__AUTH is set; trusted publishing must run tokenless."
+          for rc in "$HOME/.npmrc" "${NPM_CONFIG_USERCONFIG:-}" "$PWD/.npmrc"; do
+            [ -n "$rc" ] && [ -f "$rc" ] || continue
+            if grep -q '_authToken\|_auth=' "$rc"; then fail "Found an npm auth entry in $rc; remove it so OIDC is used."; fi
+          done
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || fail "No OIDC token endpoint available; id-token: write is required."
+
+          node --version
+          npm --version
+
+      - name: Re-inspect the referenced prepare run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PREPARE_RUN_ID" > prepare-run.json \
+            || fail "Prepare run $PREPARE_RUN_ID was not found in $GITHUB_REPOSITORY."
+
+          check() {
+            local field="$1" expected="$2"
+            local actual
+            actual="$(jq -r "$field" prepare-run.json)"
+            [ "$actual" = "$expected" ] || fail "Prepare run $field is '$actual', expected '$expected'."
+          }
+
+          check '.repository.full_name' "$GITHUB_REPOSITORY"
+          check '.path' '.github/workflows/release.yml'
+          check '.event' 'workflow_dispatch'
+          check '.status' 'completed'
+          check '.conclusion' 'success'
+          check '.head_branch' 'main'
+          check '.head_repository.full_name' "$GITHUB_REPOSITORY"
+          check '.head_sha' "$GITHUB_SHA"
+
+      - name: Download the prepared artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.guard.outputs.artifact }}
+          path: candidate
+          run-id: ${{ inputs.prepare_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Re-verify the artifact
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          cd candidate
+          test -f release-metadata.json || fail "release-metadata.json is missing from the artifact."
+          test -f "$FILENAME" || fail "$FILENAME is missing from the artifact."
+
+          META_PACKAGE="$(jq -r '.package' release-metadata.json)"
+          META_VERSION="$(jq -r '.version' release-metadata.json)"
+          META_FILENAME="$(jq -r '.filename' release-metadata.json)"
+          META_COMMIT="$(jq -r '.commit' release-metadata.json)"
+          META_REPO="$(jq -r '.repository' release-metadata.json)"
+          META_RUN_ID="$(jq -r '.workflow_run_id' release-metadata.json)"
+          META_SHA256="$(jq -r '.sha256' release-metadata.json)"
+          META_INTEGRITY="$(jq -r '.integrity' release-metadata.json)"
+
+          [ "$META_PACKAGE" = "$PKG_NAME" ] || fail "Artifact package '$META_PACKAGE' != '$PKG_NAME'."
+          [ "$META_VERSION" = "$VERSION" ] || fail "Artifact version '$META_VERSION' != '$VERSION'."
+          [ "$META_FILENAME" = "$FILENAME" ] || fail "Artifact filename '$META_FILENAME' != '$FILENAME'."
+          [ "$META_COMMIT" = "$GITHUB_SHA" ] || fail "Artifact commit '$META_COMMIT' != '$GITHUB_SHA'."
+          [ "$META_REPO" = "$GITHUB_REPOSITORY" ] || fail "Artifact repository '$META_REPO' != '$GITHUB_REPOSITORY'."
+          [ "$META_RUN_ID" = "$PREPARE_RUN_ID" ] || fail "Artifact run ID '$META_RUN_ID' != '$PREPARE_RUN_ID'."
+
+          ACTUAL_SHA256="$(sha256sum "$FILENAME" | cut -d' ' -f1)"
+          [ "$ACTUAL_SHA256" = "$META_SHA256" ] || fail "SHA-256 mismatch: $ACTUAL_SHA256 != $META_SHA256."
+          sha256sum --check --status "$FILENAME.sha256" || fail "Recorded checksum file does not verify."
+
+          ACTUAL_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
+          [ "$ACTUAL_INTEGRITY" = "$META_INTEGRITY" ] || fail "Integrity mismatch: $ACTUAL_INTEGRITY != $META_INTEGRITY."
+
+          PACKED_NAME="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.name')"
+          PACKED_VERSION="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.version')"
+          [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Tarball manifest name '$PACKED_NAME' != '$PKG_NAME'."
+          [ "$PACKED_VERSION" = "$VERSION" ] || fail "Tarball manifest version '$PACKED_VERSION' != '$VERSION'."
+
+          echo "EXPECTED_INTEGRITY=$ACTUAL_INTEGRITY" >> "$GITHUB_ENV"
+          echo "EXPECTED_SHA256=$ACTUAL_SHA256" >> "$GITHUB_ENV"
+
+      - name: Inspect the GitHub tag and release state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > tag-ref.json 2>/dev/null; then
+            TAG_TYPE="$(jq -r '.object.type' tag-ref.json)"
+            TAG_SHA="$(jq -r '.object.sha' tag-ref.json)"
+            if [ "$TAG_TYPE" = "tag" ]; then
+              TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_SHA" --jq '.object.sha')"
+            fi
+            [ "$TAG_SHA" = "$GITHUB_SHA" ] \
+              || fail "Tag $TAG already exists and points at $TAG_SHA, not the prepared commit $GITHUB_SHA. Release a new version instead."
+            echo "Tag $TAG already exists and points at the prepared commit."
+          else
+            echo "Tag $TAG does not exist yet."
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,tagName > release.json 2>/dev/null; then
+            IS_DRAFT="$(jq -r '.isDraft' release.json)"
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "RELEASE_STATE=draft" >> "$GITHUB_ENV"
+              echo "Reusing the existing draft release $TAG."
+            else
+              echo "RELEASE_STATE=published" >> "$GITHUB_ENV"
+              echo "Release $TAG is already published; only asset repair is allowed."
+            fi
+          else
+            echo "RELEASE_STATE=missing" >> "$GITHUB_ENV"
+            echo "No release exists for $TAG yet."
+          fi
+
+      - name: Inspect the npm registry state
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          plain_semver() {
+            printf '%s' "$1" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          }
+
+          # greater <a> <b> succeeds when a is strictly newer than b. Both are
+          # guaranteed to be plain MAJOR.MINOR.PATCH versions before this is used.
+          greater() {
+            [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+          }
+
+          # npm_read <spec> <field>: prints the value, or nothing when the package
+          # or version does not exist. Returns non-zero only on a real read failure.
+          npm_read() {
+            local spec="$1" field="$2" attempt out
+            for attempt in 1 2 3; do
+              if out="$(npm view "$spec" "$field" --registry="$NPM_REGISTRY" --json 2>npm-view-error.txt)"; then
+                printf '%s' "$out" | jq -r 'if type == "array" then .[-1] else . end' 2>/dev/null \
+                  | grep -v '^null$' || true
+                return 0
+              fi
+              # A missing package or version is the normal first-publish case.
+              if grep -q 'E404' npm-view-error.txt || printf '%s' "${out:-}" | grep -q 'E404'; then
+                return 0
+              fi
+              cat npm-view-error.txt >&2
+              [ "$attempt" -lt 3 ] || return 1
+              sleep $((attempt * 10))
+            done
+          }
+
+          SPEC="$PKG_NAME@$VERSION"
+          PUBLISHED_INTEGRITY="$(npm_read "$SPEC" dist.integrity | tr -d '[:space:]')" \
+            || fail "Could not read $SPEC from $NPM_REGISTRY."
+          NPM_LATEST="$(npm_read "$PKG_NAME" dist-tags.latest | tr -d '[:space:]')" \
+            || fail "Could not read the latest dist-tag of $PKG_NAME from $NPM_REGISTRY."
+
+          TARGET_IS_OLDER=false
+          if [ -n "$NPM_LATEST" ]; then
+            plain_semver "$NPM_LATEST" \
+              || fail "npm dist-tag latest is '$NPM_LATEST', which is not a plain MAJOR.MINOR.PATCH version. Resolve the registry state manually."
+            if greater "$NPM_LATEST" "$VERSION"; then TARGET_IS_OLDER=true; fi
+            echo "npm latest for $PKG_NAME is currently $NPM_LATEST."
+          else
+            echo "$PKG_NAME has no published versions yet."
+          fi
+
+          if [ -z "$PUBLISHED_INTEGRITY" ]; then
+            [ "$TARGET_IS_OLDER" = "false" ] \
+              || fail "$SPEC is not published, but npm latest is already $NPM_LATEST. Publishing $VERSION now would publish out of order and move the latest dist-tag backward. Release a version newer than $NPM_LATEST instead."
+            NPM_ALREADY_PUBLISHED=false
+            NPM_TARGET_IS_LATEST=true
+            echo "$SPEC is not published yet; it will become the latest version."
+          elif [ "$PUBLISHED_INTEGRITY" = "$EXPECTED_INTEGRITY" ]; then
+            NPM_ALREADY_PUBLISHED=true
+            if [ "$TARGET_IS_OLDER" = "true" ]; then
+              # A superseded version may only be touched to repair the assets of a
+              # GitHub Release that is already public.
+              [ "$RELEASE_STATE" = "published" ] \
+                || fail "$SPEC is published with matching integrity but npm latest is $NPM_LATEST. A superseded version may only be re-run to repair the assets of an already published GitHub Release, and the release for $TAG is '$RELEASE_STATE'."
+              NPM_TARGET_IS_LATEST=false
+              echo "$SPEC is superseded by $NPM_LATEST; continuing as asset repair only, leaving both npm and GitHub latest untouched."
+            else
+              NPM_TARGET_IS_LATEST=true
+              echo "$SPEC is already published with matching integrity; treating this as an idempotent rerun."
+            fi
+          else
+            echo "::error::$SPEC is already published with integrity '$PUBLISHED_INTEGRITY' but the prepared artifact is '$EXPECTED_INTEGRITY'."
+            fail "npm versions are immutable. Do not bypass this. Prepare and release a new patch version instead."
+          fi
+
+          {
+            echo "NPM_ALREADY_PUBLISHED=$NPM_ALREADY_PUBLISHED"
+            echo "NPM_TARGET_IS_LATEST=$NPM_TARGET_IS_LATEST"
+            echo "NPM_LATEST_BEFORE=${NPM_LATEST:-none}"
+          } >> "$GITHUB_ENV"
+
+      - name: Create or reuse the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          TGZ="candidate/$FILENAME"
+          SUM="candidate/$FILENAME.sha256"
+
+          case "$RELEASE_STATE" in
+            missing)
+              gh release create "$TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --draft \
+                --target "$GITHUB_SHA" \
+                --title "$TAG" \
+                --generate-notes \
+                --notes-start-tag "$PREVIOUS_TAG" \
+                "$TGZ" "$SUM"
+              ;;
+            draft)
+              gh release edit "$TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --draft \
+                --target "$GITHUB_SHA"
+              gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$TGZ" "$SUM"
+              ;;
+            published)
+              # Recovery only: repair the assets of an already public release whose
+              # tag was verified to point at the prepared commit.
+              gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$TGZ" "$SUM"
+              ;;
+            *)
+              fail "Unknown release state '$RELEASE_STATE'."
+              ;;
+          esac
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,assets \
+            --jq '{tag: .tagName, draft: .isDraft, assets: [.assets[].name]}'
+
+      - name: Publish to npm with trusted publishing
+        if: env.NPM_ALREADY_PUBLISHED == 'false'
+        run: |
+          set -euo pipefail
+          cd candidate
+          npm publish "$FILENAME" --access public --registry="$NPM_REGISTRY"
+
+      - name: Verify the published npm version
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          SPEC="$PKG_NAME@$VERSION"
+          PUBLISHED_INTEGRITY=""
+          for attempt in 1 2 3 4 5 6; do
+            if OUTPUT="$(npm view "$SPEC" dist.integrity --registry="$NPM_REGISTRY" --json --prefer-online 2>view-error.txt)"; then
+              PUBLISHED_INTEGRITY="$(printf '%s' "$OUTPUT" | jq -r 'if type == "array" then .[-1] else . end' 2>/dev/null || true)"
+              if [ -n "$PUBLISHED_INTEGRITY" ] && [ "$PUBLISHED_INTEGRITY" != "null" ]; then break; fi
+            else
+              cat view-error.txt
+            fi
+            echo "Waiting for registry propagation (attempt $attempt)..."
+            sleep $((attempt * 10))
+          done
+
+          [ -n "$PUBLISHED_INTEGRITY" ] && [ "$PUBLISHED_INTEGRITY" != "null" ] \
+            || fail "$SPEC is still not readable from $NPM_REGISTRY."
+          [ "$PUBLISHED_INTEGRITY" = "$EXPECTED_INTEGRITY" ] \
+            || fail "Published integrity '$PUBLISHED_INTEGRITY' does not match the prepared artifact '$EXPECTED_INTEGRITY'."
+
+          LATEST=""
+          if [ "$NPM_TARGET_IS_LATEST" = "true" ]; then
+            for attempt in 1 2 3 4 5 6; do
+              LATEST="$(npm view "$PKG_NAME" dist-tags.latest --registry="$NPM_REGISTRY" --prefer-online 2>/dev/null | tr -d '[:space:]' || true)"
+              [ "$LATEST" = "$VERSION" ] && break
+              echo "Waiting for the latest dist-tag to become $VERSION (currently '${LATEST:-unknown}')..."
+              sleep $((attempt * 10))
+            done
+            [ "$LATEST" = "$VERSION" ] || fail "npm dist-tag latest is '${LATEST:-unknown}', expected '$VERSION'."
+            echo "npm verified: $SPEC ($PUBLISHED_INTEGRITY), latest -> $VERSION"
+          else
+            # Superseded version: its integrity still had to match, but the latest
+            # dist-tag must stay on the newer version.
+            LATEST="$(npm view "$PKG_NAME" dist-tags.latest --registry="$NPM_REGISTRY" --prefer-online 2>/dev/null | tr -d '[:space:]' || true)"
+            [ "$LATEST" != "$VERSION" ] \
+              || fail "Expected npm latest to remain newer than $VERSION, but it is now '$LATEST'."
+            echo "npm verified: $SPEC ($PUBLISHED_INTEGRITY); latest remains ${LATEST:-unknown} and was not changed."
+          fi
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          if [ "$RELEASE_STATE" = "published" ]; then
+            echo "Release $TAG was already public; assets were repaired in place and its latest state was left untouched."
+          else
+            [ "$NPM_TARGET_IS_LATEST" = "true" ] \
+              || fail "Refusing to finalize $TAG: npm latest is $NPM_LATEST_BEFORE, which is newer than $VERSION. A release older than npm latest must not be finalized or marked latest."
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,url,assets \
+            --jq '{tag: .tagName, draft: .isDraft, url: .url, assets: [.assets[].name]}' > final-release.json
+          cat final-release.json
+          jq -e '.draft == false' final-release.json > /dev/null || fail "Release $TAG is still a draft."
+
+          {
+            echo "## Released \`$PKG_NAME@$VERSION\`"
+            echo
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- prepare run: \`$PREPARE_RUN_ID\`"
+            echo "- sha256: \`$EXPECTED_SHA256\`"
+            echo "- integrity: \`$EXPECTED_INTEGRITY\`"
+            echo "- npm published in this run: \`$([ "$NPM_ALREADY_PUBLISHED" = "false" ] && echo yes || echo "no (already present, integrity matched)")\`"
+            echo "- npm latest: \`$([ "$NPM_TARGET_IS_LATEST" = "true" ] && echo "$VERSION" || echo "$NPM_LATEST_BEFORE (unchanged, $VERSION is superseded)")\`"
+            echo "- GitHub latest: \`$([ "$RELEASE_STATE" != "published" ] && echo "marked latest" || echo "left unchanged (asset repair)")\`"
+            echo "- release: $(jq -r '.url' final-release.json)"
+          } >> "$GITHUB_STEP_SUMMARY"
