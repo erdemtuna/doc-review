@@ -41,6 +41,7 @@ const IDLE_SHUTDOWN_MS = Number(process.env.HUMAN_REVIEW_IDLE_MS || 45 * 60 * 10
 /** A window with no live connection this long is treated as closed for good. */
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const MAX_LOCAL_REDIRECTS = 5;
+const RENDER_TTL_MS = 60 * 1000;
 /** Generous enough for a dev server's cold compile, but a wedged one can't hang us forever. */
 const LOCAL_FETCH_TIMEOUT_MS = 30000;
 const MAX_LOCAL_PAGE_BYTES = 24 * 1024 * 1024;
@@ -51,7 +52,7 @@ const MAX_LOCAL_PAGE_BYTES = 24 * 1024 * 1024;
  * authored scripts and inline event handlers remain in the source but stay inert.
  */
 const fileReviewCsp = (nonce) =>
-  `script-src 'nonce-${nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'none'`;
+  `script-src 'nonce-${nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'self'`;
 
 const hash = (text) => crypto.createHash("sha1").update(text).digest("hex");
 const uid = (prefix) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
@@ -76,6 +77,7 @@ async function readCapped(response, url) {
 
 async function fetchLocalPage(target, redirects = 0) {
   const url = localUrl(target);
+  if (!url) throw new Error("Localhost redirects must use HTTP or HTTPS.");
   let response;
   try {
     response = await fetch(url, {
@@ -103,7 +105,7 @@ async function fetchLocalPage(target, redirects = 0) {
   return { html: await readCapped(response, url), resolvedUrl: response.url || url };
 }
 
-export function createServer({ store: suppliedStore, storeOptions, owner = null } = {}) {
+export function createServer({ store: suppliedStore, storeOptions, owner = null, renderTtlMs = RENDER_TTL_MS } = {}) {
   const store = suppliedStore || new Store(storeOptions);
   const cliInvocation = invocation();
   const instanceId = owner?.instance_id || crypto.randomBytes(16).toString("hex");
@@ -116,7 +118,8 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
   const token = crypto.randomBytes(16).toString("hex");
 
   /** Browser windows. Ephemeral — nothing durable lives here. */
-  const sessions = new Map(); // sessionId -> { id, entryKey, activeKey, visited, clients:Set<res>, lastSeen }
+  const sessions = new Map(); // sessionId -> { id, entryKey, activeKey, generation, renderId, visited, clients:Set<res>, lastSeen }
+  const renders = new Map(); // renderId -> current artifact/bootstrap record
   /** Agent long-polls, keyed by the entry page they were started on. */
   const pollers = new Map(); // entryKey -> Set<{ res, timer }>
   const sseResponses = new Map(); // res -> heartbeat timer
@@ -142,6 +145,41 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
 
   function sessionsForEntry(entryKey) {
     return [...sessions.values()].filter((s) => s.entryKey === entryKey);
+  }
+
+  function expireRender(renderId) {
+    if (!renderId) return;
+    const render = renders.get(renderId);
+    renders.delete(renderId);
+    const session = render ? sessions.get(render.sessionId) : null;
+    if (session?.renderId === renderId) session.renderId = null;
+  }
+
+  function invalidateSessionRender(session) {
+    if (session?.renderId) expireRender(session.renderId);
+  }
+
+  function currentRender(renderId) {
+    const render = renders.get(renderId);
+    if (!render) return null;
+    const session = sessions.get(render.sessionId);
+    if (
+      !session ||
+      session.renderId !== renderId ||
+      session.activeKey !== render.pageKey ||
+      session.generation !== render.generation
+    ) {
+      expireRender(renderId);
+      return null;
+    }
+    if (Date.now() - render.createdAt > renderTtlMs) {
+      if (render.documentState !== "served") {
+        expireRender(renderId);
+        return null;
+      }
+      render.capability = null;
+    }
+    return render;
   }
 
   function emit(session, event, data) {
@@ -187,7 +225,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
       if (lastWritten.get(key) === current) return;
       lastWritten.set(key, current);
       store.setPristine(key, html);
-      for (const session of sessionsForKey(key)) emit(session, "reload", { key });
+      for (const session of sessionsForKey(key)) {
+        invalidateSessionRender(session);
+        emit(session, "reload", { key });
+      }
     });
   }
 
@@ -348,7 +389,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
     // watch, so acknowledgement is the signal to fetch the rebuilt route.
     for (const key of result.keys) {
       if (store.page(key)?.kind === "url") {
-        for (const session of sessionsForKey(key)) emit(session, "reload", { key });
+        for (const session of sessionsForKey(key)) {
+          invalidateSessionRender(session);
+          emit(session, "reload", { key });
+        }
       }
     }
     broadcastAgent(entryKey);
@@ -361,6 +405,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
    * of being left to burn its timeout. Unsent feedback stays in the store.
    */
   function endSession(session) {
+    invalidateSessionRender(session);
     sessions.delete(session.id);
     for (const res of session.clients) {
       res.write(`event: ended\ndata: {}\n\n`);
@@ -437,6 +482,11 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
     res.end(JSON.stringify(payload));
   };
 
+  const opaqueModuleCors = (req) =>
+    req.headers.origin === "null"
+      ? { "access-control-allow-origin": "null", vary: "Origin" }
+      : {};
+
   function serveFile(res, file, extraHeaders) {
     fs.readFile(file, (err, buf) => {
       if (err) {
@@ -444,6 +494,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
         res.end("Not found");
         return;
       }
+
       res.writeHead(200, {
         "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
         "cache-control": "no-store",
@@ -453,10 +504,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
       res.end(buf);
     });
   }
-
-  // The artifact iframe uses the alternate loopback hostname to stay isolated
-  // from the review shell, so its SDK module needs CORS to load.
-  const CORS = { "access-control-allow-origin": "*" };
 
   function pageState(key, session) {
     const page = store.page(key);
@@ -513,14 +560,15 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
 
       // --- static chrome assets
       if (route === "/chrome.css") return serveFile(res, path.join(here, "chrome.css"));
-      if (route === "/chrome.js") return serveFile(res, path.join(here, "chrome-client.js"), CORS);
-      if (route === "/chrome-session.js") return serveFile(res, path.join(here, "chrome-session.js"), CORS);
-      if (route === "/sdk.js") return serveFile(res, path.join(here, "sdk.js"), CORS);
-      if (route === "/editing.js") return serveFile(res, path.join(here, "editing.js"), CORS);
-      if (route === "/anchor-text.js") return serveFile(res, path.join(here, "anchor-text.js"), CORS);
-      if (route === "/frame-policy.js") return serveFile(res, path.join(here, "frame-policy.js"), CORS);
-      if (route === "/click-target.js") return serveFile(res, path.join(here, "click-target.js"), CORS);
-      if (route === "/serialize.js") return serveFile(res, path.join(here, "serialize.js"), CORS);
+      if (route === "/chrome.js") return serveFile(res, path.join(here, "chrome-client.js"));
+      if (route === "/chrome-session.js") return serveFile(res, path.join(here, "chrome-session.js"));
+      if (route === "/sdk.js") return serveFile(res, path.join(here, "sdk.js"), opaqueModuleCors(req));
+      if (route === "/editing.js") return serveFile(res, path.join(here, "editing.js"), opaqueModuleCors(req));
+      if (route === "/anchor-text.js") return serveFile(res, path.join(here, "anchor-text.js"), opaqueModuleCors(req));
+      if (route === "/frame-policy.js") return serveFile(res, path.join(here, "frame-policy.js"));
+      if (route === "/click-target.js") return serveFile(res, path.join(here, "click-target.js"), opaqueModuleCors(req));
+      if (route === "/serialize.js") return serveFile(res, path.join(here, "serialize.js"), opaqueModuleCors(req));
+      if (route === "/frame-channel.js") return serveFile(res, path.join(here, "frame-channel.js"), opaqueModuleCors(req));
 
       // --- open a browser session for a file or localhost URL
       if (route === "/api/session" && req.method === "POST") {
@@ -539,7 +587,16 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
         }
         watchPage(page.key);
         const id = uid("s");
-        sessions.set(id, { id, entryKey: page.key, activeKey: page.key, visited: new Set([page.key]), clients: new Set(), lastSeen: Date.now() });
+        sessions.set(id, {
+          id,
+          entryKey: page.key,
+          activeKey: page.key,
+          generation: 0,
+          renderId: null,
+          visited: new Set([page.key]),
+          clients: new Set(),
+          lastSeen: Date.now(),
+        });
         return json(res, 200, { sessionId: id, key: page.key, path: `/s/${id}` });
       }
 
@@ -556,18 +613,84 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
         return res.end(shell.replace("__SESSION_ID__", id).replace("__TOKEN__", token));
       }
 
-      // --- the reviewed page itself, plus sibling assets for file targets
+      const renderMatch = route.match(/^\/api\/session\/(\w+)\/render$/);
+      if (renderMatch && req.method === "POST") {
+        const session = sessions.get(renderMatch[1]);
+        if (!session) return json(res, 404, { error: "unknown session" });
+        seen(session);
+        const body = await readBody(req);
+        const generation = Number(body.generation);
+        const pageKey = String(body.key || "");
+        if (!Number.isSafeInteger(generation) || generation <= session.generation) {
+          return json(res, 409, { error: "stale render generation", generation: session.generation });
+        }
+        if (pageKey !== session.activeKey || !store.page(pageKey)) {
+          return json(res, 409, { error: "render page is no longer current" });
+        }
+        invalidateSessionRender(session);
+        const renderId = `r_${crypto.randomBytes(24).toString("hex")}`;
+        const capability = crypto.randomBytes(32).toString("base64url");
+        const render = {
+          renderId,
+          capability,
+          sessionId: session.id,
+          pageKey,
+          generation,
+          createdAt: Date.now(),
+          documentState: "registered",
+        };
+        session.generation = generation;
+        session.renderId = renderId;
+        renders.set(renderId, render);
+        return json(res, 200, {
+          renderId,
+          capability,
+          generation,
+          pageKey,
+          path: `/artifact/${renderId}/index.html`,
+        });
+      }
+
+      const readyMatch = route.match(/^\/api\/session\/(\w+)\/render\/(r_[a-f0-9]+)\/ready$/);
+      if (readyMatch && req.method === "POST") {
+        const session = sessions.get(readyMatch[1]);
+        const render = currentRender(readyMatch[2]);
+        if (!session || !render || render.sessionId !== session.id) {
+          return json(res, 409, { error: "render is no longer current" });
+        }
+        const body = await readBody(req);
+        const provided = Buffer.from(String(body.capability || ""));
+        const expected = Buffer.from(String(render.capability || ""));
+        const capabilityMatches = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+        if (
+          !capabilityMatches ||
+          body.generation !== render.generation ||
+          body.pageKey !== render.pageKey
+        ) {
+          return json(res, 403, { error: "invalid render capability" });
+        }
+        render.capability = null;
+        return json(res, 200, { ok: true });
+      }
+
+      // --- the reviewed page itself, plus sibling assets for its render
       if (route.startsWith("/artifact/")) {
         const rest = route.slice("/artifact/".length);
         const slash = rest.indexOf("/");
-        const key = slash === -1 ? rest : rest.slice(0, slash);
+        const renderId = slash === -1 ? rest : rest.slice(0, slash);
         const asset = slash === -1 ? "" : rest.slice(slash + 1);
-        const page = store.page(key);
-        if (!page) {
-          res.writeHead(404, { "content-type": "text/plain" });
-          return res.end("Unknown page");
+        const render = currentRender(renderId);
+        const page = render ? store.page(render.pageKey) : null;
+        if (!render || !page) {
+          res.writeHead(410, { "content-type": "text/plain", "cache-control": "no-store", "referrer-policy": "no-referrer" });
+          return res.end("Render expired");
         }
         if (!asset || asset === "index.html") {
+          if (render.documentState !== "registered") {
+            res.writeHead(410, { "content-type": "text/plain", "cache-control": "no-store", "referrer-policy": "no-referrer" });
+            return res.end("Render document already consumed");
+          }
+          render.documentState = "loading";
           let html = "";
           let sdkOptions = {};
           let extraHeaders = {};
@@ -577,27 +700,50 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
               html = fetched.html;
               sdkOptions = {
                 baseHref: fetched.resolvedUrl,
-                src: `http://${host}/sdk.js?key=${encodeURIComponent(key)}`,
+                nonce: render.capability,
+                generation: render.generation,
+                pageKey: render.pageKey,
+                src: `http://${host}/sdk.js`,
               };
             } catch (err) {
-              res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+              render.documentState = "registered";
+              res.writeHead(502, {
+                "content-type": "text/plain; charset=utf-8",
+                "cache-control": "no-store",
+                "referrer-policy": "no-referrer",
+              });
               return res.end(`Could not load ${page.url}: ${err.message}`);
             }
           } else {
             try {
               html = fs.readFileSync(page.file, "utf8");
             } catch {
-              res.writeHead(404, { "content-type": "text/plain" });
+              render.documentState = "registered";
+              res.writeHead(404, {
+                "content-type": "text/plain",
+                "cache-control": "no-store",
+                "referrer-policy": "no-referrer",
+              });
               return res.end("File is gone");
             }
             // Markdown reviews render on the fly; the source file stays untouched.
             if (isMarkdown(page.file)) html = renderMarkdownPage(html, page.file);
-            const nonce = crypto.randomBytes(18).toString("base64");
-            sdkOptions = { nonce };
-            extraHeaders = { "content-security-policy": fileReviewCsp(nonce) };
+            sdkOptions = {
+              nonce: render.capability,
+              generation: render.generation,
+              pageKey: render.pageKey,
+              src: `http://${host}/sdk.js`,
+            };
+            extraHeaders = { "content-security-policy": fileReviewCsp(render.capability) };
           }
-          res.writeHead(200, { "content-type": MIME[".html"], "cache-control": "no-store", ...extraHeaders });
-          return res.end(injectSdk(html, key, sdkOptions));
+          res.writeHead(200, {
+            "content-type": MIME[".html"],
+            "cache-control": "no-store",
+            "referrer-policy": "no-referrer",
+            ...extraHeaders,
+          });
+          render.documentState = "served";
+          return res.end(injectSdk(html, renderId, sdkOptions));
         }
         if (page.kind === "url") {
           const stagedPrefix = "__human_review_paste__/";
@@ -607,7 +753,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
               res.writeHead(403, { "content-type": "text/plain" });
               return res.end("Forbidden");
             }
-            return serveFile(res, path.join(stateDir(), "pasted", key, name));
+            return serveFile(res, path.join(stateDir(), "pasted", render.pageKey, name));
           }
           res.writeHead(404, { "content-type": "text/plain" });
           return res.end("Localhost assets load from the reviewed development server.");
@@ -769,7 +915,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
           const saved = path.join(dir, name);
           fs.writeFileSync(saved, bytes);
           return json(res, 200, {
-            src: staged ? `/artifact/${key}/__human_review_paste__/${name}` : `assets/${name}`,
+            src: staged ? `__human_review_paste__/${name}` : `assets/${name}`,
             ...(staged ? { stagedId: name } : {}),
           });
         }
@@ -812,7 +958,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
           if (!page.pristine) return json(res, 400, { error: "nothing to revert to" });
           writePage(key, page.pristine);
           store.clearEdits(key);
-          for (const session of sessionsForKey(key)) emit(session, "reload", { key });
+          for (const session of sessionsForKey(key)) {
+            invalidateSessionRender(session);
+            emit(session, "reload", { key });
+          }
           return json(res, 200, { page: pageState(key) });
         }
 
@@ -841,6 +990,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
         seen(session);
         return json(res, 200, {
           key: session.activeKey,
+          generation: session.generation,
           page: pageState(session.activeKey, session),
           others: otherPages(session),
         });
@@ -854,6 +1004,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
         seen(session);
         const body = await readBody(req);
         if (!store.page(body.key)) return json(res, 404, { error: "unknown page" });
+        invalidateSessionRender(session);
         session.activeKey = body.key;
         session.visited.add(body.key);
         return json(res, 200, { key: body.key });
@@ -874,6 +1025,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
           if (target.kind !== "url") return json(res, 400, { error: "not a localhost route" });
           await fetchLocalPage(target.value);
           const page = store.openUrl(target.value);
+          invalidateSessionRender(session);
           session.activeKey = page.key;
           session.visited.add(page.key);
           return json(res, 200, { key: page.key, page: pageState(page.key) });
@@ -886,6 +1038,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
         const page = store.openPage(targetFile, stripSdk(html));
         lastWritten.set(page.key, hash(stripSdk(html)));
         watchPage(page.key);
+        invalidateSessionRender(session);
         session.activeKey = page.key;
         session.visited.add(page.key);
         return json(res, 200, { key: page.key, page: pageState(page.key) });
@@ -973,7 +1126,16 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
 
     // A window with no SSE client for a while is closed; forget its session.
     for (const [id, session] of sessions) {
-      if (session.clients.size === 0 && now - session.lastSeen > SESSION_TTL_MS) sessions.delete(id);
+      if (session.clients.size === 0 && now - session.lastSeen > SESSION_TTL_MS) {
+        invalidateSessionRender(session);
+        sessions.delete(id);
+      }
+    }
+
+    for (const [renderId, render] of renders) {
+      if (now - render.createdAt <= renderTtlMs) continue;
+      if (render.documentState !== "served") expireRender(renderId);
+      else render.capability = null;
     }
 
     // Stop watching files no remaining session can see.
@@ -1010,9 +1172,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
       for (const set of pollers.values()) {
         for (const poller of set) {
           clearInterval(poller.timer);
-          if (!poller.res.writableEnded) {
-            poller.res.end(JSON.stringify({ status: "closed", next_step: "The local review server stopped. Run the poll command again to continue." }));
-          }
+          if (!poller.res.writableEnded) poller.res.end();
         }
       }
       pollers.clear();
@@ -1024,6 +1184,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null 
       sseResponses.clear();
       for (const session of sessions.values()) session.clients.clear();
       sessions.clear();
+      renders.clear();
 
       try {
         // A caller may dispose immediately after server.listen(), before the
@@ -1067,7 +1228,12 @@ export async function start(port = 0, options = {}) {
   const owner = acquireServerLock(options.lock);
   let review;
   try {
-    review = createServer({ store: options.store, storeOptions: options.storeOptions, owner });
+    review = createServer({
+      store: options.store,
+      storeOptions: options.storeOptions,
+      owner,
+      renderTtlMs: options.renderTtlMs,
+    });
     await new Promise((resolve, reject) => {
       const onError = (err) => reject(err);
       review.server.once("error", onError);

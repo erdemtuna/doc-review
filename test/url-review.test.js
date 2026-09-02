@@ -45,6 +45,16 @@ function listen(server) {
   });
 }
 
+async function registerRender(port, token, sessionId, key, generation = 1) {
+  const res = await request(port, token, {
+    method: "POST",
+    route: `/api/session/${sessionId}/render`,
+    body: { key, generation },
+  });
+  assert.equal(res.status, 200, res.raw);
+  return JSON.parse(res.raw);
+}
+
 test("a localhost route is visually editable and returns source-directed feedback", async (t) => {
   const app = http.createServer((req, res) => {
     if (req.url === "/redirect-away") {
@@ -80,13 +90,15 @@ test("a localhost route is visually editable and returns source-directed feedbac
   assert.equal(page.feedbackOnly, true);
   assert.equal(page.canRevert, false);
 
-  const artifact = await request(review.port, review.token, { route: `/artifact/${key}/index.html` });
+  const render = await registerRender(review.port, review.token, sessionId, key);
+  const artifact = await request(review.port, review.token, { route: render.path });
   assert.equal(artifact.status, 200, artifact.raw);
   assert.match(artifact.raw, /<h1>Wiki<\/h1>/);
   assert.doesNotMatch(artifact.raw, /<base/);
   assert.match(artifact.raw, new RegExp(`href="http://localhost:${appPort}/_next/wiki\\.css"`));
   assert.match(artifact.raw, /<script data-eh-route>history\.replaceState\(null,"",location\.origin\+"\/wiki"\)<\/script>/);
-  assert.match(artifact.raw, new RegExp(`src="http://127\\.0\\.0\\.1:${review.port}/sdk\\.js\\?key=${key}"`));
+  assert.match(artifact.raw, new RegExp(`src="http://127\\.0\\.0\\.1:${review.port}/sdk\\.js"`));
+  assert.match(artifact.raw, new RegExp(`nonce="${render.capability}"`));
 
   const save = await request(review.port, review.token, {
     method: "POST",

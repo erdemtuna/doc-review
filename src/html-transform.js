@@ -1,6 +1,6 @@
 // Match only the tag itself: injection adds no whitespace, so stripping must
 // not eat any either, or open→save would not round-trip byte-identically.
-const SDK_TAG_RE = /<script[^>]*\bdata-eh-sdk\b[^>]*><\/script>/gi;
+const SDK_TAG_RE = /<script[^>]*\bdata-eh-sdk\b[^>]*\bdata-eh-bootstrap\b[^>]*><\/script>/gi;
 const SDK_BASE_RE = /<base[^>]*\bdata-eh-sdk\b[^>]*>/gi;
 const SDK_ROUTE_RE = /<script[^>]*\bdata-eh-route\b[^>]*>[\s\S]*?<\/script>/gi;
 const ASSET_TAG_RE = /<(script|link|img|source|video|audio|iframe|embed|object)\b[^>]*>/gi;
@@ -20,12 +20,19 @@ function absolutizeAssets(html, baseHref) {
  * Add the review bootstrap tags. Everything else about the artifact is left
  * byte-identical, so the saved file renders the same standalone.
  */
-export function injectSdk(html, key, { src = `/sdk.js?key=${encodeURIComponent(key)}`, baseHref = "", nonce = "" } = {}) {
+export function injectSdk(
+  html,
+  key,
+  { src = "/sdk.js", baseHref = "", nonce = "", generation = 0, pageKey = key } = {}
+) {
   const clean = stripSdk(html);
   const escapedSrc = String(src).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   const escapedNonce = String(nonce).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const escapedPageKey = String(pageKey).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   const nonceAttr = escapedNonce ? ` nonce="${escapedNonce}"` : "";
-  const tag = `<script data-eh-sdk type="module"${nonceAttr} src="${escapedSrc}"></script>`;
+  const tag =
+    `<script data-eh-sdk data-eh-bootstrap type="module"${nonceAttr}` +
+    ` data-generation="${Number(generation)}" data-page-key="${escapedPageKey}" src="${escapedSrc}"></script>`;
   let prepared = clean;
   if (baseHref) {
     const url = new URL(baseHref);
@@ -36,20 +43,12 @@ export function injectSdk(html, key, { src = `/sdk.js?key=${encodeURIComponent(k
       ? prepared.replace(/<head(\s[^>]*)?>/i, (head) => `${head}${restoreRoute}`)
       : `${restoreRoute}${prepared}`;
   }
-  // No added whitespace: the SDK compares the live DOM against the on-disk file
-  // to detect self-rendering pages, and a stray newline would read as an edit.
-  // Inject before the LAST closing tag — an inline script may legally contain
-  // the literal string "</body>", and only the final one closes the document.
-  const injected = injectBeforeLast(prepared, /<\/body\s*>/gi, tag) ?? injectBeforeLast(prepared, /<\/html\s*>/gi, tag);
-  return injected ?? `${prepared}${tag}`;
-}
-
-function injectBeforeLast(html, closeRe, tag) {
-  let last = -1;
-  let match;
-  while ((match = closeRe.exec(html))) last = match.index;
-  if (last === -1) return null;
-  return `${html.slice(0, last)}${tag}${html.slice(last)}`;
+  // Put the trusted module before authored markup can enter an unclosed
+  // script/style/textarea raw-text context. Removing this exact tag restores
+  // every authored byte.
+  const doctype = /^(\uFEFF?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>)/i.exec(prepared);
+  const at = doctype ? doctype[0].length : 0;
+  return `${prepared.slice(0, at)}${tag}${prepared.slice(at)}`;
 }
 
 /** Remove any injected tag, so a file saved with one never keeps it. */

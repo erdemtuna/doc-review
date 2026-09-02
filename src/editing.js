@@ -71,3 +71,29 @@ export function normalizeHref(raw) {
   }
   return candidate;
 }
+
+/**
+ * Classify an authored navigation target. Relative references stay under
+ * controlled source-relative navigation; only explicitly safe external
+ * schemes leave the review.
+ */
+export function classifyHref(raw) {
+  const href = String(raw || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (!href) return "invalid";
+  if (href.startsWith("#")) return "hash";
+  if (/^\/\//.test(href) || /^https?:/i.test(href) || /^(?:mailto|tel):/i.test(href)) return "external";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return "invalid";
+  return "navigate";
+}
+
+export function externalHref(raw, baseHref = "https://relative.invalid/") {
+  const href = String(raw || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (classifyHref(href) !== "external") return "";
+  if (/^(?:mailto|tel):/i.test(href)) return href;
+  try {
+    const parsed = new URL(href, baseHref);
+    return /^https?:$/i.test(parsed.protocol) ? parsed.href : "";
+  } catch {
+    return "";
+  }
+}

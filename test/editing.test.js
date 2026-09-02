@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "../src/editing.js";
+import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "../src/editing.js";
 
 test("list markers typed at the start of a line convert to the right list", () => {
   assert.equal(listCommandFor("-"), "insertUnorderedList");
@@ -72,4 +72,20 @@ test("executable and unknown schemes are rejected outright", () => {
   assert.equal(normalizeHref("data:text/html,<script>x</script>"), "");
   assert.equal(normalizeHref("vbscript:x"), "");
   assert.equal(normalizeHref(""), "");
+});
+
+test("SDK and parent share one safe navigation classification", () => {
+  for (const href of ["http://example.com/x", "https://example.com/x", "//example.com/x", "mailto:a@b.co", "tel:+15551234"]) {
+    assert.equal(classifyHref(href), "external");
+  }
+  for (const href of ["/docs", "./next.html", "../up.md", "plain.html"]) {
+    assert.equal(classifyHref(href), "navigate");
+  }
+  assert.equal(classifyHref("#section"), "hash");
+  for (const href of ["javascript:alert(1)", "data:text/html,x", "blob:https://example.com/id", "ftp://example.com/x"]) {
+    assert.equal(classifyHref(href), "invalid");
+    assert.equal(externalHref(href, "https://review.invalid/"), "");
+  }
+  assert.equal(externalHref("//example.com/x", "http://review.invalid/"), "http://example.com/x");
+  assert.equal(externalHref("tel:+15551234"), "tel:+15551234");
 });

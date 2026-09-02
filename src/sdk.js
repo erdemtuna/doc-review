@@ -7,8 +7,11 @@
  */
 import { buildContext, findQuote } from "./anchor-text.js";
 import { hashClickAction, navigationHref } from "./click-target.js";
-import { linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "./editing.js";
+import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "./editing.js";
+import { frameMessage, initializeChannelFromDocument, matchesFrameMessage } from "./frame-channel.js";
 import { keepBodyEditable, serializeDocument, UI_ATTR, MARK_ATTR } from "./serialize.js";
+
+initializeChannelFromDocument();
 
 const SAVE_DEBOUNCE_MS = 700;
 const EDIT_FLUSH_MS = 500;
@@ -19,7 +22,7 @@ const MEDIA = /^(img|svg|canvas|video|picture|iframe|hr|figure)$/i;
 // nothing we post can be read by any other embedder.
 const CHROME_ORIGIN = `${location.protocol}//${location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1"}:${location.port}`;
 
-const post = (type, payload) => parent.postMessage({ ...payload, type }, CHROME_ORIGIN);
+const post = (type, payload) => parent.postMessage(frameMessage(type, payload), CHROME_ORIGIN);
 
 let pending = null; // { id, marks } for an uncommitted highlight
 let hoverTarget = null;
@@ -739,8 +742,12 @@ function boot() {
         if (href) {
           event.preventDefault();
           event.stopPropagation();
-          if (/^(https?:)?\/\//i.test(href) || /^mailto:/i.test(href)) post("eh:external", { href: new URL(href, document.baseURI).href });
-          else if (href.startsWith("#")) {
+          const classification = classifyHref(href);
+          if (classification === "external") {
+            const external = externalHref(href, document.baseURI);
+            if (external) post("eh:external", { href: external });
+          }
+          else if (classification === "hash") {
             const action = hashClickAction(href, location.hash);
             if (action.kind === "scroll") {
               const el = document.getElementById(action.id) || document.getElementsByName(action.id)[0] || document.body;
@@ -749,7 +756,7 @@ function boot() {
               location.hash = action.hash;
             }
           }
-          else {
+          else if (classification === "navigate") {
             // This document is about to be torn down: anything still sitting in
             // the debounce windows must ship first or it is lost. Message order
             // is guaranteed, so the edits land before the navigation does.
@@ -1448,6 +1455,7 @@ function boot() {
     // and not the artifact's own scripts.
     if (event.source !== window.parent || event.origin !== CHROME_ORIGIN) return;
     const msg = event.data || {};
+    if (!matchesFrameMessage(msg)) return;
     switch (msg.type) {
       case "eh:anchors":
         reanchor(msg.comments || []);

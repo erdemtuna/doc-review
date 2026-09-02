@@ -12,3 +12,8 @@ videos/
 
 # Local launch and review artifacts
 output/
+
+# Browser test state and reports
+.playwright-state/
+playwright-report/
+test-results/

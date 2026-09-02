@@ -80,21 +80,24 @@ async function alive(server) {
 
 async function ensureServer() {
   ensureStateDir();
-  const saved = readServerRecord();
-  if (saved?.protocol === SERVER_PROTOCOL && saved.port && saved.instance_id && (await alive(saved))) return saved;
+  for (let launch = 0; launch < 3; launch += 1) {
+    const saved = readServerRecord();
+    if (saved?.protocol === SERVER_PROTOCOL && saved.port && saved.instance_id && (await alive(saved))) return saved;
 
-  const child = spawn(process.execPath, [path.join(here, "server-entry.js")], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
+    const child = spawn(process.execPath, [path.join(here, "server-entry.js")], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
 
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    await new Promise((r) => setTimeout(r, 100));
-    const record = readServerRecord();
-    // Same protocol gate as above: a still-running server from an older
-    // version answers /health too, and must not be adopted here.
-    if (record?.protocol === SERVER_PROTOCOL && record.port && record.instance_id && (await alive(record))) return record;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      const record = readServerRecord();
+      // Same protocol gate as above: a still-running server from an older
+      // version answers /health too, and must not be adopted here.
+      if (record?.protocol === SERVER_PROTOCOL && record.port && record.instance_id && (await alive(record))) return record;
+      if (child.exitCode !== null && !readServerLock()) break;
+    }
   }
   throw new Error("Could not start the local human-review server.");
 }
@@ -194,7 +197,7 @@ function printTimeout(waitedSecs) {
 
 async function pollCommand(input, { ackId = "", timeoutSecs = 0 } = {}) {
   const target = canonicalTarget(input).value;
-  const server = await ensureServer();
+  let server = await ensureServer();
 
   const label = /^https?:\/\//i.test(target) ? target : path.basename(target);
   process.stderr.write(`Waiting for feedback on ${label} — comment in the browser, then hit Send.\n`);
@@ -208,10 +211,14 @@ async function pollCommand(input, { ackId = "", timeoutSecs = 0 } = {}) {
       result = await pollOnce(server, target, ackId && attempt === 0 ? ackId : "", remaining);
     } catch (err) {
       process.stderr.write(`Lost the connection (${err.message}); retrying.\n`);
+      server = await ensureServer();
       continue;
     }
     if (result.kind === "timeout") return printTimeout(timeoutSecs);
-    if (!result.raw) continue;
+    if (!result.raw) {
+      server = await ensureServer();
+      continue;
+    }
     try {
       const batch = JSON.parse(result.raw);
       await writeStdout(`${JSON.stringify(batch, null, 2)}\n`);

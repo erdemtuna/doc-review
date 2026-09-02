@@ -100,7 +100,13 @@ test("a markdown review is rendered, flagged, and never writable", async (t) => 
   const { key, sessionId } = JSON.parse(opened.raw);
 
   await t.test("the artifact route serves rendered html with the sdk injected", async () => {
-    const res = await request(port, token, { route: `/artifact/${key}/index.html` });
+    const registered = await request(port, token, {
+      method: "POST",
+      route: `/api/session/${sessionId}/render`,
+      body: { key, generation: 1 },
+    });
+    assert.equal(registered.status, 200, registered.raw);
+    const res = await request(port, token, { route: JSON.parse(registered.raw).path });
     assert.equal(res.status, 200);
     assert.match(res.raw, /<h1[^>]*>Notes<\/h1>/);
     assert.match(res.raw, /data-eh-sdk/);

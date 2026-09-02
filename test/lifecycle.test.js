@@ -76,8 +76,7 @@ test("25 complete start, open, poll, and dispose cycles terminate naturally", as
         const firstDispose = review.dispose();
         assert.strictEqual(review.dispose(), firstDispose, "dispose returns its cached promise");
         await firstDispose;
-        const closed = JSON.parse(await poll.completed);
-        assert.equal(closed.status, "closed");
+        assert.equal(await poll.completed, "", "shutdown interrupts the poll without impersonating a user-closed review");
         assert.equal(fs.existsSync(serverLockPath()), false);
         assert.equal(fs.existsSync(serverPath()), false);
       })(),
