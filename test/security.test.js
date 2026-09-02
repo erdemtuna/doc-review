@@ -26,7 +26,7 @@ function request(port, { method = "GET", route = "/", headers = {}, body = null 
         res.on("data", (chunk) => {
           raw += chunk;
         });
-        res.on("end", () => resolve({ status: res.statusCode, raw }));
+        res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, raw }));
       }
     );
     req.on("error", reject);
@@ -35,9 +35,20 @@ function request(port, { method = "GET", route = "/", headers = {}, body = null 
   });
 }
 
+async function registerRender(port, token, sessionId, key, generation = 1) {
+  const res = await request(port, {
+    method: "POST",
+    route: `/api/session/${sessionId}/render`,
+    headers: { "x-human-review-token": token },
+    body: { key, generation },
+  });
+  assert.equal(res.status, 200, res.raw);
+  return JSON.parse(res.raw);
+}
+
 test("the local server refuses strangers", async (t) => {
   const { port, token, dispose } = await start();
-  t.after(() => dispose());
+  t.after(async () => dispose());
 
   const file = path.join(tmp, "page.html");
   fs.writeFileSync(file, "<!doctype html><html><body><p>Hi</p></body></html>");
@@ -65,6 +76,9 @@ test("the local server refuses strangers", async (t) => {
     const editing = await request(port, { route: "/editing.js" });
     assert.equal(editing.status, 200);
     assert.match(editing.raw, /export function listCommandFor/);
+    const channel = await request(port, { route: "/frame-channel.js" });
+    assert.equal(channel.status, 200);
+    assert.equal(channel.headers["access-control-allow-origin"], undefined);
   });
 
   await t.test("a DNS-rebound host header is rejected everywhere", async () => {
@@ -98,6 +112,52 @@ test("the local server refuses strangers", async (t) => {
     });
     assert.equal(res.status, 200);
     assert.match(JSON.parse(res.raw).html, /<p>Hi<\/p>/);
+  });
+
+  await t.test("file reviews execute only the nonce-authorized SDK", async () => {
+    const hostile = '<!doctype html><html><body><h1>Review me</h1><script>parent.postMessage({type:"eh:html",html:"owned"},"*")</script><button onclick="alert(1)">Comment target</button></body></html>';
+    fs.writeFileSync(file, hostile);
+    const opened = await request(port, {
+      method: "POST",
+      route: "/api/session",
+      headers: { "x-human-review-token": token },
+      body: { file },
+    });
+    const { key, sessionId } = JSON.parse(opened.raw);
+    const render = await registerRender(port, token, sessionId, key);
+    assert.doesNotMatch(render.path, new RegExp(render.capability));
+    const artifact = await request(port, { route: render.path });
+
+    assert.equal(artifact.status, 200);
+    assert.equal(artifact.headers["cache-control"], "no-store");
+    assert.equal(artifact.headers["referrer-policy"], "no-referrer");
+    const csp = artifact.headers["content-security-policy"] || "";
+    const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
+    assert.ok(nonce, "file review response has a one-time script nonce");
+    assert.match(csp, /'strict-dynamic'/);
+    assert.match(csp, /object-src 'none'/);
+    assert.match(csp, /base-uri 'self'/);
+    assert.equal(artifact.raw.split(`nonce="${nonce}"`).length - 1, 1, "only the SDK receives the nonce");
+    assert.ok(artifact.raw.includes(`<script data-eh-sdk data-eh-bootstrap type="module" nonce="${nonce}"`));
+    assert.ok(artifact.raw.indexOf("data-eh-bootstrap") < artifact.raw.indexOf("<html>"));
+    assert.equal(nonce, render.capability, "the CSP nonce is also the hidden frame capability");
+    assert.match(artifact.raw, new RegExp(`data-generation="1" data-page-key="${key}"`));
+    assert.match(artifact.raw, new RegExp(`src="http://127\\.0\\.0\\.1:${port}/sdk\\.js"`));
+    assert.match(artifact.raw, /<script>parent\.postMessage/, "authored script stays present but CSP blocks it");
+    assert.match(artifact.raw, /onclick="alert\(1\)"/, "commentable authored elements remain in the page");
+    assert.equal(fs.readFileSync(file, "utf8"), hostile, "serving the safe review does not rewrite the file");
+
+    const ready = await request(port, {
+      method: "POST",
+      route: `/api/session/${sessionId}/render/${render.renderId}/ready`,
+      headers: { "x-human-review-token": token },
+      body: {
+        capability: render.capability,
+        generation: render.generation,
+        pageKey: key,
+      },
+    });
+    assert.equal(ready.status, 200);
   });
 
   await t.test("the server record keeps its token private", () => {

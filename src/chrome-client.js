@@ -5,7 +5,8 @@
  * hostname: a separate origin that can never reach this page or its token.
  */
 import { tidy } from "./anchor-text.js";
-import { pageUrl, replacePage } from "./chrome-session.js";
+import { newestComments, pageUrl, replacePage } from "./chrome-session.js";
+import { externalHref } from "./editing.js";
 import { framePolicy } from "./frame-policy.js";
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +31,14 @@ const state = {
   reloading: false,
   dynamic: false,
   framePolicy: null,
+  renderGeneration: 0,
+  renderId: null,
+  frameCapability: null,
+  frameLoading: true,
+  pendingInitialLoad: false,
+  readyGeneration: null,
+  frameReadyTimer: null,
+  frameReadyRetries: 0,
 };
 
 /**
@@ -40,7 +49,7 @@ const state = {
 function handoffPrompt(pollCommand) {
   const cmd = String(pollCommand || "").trim();
   if (!cmd) return "";
-  return `Run \`${cmd} --timeout 600\`, apply the feedback it returns, then keep polling with --ack until I end the review.`;
+  return `Run \`${cmd} --timeout 600\`, apply the feedback it returns, then run its exact \`next_step\` command with \`--ack <batch_id>\` until I end the review.`;
 }
 
 // ------------------------------------------------------------------- server
@@ -63,15 +72,71 @@ async function api(path, options) {
 // This gives route-aware frameworks a real origin without exposing the parent UI.
 const ARTIFACT_HOST = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
 const ARTIFACT_ORIGIN = `${location.protocol}//${ARTIFACT_HOST}:${location.port}`;
+const FRAME_READY_TIMEOUT_MS = 5000;
 
 // URL reviews keep a real origin. File reviews use an opaque sandbox origin,
 // so postMessage requires "*" while the source-window check remains exact.
-const toFrame = (message) =>
-  frame.contentWindow && frame.contentWindow.postMessage(message, state.framePolicy?.targetOrigin || ARTIFACT_ORIGIN);
+const toFrame = (message) => {
+  if (state.frameLoading || !state.frameCapability || !frame.contentWindow) return;
+  frame.contentWindow.postMessage(
+    {
+      ...message,
+      capability: state.frameCapability,
+      generation: state.renderGeneration,
+      pageKey: state.key,
+    },
+    state.framePolicy?.targetOrigin || ARTIFACT_ORIGIN
+  );
+};
 
-function artifactUrl(key, bust = false) {
-  const query = bust ? `?t=${Date.now()}` : "";
-  return `${ARTIFACT_ORIGIN}/artifact/${key}/index.html${query}`;
+function suspendFrame() {
+  clearTimeout(state.frameReadyTimer);
+  state.frameReadyTimer = null;
+  state.frameCapability = null;
+  state.renderId = null;
+  state.frameLoading = true;
+  state.readyGeneration = null;
+}
+
+function beginFrameTransition() {
+  state.renderGeneration += 1;
+  suspendFrame();
+  return state.renderGeneration;
+}
+
+async function registerFrame(key, generation) {
+  const registered = await api(`/api/session/${state.sessionId}/render`, {
+    method: "POST",
+    body: JSON.stringify({ key, generation }),
+  });
+  if (state.key !== key || state.renderGeneration !== generation) return false;
+  state.renderId = registered.renderId;
+  state.frameCapability = registered.capability;
+  state.frameLoading = true;
+  state.pendingInitialLoad = true;
+  frame.src = `${ARTIFACT_ORIGIN}${registered.path}`;
+  state.frameReadyTimer = setTimeout(() => {
+    if (state.key !== key || state.renderGeneration !== generation || !state.frameLoading) return;
+    if (state.frameReadyRetries < 1) {
+      state.frameReadyRetries += 1;
+      rotateCurrentFrame();
+      return;
+    }
+    suspendFrame();
+    toast("The reviewed page did not finish loading. Reload it after fixing the source or local server.");
+  }, FRAME_READY_TIMEOUT_MS);
+  return true;
+}
+
+function rotateCurrentFrame() {
+  if (!state.key) return;
+  const key = state.key;
+  const generation = beginFrameTransition();
+  void registerFrame(key, generation).catch((err) => {
+    if (state.key !== key || state.renderGeneration !== generation) return;
+    suspendFrame();
+    toast(err.message);
+  });
 }
 
 /**
@@ -81,6 +146,7 @@ function artifactUrl(key, bust = false) {
  */
 let flushWaiter = null;
 function flushFrame() {
+  if (state.frameLoading || !state.frameCapability) return Promise.resolve();
   return new Promise((resolve) => {
     const settle = () => {
       if (flushWaiter !== settle) return;
@@ -95,8 +161,12 @@ function flushFrame() {
 
 async function loadPage(key, { reload = true } = {}) {
   const returning = state.page;
+  const generation = beginFrameTransition();
+  state.frameReadyRetries = 0;
   state.key = key;
-  replacePage(state, await api(pageUrl(key, state.sessionId)));
+  const page = await api(pageUrl(key, state.sessionId));
+  if (state.key !== key || state.renderGeneration !== generation) return;
+  replacePage(state, page);
   state.framePolicy = framePolicy(state.page, ARTIFACT_ORIGIN);
   frame.setAttribute("sandbox", state.framePolicy.sandbox);
   state.orphans = new Set();
@@ -108,7 +178,7 @@ async function loadPage(key, { reload = true } = {}) {
   clearTimeout(retryTimer);
   if (reload) {
     state.reloading = true;
-    frame.src = artifactUrl(key);
+    await registerFrame(key, generation);
   }
   render();
   // Coming back to a dev-server page shows the app's own copy again, without
@@ -138,8 +208,9 @@ const clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute:
 function render() {
   const page = state.page;
   if (!page) return;
+  document.title = page.filename || 'human-review';
 
-  const comments = page.comments || [];
+  const comments = newestComments(page.comments);
   const edits = page.edits || [];
 
   $("count").textContent = String(comments.length);
@@ -175,8 +246,20 @@ function render() {
     sep.textContent = "·";
     const when = document.createElement("span");
     when.className = "when";
-    when.textContent = ago(comment.createdAt);
+    when.textContent = ago(comment.updatedAt || comment.createdAt);
     who.append(sep, when);
+
+    if (comment.correction) {
+      const badge = document.createElement("span");
+      badge.className = "badge correction";
+      badge.textContent = "correction";
+      who.append(badge);
+    } else if (comment.updatedAt) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "edited";
+      who.append(badge);
+    }
 
     if (state.orphans.has(comment.id)) {
       const badge = document.createElement("span");
@@ -194,6 +277,15 @@ function render() {
       setActive(comment.id, true);
     });
 
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "jump edit-comment";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", (event) => {
+      event.stopPropagation();
+      editComment(card, body, comment);
+    });
+
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "remove";
@@ -207,8 +299,6 @@ function render() {
       render();
     });
 
-    head.append(who, jump, remove);
-
     const quote = document.createElement("p");
     quote.className = "quote";
     quote.textContent = tidy(comment.quote, 140);
@@ -221,6 +311,8 @@ function render() {
       event.stopPropagation();
       editComment(card, body, comment);
     });
+
+    head.append(who, jump, edit, remove);
 
     card.append(head, quote, body);
     card.addEventListener("click", () => setActive(comment.id, false));
@@ -285,6 +377,7 @@ function render() {
       row.append(label, count);
       row.addEventListener("click", async () => {
         await flushFrame();
+        suspendFrame();
         await api(`/api/session/${state.sessionId}/goto`, {
           method: "POST",
           body: JSON.stringify({ key: other.key }),
@@ -379,11 +472,21 @@ function editComment(card, body, comment) {
     const feedback = input.value.trim();
     if (!feedback || feedback === comment.feedback) return render();
     try {
-      state.page = (await api(`/api/page/${state.key}/comment/${comment.id}`, {
+      const result = await api(`/api/page/${state.key}/comment/${comment.id}`, {
         method: "PATCH",
         body: JSON.stringify({ feedback }),
-      })).page;
-      state.sent = false;
+      });
+      state.page = result.page;
+      if (result.delivery === "updated-pending") {
+        toast("Updated the feedback waiting for your agent");
+      } else if (result.delivery === "correction") {
+        state.sent = false;
+        toFrame({ type: "eh:remove", id: comment.id });
+        toFrame({ type: "eh:anchors", comments: state.page.comments });
+        toast("Saved as a correction — send it after the current batch is acknowledged");
+      } else {
+        state.sent = false;
+      }
     } catch (err) {
       toast(err.message);
     }
@@ -514,9 +617,31 @@ window.addEventListener("message", async (event) => {
   if (!frame.contentWindow || event.source !== frame.contentWindow) return;
   if (!state.framePolicy || event.origin !== state.framePolicy.incomingOrigin) return;
   const msg = event.data || {};
+  if (
+    !state.frameCapability ||
+    msg.capability !== state.frameCapability ||
+    msg.generation !== state.renderGeneration ||
+    msg.pageKey !== state.key
+  ) return;
+  if (state.frameLoading && msg.type !== "eh:ready") return;
 
   switch (msg.type) {
     case "eh:ready": {
+      if (state.readyGeneration === state.renderGeneration) return;
+      clearTimeout(state.frameReadyTimer);
+      state.frameReadyTimer = null;
+      state.frameReadyRetries = 0;
+      state.readyGeneration = state.renderGeneration;
+      state.frameLoading = false;
+      const readyCapability = state.frameCapability;
+      void api(`/api/session/${state.sessionId}/render/${state.renderId}/ready`, {
+        method: "POST",
+        body: JSON.stringify({
+          capability: readyCapability,
+          generation: state.renderGeneration,
+          pageKey: state.key,
+        }),
+      }).catch(() => {});
       toFrame({ type: "eh:anchors", comments: state.page ? state.page.comments : [] });
       if (state.reloading) {
         toFrame({ type: "eh:restoreScroll", x: state.scroll.x, y: state.scroll.y });
@@ -607,9 +732,14 @@ window.addEventListener("message", async (event) => {
     case "eh:scroll":
       state.scroll = { x: msg.x, y: msg.y };
       break;
-    case "eh:external":
-      window.open(msg.href, "_blank", "noopener");
+    case "eh:external": {
+      // This side is what actually calls window.open, so it re-checks the
+      // scheme rather than trusting the frame: a javascript: or data: URL
+      // arriving here would run on this origin, next to the token.
+      const external = externalHref(msg.href, location.href);
+      if (external) window.open(external, "_blank", "noopener");
       break;
+    }
     case "eh:navigate":
       try {
         const result = await api(`/api/session/${state.sessionId}/navigate`, {
@@ -789,14 +919,17 @@ function connect() {
   // Another window on this session hit End review.
   source.addEventListener("ended", () => showEnded());
   source.addEventListener("reload", () => {
+    const key = state.key;
+    const generation = beginFrameTransition();
+    state.frameReadyRetries = 0;
     const hadEdits = state.page ? state.page.edits.length : 0;
     state.reloading = true;
     state.dynamic = false;
     // The file on disk changed: queued saves are based on the old version.
     state.baseHash = null;
     clearTimeout(retryTimer);
-    frame.src = artifactUrl(state.key, true);
-    api(pageUrl(state.key, state.sessionId)).then((page) => {
+    api(pageUrl(key, state.sessionId)).then((page) => {
+      if (state.key !== key || state.renderGeneration !== generation) return;
       replacePage(state, page);
       state.save = "idle";
       state.savedAt = "";
@@ -805,6 +938,9 @@ function connect() {
       if (hadEdits && page.edits.length === 0) {
         toast(`Agent rewrote ${hadEdits} ${hadEdits === 1 ? "block" : "blocks"} you had edited`);
       }
+      void registerFrame(key, generation).catch((err) => toast(err.message));
+    }).catch((err) => {
+      if (state.key === key && state.renderGeneration === generation) toast(err.message);
     });
   });
   source.addEventListener("agent", (event) => {
@@ -812,7 +948,10 @@ function connect() {
     render();
   });
   source.addEventListener("refresh", async () => {
-    replacePage(state, await api(pageUrl(state.key, state.sessionId)));
+    const key = state.key;
+    const page = await api(pageUrl(key, state.sessionId));
+    if (state.key !== key) return;
+    replacePage(state, page);
     state.sent = false;
     render();
   });
@@ -831,7 +970,17 @@ function connect() {
 
   const bootstrap = await api(`/api/session/${state.sessionId}/page`).catch(() => null);
   if (bootstrap && bootstrap.page) state.pollCommand = bootstrap.page.pollCommand;
+  if (bootstrap && Number.isSafeInteger(bootstrap.generation)) state.renderGeneration = bootstrap.generation;
   const key = bootstrap ? bootstrap.key : new URLSearchParams(location.search).get("key");
   await loadPage(key);
   connect();
 })();
+
+frame.addEventListener("load", () => {
+  if (!state.renderId || !state.frameCapability) return;
+  if (state.pendingInitialLoad) {
+    state.pendingInitialLoad = false;
+    return;
+  }
+  rotateCurrentFrame();
+});

@@ -50,6 +50,32 @@ Human Review opens the file in your browser. Make direct edits, leave comments, 
 
 Note: For HTML files, direct edits and resizes save automatically. For Markdown and localhost pages, click Send so your agent can apply them to the source.
 
+File and rendered Markdown reviews run with authored scripts and inline handlers
+blocked, an opaque iframe origin, and no popup or download permission. Their
+per-render message capability is rotated for every load and navigation. It is
+kept out of document URLs, HTML attributes, authored DOM, and global JavaScript
+state; the single-use artifact URL loads a same-origin bootstrap module under a
+nonce-based CSP. Relative assets, including a same-artifact `<base>`, resolve
+beside the reviewed file, while review navigation always stays relative to the
+source file. External bases are ignored.
+
+Localhost reviews keep `allow-same-origin`, popup, and download compatibility so
+application behavior still works. Because localhost application scripts are
+trusted in that mode, the render capability provides correlation and stale
+message rejection rather than an authorization boundary. The authenticated
+parent still validates links and never exposes the raw-file save route to a
+localhost review.
+
+Agent polling returns an immutable `batch_id`. After applying the batch, the
+agent acknowledges that exact receipt and keeps waiting:
+
+```sh
+human-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
+```
+
+A stale or repeated batch ID is harmless: it never clears newer feedback. The
+complete acknowledgement command is included in each response's `next_step`.
+
 ## What this skill lets you do
 
 - **Edit text directly and tweak basic formatting** (e.g., bold, italic).

@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { canonicalTarget, ensureStateDir, SERVER_PROTOCOL, serverPath, statePath, targetKey } from "./paths.js";
+import { readServerLock } from "./server-lock.js";
 import { installSkills, shellQuote } from "./setup.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -14,7 +15,7 @@ const HELP = `human-review ${pkg.version}
 
   human-review <file-or-localhost-url> Open a file or localhost page for review
   human-review poll <target>          Wait for feedback, print it as JSON (for agents)
-      --ack                        Acknowledge the last batch, then keep waiting
+      --ack <batch_id>             Acknowledge that exact delivered batch, then keep waiting
       --timeout <secs>             Exit with {"status":"timeout"} if nothing arrives
   human-review status <target>        Report whether feedback is waiting, without blocking
   human-review setup                  Teach Claude Code / Codex how to use human-review
@@ -60,10 +61,18 @@ function request(server, options, body) {
   });
 }
 
-async function alive(port) {
+async function alive(server) {
   try {
-    const res = await request(port, { method: "GET", path: "/health", timeout: 1200 });
-    return res.status === 200;
+    const lock = readServerLock();
+    if (lock?.pid !== server.pid || lock?.instance_id !== server.instance_id) return false;
+    const res = await request(server, { method: "GET", path: "/health", timeout: 1200 });
+    if (res.status !== 200) return false;
+    const health = JSON.parse(res.raw);
+    return (
+      health.protocol === SERVER_PROTOCOL &&
+      health.pid === server.pid &&
+      health.instance_id === server.instance_id
+    );
   } catch {
     return false;
   }
@@ -71,21 +80,24 @@ async function alive(port) {
 
 async function ensureServer() {
   ensureStateDir();
-  const saved = readServerRecord();
-  if (saved?.protocol === SERVER_PROTOCOL && saved.port && (await alive(saved.port))) return saved;
+  for (let launch = 0; launch < 3; launch += 1) {
+    const saved = readServerRecord();
+    if (saved?.protocol === SERVER_PROTOCOL && saved.port && saved.instance_id && (await alive(saved))) return saved;
 
-  const child = spawn(process.execPath, [path.join(here, "server-entry.js")], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
+    const child = spawn(process.execPath, [path.join(here, "server-entry.js")], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
 
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    await new Promise((r) => setTimeout(r, 100));
-    const record = readServerRecord();
-    // Same protocol gate as above: a still-running server from an older
-    // version answers /health too, and must not be adopted here.
-    if (record?.protocol === SERVER_PROTOCOL && record.port && (await alive(record.port))) return record;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      const record = readServerRecord();
+      // Same protocol gate as above: a still-running server from an older
+      // version answers /health too, and must not be adopted here.
+      if (record?.protocol === SERVER_PROTOCOL && record.port && record.instance_id && (await alive(record))) return record;
+      if (child.exitCode !== null && !readServerLock()) break;
+    }
   }
   throw new Error("Could not start the local human-review server.");
 }
@@ -126,8 +138,8 @@ async function openCommand(input) {
  * One long-poll attempt. Resolves { kind: "data", raw } when the server
  * answers, or { kind: "timeout" } when the caller's deadline passes first.
  */
-function pollOnce(server, target, ack, timeoutMs) {
-  const query = `target=${encodeURIComponent(target)}${ack ? "&ack=1" : ""}`;
+function pollOnce(server, target, ackId, timeoutMs) {
+  const query = `target=${encodeURIComponent(target)}${ackId ? `&ack=${encodeURIComponent(ackId)}` : ""}`;
   return new Promise((resolve, reject) => {
     let done = false;
     const settle = (fn, value) => {
@@ -183,9 +195,9 @@ function printTimeout(waitedSecs) {
   return writeStdout(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
-async function pollCommand(input, { ack = false, timeoutSecs = 0 } = {}) {
+async function pollCommand(input, { ackId = "", timeoutSecs = 0 } = {}) {
   const target = canonicalTarget(input).value;
-  const server = await ensureServer();
+  let server = await ensureServer();
 
   const label = /^https?:\/\//i.test(target) ? target : path.basename(target);
   process.stderr.write(`Waiting for feedback on ${label} — comment in the browser, then hit Send.\n`);
@@ -196,13 +208,17 @@ async function pollCommand(input, { ack = false, timeoutSecs = 0 } = {}) {
     if (deadline && remaining <= 0) return printTimeout(timeoutSecs);
     let result;
     try {
-      result = await pollOnce(server, target, ack && attempt === 0, remaining);
+      result = await pollOnce(server, target, ackId && attempt === 0 ? ackId : "", remaining);
     } catch (err) {
       process.stderr.write(`Lost the connection (${err.message}); retrying.\n`);
+      server = await ensureServer();
       continue;
     }
     if (result.kind === "timeout") return printTimeout(timeoutSecs);
-    if (!result.raw) continue;
+    if (!result.raw) {
+      server = await ensureServer();
+      continue;
+    }
     try {
       const batch = JSON.parse(result.raw);
       await writeStdout(`${JSON.stringify(batch, null, 2)}\n`);
@@ -223,7 +239,7 @@ async function pollCommand(input, { ack = false, timeoutSecs = 0 } = {}) {
 async function statusCommand(input) {
   const target = canonicalTarget(input).value;
   const saved = readServerRecord();
-  if (saved?.protocol === SERVER_PROTOCOL && saved.port && (await alive(saved.port))) {
+  if (saved?.protocol === SERVER_PROTOCOL && saved.port && saved.instance_id && (await alive(saved))) {
     const res = await request(saved, { method: "GET", path: `/api/status?target=${encodeURIComponent(target)}` });
     if (res.status === 200) {
       process.stdout.write(`${JSON.stringify(JSON.parse(res.raw), null, 2)}\n`);
@@ -273,11 +289,20 @@ process.on("SIGINT", () => {
 });
 
 function parsePollArgs(rest) {
-  const parsed = { file: "", ack: false, timeoutSecs: 0 };
+  const parsed = { file: "", ackId: "", timeoutSecs: 0 };
   let sawTimeout = false;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
-    if (arg === "--ack") parsed.ack = true;
+    if (arg === "--ack") {
+      const value = rest[(i += 1)];
+      if (!value || value.startsWith("-")) {
+        throw new Error("--ack requires the batch_id from the feedback response, e.g. --ack b_123");
+      }
+      parsed.ackId = value;
+    }
+    else if (arg.startsWith("--ack=")) {
+      throw new Error("Use --ack <batch_id> with the batch ID as a separate argument.");
+    }
     else if (arg === "--timeout") {
       sawTimeout = true;
       parsed.timeoutSecs = Number(rest[(i += 1)]);
@@ -285,6 +310,7 @@ function parsePollArgs(rest) {
       sawTimeout = true;
       parsed.timeoutSecs = Number(arg.slice("--timeout=".length));
     } else if (!arg.startsWith("-") && !parsed.file) parsed.file = arg;
+    else throw new Error(`Unknown poll argument: ${arg}`);
   }
   // A malformed value must fail loudly — NaN or 0 silently waiting forever is
   // the exact hang the flag exists to prevent.
@@ -296,9 +322,9 @@ function parsePollArgs(rest) {
 
 try {
   if (argv[0] === "poll") {
-    const { file, ack, timeoutSecs } = parsePollArgs(argv.slice(1));
-    if (!file) throw new Error("Usage: human-review poll <file-or-localhost-url> [--ack] [--timeout <secs>]");
-    await pollCommand(file, { ack, timeoutSecs });
+    const { file, ackId, timeoutSecs } = parsePollArgs(argv.slice(1));
+    if (!file) throw new Error("Usage: human-review poll <file-or-localhost-url> [--ack <batch_id>] [--timeout <secs>]");
+    await pollCommand(file, { ackId, timeoutSecs });
   } else if (argv[0] === "status") {
     const file = argv.find((a, i) => i > 0 && !a.startsWith("-"));
     if (!file) throw new Error("Usage: human-review status <file-or-localhost-url>");
@@ -313,7 +339,3 @@ try {
   console.error(err.message || String(err));
   process.exit(1);
 }
-
-// A finished command must never linger on stray handles (keep-alive sockets
-// from health checks, for one) — on Windows that hangs the calling shell.
-process.exit(0);

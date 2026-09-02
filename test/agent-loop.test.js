@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { SERVER_PROTOCOL } from "../src/paths.js";
+import { SERVER_PROTOCOL, serverLockPath, serverPath } from "../src/paths.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-loop-"));
 process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
@@ -81,9 +81,23 @@ async function waitForServer(notPid) {
 
 async function stop(child) {
   if (child.exitCode === null) {
+    const closed = once(child, "close");
     child.kill();
-    await once(child, "exit");
+    await closed;
   }
+}
+
+async function waitForProcessExit(pid) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if (err.code === "ESRCH") return;
+      throw err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`replacement server PID ${pid} did not exit`);
 }
 
 // Flat, sequential top-level tests (no nested subtests): the nested form
@@ -94,6 +108,7 @@ const file = path.join(tmp, "review.html");
 fs.writeFileSync(file, "<p>Original</p>");
 const first = spawnServer();
 let server;
+let replacementPid = null;
 
 test("poll --timeout exits cleanly with a timeout status", async () => {
   server = await waitForServer();
@@ -127,25 +142,29 @@ test("status is idle before feedback, waiting after", async () => {
 
 test("a restarted server still delivers the sent batch", async () => {
   await stop(first);
-  // Clear the dead server's record so nothing races against a stale port.
-  fs.rmSync(path.join(process.env.HUMAN_REVIEW_STATE_DIR, "server.json"), { force: true });
-
-  const second = spawnServer();
-  try {
-    await waitForServer(server.pid);
-    const result = await collect(cli("poll", file, "--timeout", "10"));
-    assert.equal(result.code, 0, result.stderr);
-    const batch = JSON.parse(result.stdout);
-    assert.equal(batch.status, "feedback");
-    assert.equal(batch.pages[0].comments[0].feedback, "Sharper, please.");
-  } finally {
-    // Kill the server before cleanup deletes its state dir — Windows cannot
-    // remove files a live process still holds open.
-    await stop(second);
+  if (process.platform !== "win32") {
+    assert.equal(fs.existsSync(serverLockPath()), false, "SIGTERM releases the writer lock");
+    assert.equal(fs.existsSync(serverPath()), false, "SIGTERM removes only its server record");
   }
+
+  const result = await collect(cli("poll", file, "--timeout", "10"));
+  assert.equal(result.code, 0, result.stderr);
+  const batch = JSON.parse(result.stdout);
+  assert.equal(batch.status, "feedback");
+  assert.equal(batch.pages[0].comments[0].feedback, "Sharper, please.");
+  const replacement = await waitForServer(server.pid);
+  replacementPid = replacement.pid;
 });
 
 test.after(async () => {
   await stop(first);
+  if (replacementPid) {
+    try {
+      process.kill(replacementPid);
+    } catch (err) {
+      if (err.code !== "ESRCH") throw err;
+    }
+    await waitForProcessExit(replacementPid);
+  }
   fs.rmSync(tmp, { recursive: true, force: true });
 });

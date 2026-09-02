@@ -12,12 +12,30 @@ const LOCALHOST_PAGE = `<!DOCTYPE html>
 <html><head><title>Spec</title><link rel="stylesheet" href="/_next/app.css"></head>
 <body><a href="/wiki/lesson">Lesson</a><img src="./hero.png"><script src="/_next/app.js"></script></body></html>`;
 
-test("injectSdk adds exactly one script before </body>", () => {
+test("injectSdk adds exactly one bootstrap immediately after the doctype", () => {
   const out = injectSdk(PAGE, "abc123");
   const tags = out.match(/<script[^>]*data-eh-sdk/g) || [];
   assert.equal(tags.length, 1);
-  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("</body>"));
-  assert.ok(out.includes('src="/sdk.js?key=abc123"'));
+  assert.match(
+    out,
+    /^<!DOCTYPE html><script data-eh-sdk data-eh-bootstrap type="module" data-generation="0" data-page-key="abc123" src="\/sdk\.js"><\/script>/
+  );
+});
+
+test("injectSdk gives only its trusted script the supplied nonce", () => {
+  const page = '<!DOCTYPE html><html><body><script>parent.postMessage({type:"eh:html"}, "*")</script></body></html>';
+  const out = injectSdk(page, "abc123", {
+    nonce: "one-time-permission",
+    generation: 7,
+    pageKey: "page-key",
+  });
+  assert.match(
+    out,
+    /<script data-eh-sdk data-eh-bootstrap type="module" nonce="one-time-permission" data-generation="7" data-page-key="page-key" src="\/sdk\.js"><\/script>/
+  );
+  assert.equal((out.match(/nonce="one-time-permission"/g) || []).length, 1);
+  assert.match(out, /<script>parent\.postMessage/, "the authored script remains in the source representation");
+  assert.equal(stripSdk(out), page, "saving restores the original script bytes");
 });
 
 test("injecting twice never stacks tags", () => {
@@ -36,21 +54,25 @@ test("a saved file never keeps the injected tag", () => {
   assert.ok(!saved.includes("sdk.js"));
 });
 
-test("fragments without a body still get the script", () => {
+test("fragments without a doctype get the script first", () => {
   const out = injectSdk("<h1>bare</h1>", "k");
   assert.ok(hasSdk(out));
+  assert.equal(out.indexOf("data-eh-sdk") < out.indexOf("<h1>"), true);
   assert.equal(stripSdk(out).trim(), "<h1>bare</h1>");
 });
 
-test("a page with only </html> gets the script before it", () => {
+test("a page with only </html> gets the script first", () => {
   const out = injectSdk("<html><h1>x</h1></html>", "k");
-  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("</html>"));
+  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("<html>"));
 });
 
 test("localhost pages get absolute assets, their real route, and one sdk", () => {
   const options = {
-    src: "http://127.0.0.1:4444/sdk.js?key=k",
+    src: "http://127.0.0.1:4444/sdk.js",
     baseHref: "http://localhost:3000/wiki?view=course#lesson",
+    nonce: "channel",
+    generation: 2,
+    pageKey: "page-key",
   };
   const once = injectSdk(LOCALHOST_PAGE, "k", options);
   const twice = injectSdk(once, "k", options);
@@ -63,14 +85,26 @@ test("localhost pages get absolute assets, their real route, and one sdk", () =>
   assert.ok(twice.includes('src="http://localhost:3000/_next/app.js"'));
   assert.ok(twice.includes('src="http://localhost:3000/hero.png"'));
   assert.ok(twice.includes('<a href="/wiki/lesson">'));
-  assert.ok(twice.includes('src="http://127.0.0.1:4444/sdk.js?key=k"'));
+  assert.ok(twice.includes('src="http://127.0.0.1:4444/sdk.js"'));
   assert.ok(!stripSdk(twice).includes("data-eh-route"));
 });
 
-test("a script containing the literal '</body>' does not fool injection", () => {
+test("hostile trailing raw-text markup cannot swallow the bootstrap", () => {
   const page = '<!DOCTYPE html><html><body><script>const tpl = "</body>";</script><p>x</p></body></html>';
   const out = injectSdk(page, "k");
-  assert.ok(out.indexOf("data-eh-sdk") > out.indexOf('"</body>"'), "the tag lands after the script string");
-  assert.ok(out.indexOf("data-eh-sdk") < out.lastIndexOf("</body>"), "and before the real close");
+  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("<html>"));
   assert.equal(stripSdk(out), page);
+});
+
+test("leading comments stay before the doctype and do not trigger quirks mode", () => {
+  const page = "\uFEFF <!-- license -->\n<!doctype html><html><body><p>x</p></body></html>";
+  const out = injectSdk(page, "k");
+  assert.match(out, /^\uFEFF <!-- license -->\n<!doctype html><script data-eh-sdk/);
+  assert.equal(stripSdk(out), page);
+});
+
+test("stripSdk removes only the injected bootstrap tag byte-for-byte", () => {
+  const authored = '<script data-eh-sdk type="module" src="/sdk.js"></script><p>x</p>';
+  assert.equal(stripSdk(authored), authored);
+  assert.equal(stripSdk(injectSdk(authored, "k")), authored);
 });

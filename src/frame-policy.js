@@ -1,4 +1,5 @@
-const BASE_SANDBOX = "allow-scripts allow-forms allow-modals allow-popups allow-downloads";
+const BASE_SANDBOX = "allow-scripts allow-forms allow-modals";
+const LOCALHOST_SANDBOX = `${BASE_SANDBOX} allow-popups allow-downloads allow-same-origin`;
 
 /**
  * Localhost apps need their real origin so their routing and JavaScript work.
@@ -8,7 +9,7 @@ const BASE_SANDBOX = "allow-scripts allow-forms allow-modals allow-popups allow-
 export function framePolicy(page, artifactOrigin) {
   const keepsOrigin = page?.kind === "url";
   return {
-    sandbox: keepsOrigin ? `${BASE_SANDBOX} allow-same-origin` : BASE_SANDBOX,
+    sandbox: keepsOrigin ? LOCALHOST_SANDBOX : BASE_SANDBOX,
     incomingOrigin: keepsOrigin ? artifactOrigin : "null",
     targetOrigin: keepsOrigin ? artifactOrigin : "*",
   };
