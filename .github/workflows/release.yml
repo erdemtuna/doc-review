@@ -29,6 +29,14 @@ on:
         type: string
         required: false
         default: ""
+      authentication:
+        description: "npm authentication for operation=release. Prefer oidc; token uses the protected NPM_PUBLISH_TOKEN secret."
+        type: choice
+        required: true
+        default: oidc
+        options:
+          - oidc
+          - token
       previous_tag:
         description: "Existing tag the generated release notes start after (e.g. v0.6.1)"
         type: string
@@ -76,6 +84,7 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           INPUT_VERSION: ${{ inputs.version }}
           PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
+          AUTHENTICATION: ${{ inputs.authentication }}
           PREVIOUS_TAG: ${{ inputs.previous_tag }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref }}
@@ -88,6 +97,10 @@ jobs:
           case "$OPERATION" in
             prepare|release) ;;
             *) fail "Unsupported operation '$OPERATION'." ;;
+          esac
+          case "$AUTHENTICATION" in
+            oidc|token) ;;
+            *) fail "Unsupported authentication method '$AUTHENTICATION'." ;;
           esac
 
           # Releases may only ever run from the tip of main. The npm-release
@@ -488,6 +501,7 @@ jobs:
       TAG: ${{ needs.guard.outputs.tag }}
       PREVIOUS_TAG: ${{ needs.guard.outputs.previous_tag }}
       PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
+      AUTHENTICATION: ${{ inputs.authentication }}
     steps:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -495,7 +509,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
 
-      - name: Pin the npm CLI and assert tokenless publishing
+      - name: Pin the npm CLI and reject ambient credentials
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
@@ -508,18 +522,22 @@ jobs:
             *) fail "Expected Node $NODE_VERSION, got $(node --version)." ;;
           esac
 
-          # Trusted publishing must be the only credential in play.
-          [ -z "${NODE_AUTH_TOKEN:-}" ] || fail "NODE_AUTH_TOKEN is set; trusted publishing must run tokenless."
-          [ -z "${NPM_TOKEN:-}" ] || fail "NPM_TOKEN is set; trusted publishing must run tokenless."
-          [ -z "${NPM_CONFIG__AUTH:-}" ] || fail "NPM_CONFIG__AUTH is set; trusted publishing must run tokenless."
+          # Authentication is injected only into the selected publish step.
+          # Ambient credentials could silently override that explicit choice.
+          [ -z "${NODE_AUTH_TOKEN:-}" ] || fail "Unexpected ambient NODE_AUTH_TOKEN."
+          [ -z "${NPM_TOKEN:-}" ] || fail "Unexpected ambient NPM_TOKEN."
+          [ -z "${NPM_CONFIG__AUTH:-}" ] || fail "Unexpected ambient NPM_CONFIG__AUTH."
           for rc in "$HOME/.npmrc" "${NPM_CONFIG_USERCONFIG:-}" "$PWD/.npmrc"; do
             [ -n "$rc" ] && [ -f "$rc" ] || continue
-            if grep -q '_authToken\|_auth=' "$rc"; then fail "Found an npm auth entry in $rc; remove it so OIDC is used."; fi
+            if grep -q '_authToken\|_auth=' "$rc"; then fail "Found an unexpected npm auth entry in $rc."; fi
           done
-          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || fail "No OIDC token endpoint available; id-token: write is required."
+          if [ "$AUTHENTICATION" = "oidc" ]; then
+            [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || fail "No OIDC token endpoint available; id-token: write is required."
+          fi
 
           node --version
           npm --version
+          echo "Selected npm authentication: $AUTHENTICATION"
 
       - name: Re-inspect the referenced prepare run
         env:
@@ -752,11 +770,31 @@ jobs:
             --jq '{tag: .tagName, draft: .isDraft, assets: [.assets[].name]}'
 
       - name: Publish to npm with trusted publishing
-        if: env.NPM_ALREADY_PUBLISHED == 'false'
+        if: env.NPM_ALREADY_PUBLISHED == 'false' && inputs.authentication == 'oidc'
         run: |
           set -euo pipefail
           cd candidate
           npm publish "$FILENAME" --access public --registry="$NPM_REGISTRY"
+
+      - name: Publish to npm with the protected token fallback
+        if: env.NPM_ALREADY_PUBLISHED == 'false' && inputs.authentication == 'token'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          [ -n "${NODE_AUTH_TOKEN:-}" ] \
+            || fail "NPM_PUBLISH_TOKEN is not configured in the npm-release environment."
+
+          NPMRC="$RUNNER_TEMP/npm-publish-token.npmrc"
+          cleanup() { rm -f "$NPMRC"; }
+          trap cleanup EXIT
+          printf '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n' > "$NPMRC"
+          chmod 600 "$NPMRC"
+
+          cd candidate
+          NPM_CONFIG_USERCONFIG="$NPMRC" npm publish "$FILENAME" --access public --registry="$NPM_REGISTRY"
 
       - name: Verify the published npm version
         run: |
@@ -827,6 +865,7 @@ jobs:
             echo "- prepare run: \`$PREPARE_RUN_ID\`"
             echo "- sha256: \`$EXPECTED_SHA256\`"
             echo "- integrity: \`$EXPECTED_INTEGRITY\`"
+            echo "- npm authentication: \`$AUTHENTICATION\`"
             echo "- npm published in this run: \`$([ "$NPM_ALREADY_PUBLISHED" = "false" ] && echo yes || echo "no (already present, integrity matched)")\`"
             echo "- npm latest: \`$([ "$NPM_TARGET_IS_LATEST" = "true" ] && echo "$VERSION" || echo "$NPM_LATEST_BEFORE (unchanged, $VERSION is superseded)")\`"
             echo "- GitHub latest: \`$([ "$RELEASE_STATE" != "published" ] && echo "marked latest" || echo "left unchanged (asset repair)")\`"

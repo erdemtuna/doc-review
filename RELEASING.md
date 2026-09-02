@@ -6,7 +6,7 @@
 | Phase | Dispatch input | What it does |
 | --- | --- | --- |
 | `prepare` | `operation=prepare` | Validates, tests, packs and uploads one immutable release candidate. Publishes nothing. |
-| `release` | `operation=release` + `prepare_run_id` | Re-verifies that exact candidate, publishes it to npm, then makes the GitHub Release public. |
+| `release` | `operation=release` + `prepare_run_id` + `authentication` | Re-verifies that exact candidate, publishes it to npm, then makes the GitHub Release public. |
 
 **The tarball that gets published is always the one CI produced. Never run
 `npm pack` locally to produce a publishable archive, and never publish an
@@ -25,7 +25,21 @@ not match the recorded SHA-256/SHA-512 digests.
 - The tag passed as `previous_tag` already exists in the repository. The
   inherited upstream tag `v0.6.1` must be pushed to the fork before releasing
   `0.7.0`; do not create a GitHub Release for it.
-- No npm token exists anywhere in the repository, its secrets or its variables.
+- OIDC is the default authentication method. The protected environment secret
+  `NPM_PUBLISH_TOKEN` is optional and used only when `authentication=token`.
+
+## Authentication modes
+
+| Mode | Use | Credential |
+| --- | --- | --- |
+| `oidc` | Default for normal releases | npm trusted publisher bound to `release.yml` and `npm-release` |
+| `token` | First package creation or an explicit fallback when OIDC is unavailable | Granular npm token in the `npm-release` environment secret `NPM_PUBLISH_TOKEN` |
+
+The token path is a permanent workflow capability, but an active token should
+not be permanent. Create a narrowly scoped, short-lived token when the fallback
+is needed, add it directly to the protected environment, then delete the secret
+and revoke the token after the release. Token-authenticated releases do not
+receive OIDC provenance.
 
 ## 1. Land a version pull request
 
@@ -53,6 +67,7 @@ Actions → **release** → **Run workflow** on `main`:
 | `operation` | `prepare` |
 | `version` | `0.7.0` (must equal `package.json`) |
 | `prepare_run_id` | leave empty |
+| `authentication` | `oidc` (ignored during prepare) |
 | `previous_tag` | `v0.6.1` (use the previous released tag for later versions) |
 
 The prepare job runs on a GitHub-hosted Ubuntu runner with Node 24 and a pinned
@@ -90,58 +105,40 @@ The printed `sha512-…` value must equal `.integrity` in the metadata.
 ## First release bootstrap (`v0.7.0`)
 
 npm trusted publishing cannot be configured until the package exists, so
-`0.7.0` — and only `0.7.0` — is published interactively. It will therefore have
-**no OIDC provenance**; do not claim or test provenance for it.
+`0.7.0` uses the protected token fallback. It will have **no OIDC provenance**;
+do not claim or test provenance for it.
 
-1. Confirm nothing redirects the scope away from the public registry:
-
-   ```bash
-   npm config get @erdemtuna:registry   # must print undefined
-   npm config get registry              # note any corporate proxy in use
-   ```
-
-2. Authenticate against the public registry explicitly:
-
-   ```bash
-   npm login --registry=https://registry.npmjs.org
-   npm whoami --registry=https://registry.npmjs.org   # must print erdemtuna
-   ```
-
-3. Run `prepare` for `0.7.0` (step 2 above) and verify the artifact (step 3).
-
-4. Publish **the exact CI tarball**, with 2FA. Do not run `npm pack`:
+1. Run `prepare` for `0.7.0` and verify the artifact.
+2. On npmjs.com, create a granular access token with:
+   - the shortest practical expiration;
+   - read and write package permission for the `@erdemtuna` scope, or All
+     Packages if npm does not offer the unpublished scope;
+   - Bypass 2FA enabled so GitHub Actions can publish noninteractively.
+3. Add the token directly to the protected environment without sharing it:
 
    ```bash
-   npm publish ./erdemtuna-doc-review-0.7.0.tgz --access public --registry=https://registry.npmjs.org
+   gh secret set NPM_PUBLISH_TOKEN --env npm-release --repo erdemtuna/doc-review
    ```
 
-5. Confirm the published `dist.integrity` matches the prepared metadata:
+4. Run `release` with `authentication=token`, the exact prepare run ID and
+   `previous_tag=v0.6.1`. Approve the `npm-release` deployment.
+5. Confirm the published package integrity matches the prepared metadata.
+6. Delete the environment secret and revoke the token on npmjs.com:
 
    ```bash
-   npm view @erdemtuna/doc-review@0.7.0 dist.integrity --registry=https://registry.npmjs.org
+   gh secret delete NPM_PUBLISH_TOKEN --env npm-release --repo erdemtuna/doc-review
    ```
 
-6. Enable trusted publishing for the now-existing package:
+7. On the new package's npm trusted-publisher settings, configure:
+   - Provider: GitHub Actions
+   - Owner: `erdemtuna`
+   - Repository: `doc-review`
+   - Workflow file: `release.yml`
+   - Environment: `npm-release`
+   - Permission: publish
 
-   ```bash
-   npm install --global npm@^11.15.0 --registry=https://registry.npmjs.org
-   npm trust github @erdemtuna/doc-review --file release.yml --repo erdemtuna/doc-review --env npm-release --allow-publish --registry=https://registry.npmjs.org
-   npm trust list @erdemtuna/doc-review --registry=https://registry.npmjs.org
-   ```
-
-   `npm trust` requires npm 11.15.0 or newer and account-level 2FA. Review the
-   listed publisher and confirm its repository, workflow, environment and
-   publish permission before continuing.
-
-   The workflow filename must be exactly `release.yml` and the environment
-   exactly `npm-release`; both are part of the trust relationship.
-
-7. Finalize the release through the workflow (next section). It will detect the
-   already-published version, require matching integrity, and only then create
-   and publish `v0.7.0` with its assets and generated notes.
-
-Never share an npm credential or token with an agent, and never store one in
-GitHub.
+The workflow filename and environment must match exactly. Never share an npm
+credential, OTP or token with an agent.
 
 ## 4. Run `release`
 
@@ -152,6 +149,7 @@ Actions → **release** → **Run workflow** on `main`:
 | `operation` | `release` |
 | `version` | `0.7.0` |
 | `prepare_run_id` | the recorded prepare run ID |
+| `authentication` | `oidc` normally; `token` only when the protected fallback is intentionally provisioned |
 | `previous_tag` | `v0.6.1` |
 
 Before requesting approval the workflow proves, fail-closed, that:
@@ -173,11 +171,11 @@ Approve the `npm-release` deployment in the run page only after reviewing the
 verification summary. Self-approval by the initiator is expected for this
 single-maintainer repository.
 
-The privileged job re-downloads and re-verifies the same artifact, asserts that
-no `NODE_AUTH_TOKEN`, `NPM_TOKEN` or `_authToken`/`_auth` npmrc entry exists and
-that an OIDC token endpoint is available, then publishes with the pinned npm 11
-CLI directly to `https://registry.npmjs.org`. It never runs tests, installs
-project dependencies or repacks after approval.
+The privileged job re-downloads and re-verifies the same artifact and rejects
+ambient npm credentials. With `authentication=oidc`, it requires the GitHub
+OIDC endpoint and publishes tokenlessly. With `authentication=token`, it injects
+`NPM_PUBLISH_TOKEN` only into the publish step through a temporary npmrc. It
+never runs tests, installs project dependencies or repacks after approval.
 
 Order of operations after approval:
 
@@ -186,7 +184,8 @@ Order of operations after approval:
    current `latest` dist-tag**.
 3. Create or reuse the **draft** GitHub Release, targeting the prepared commit,
    with the tarball and `.sha256` attached and notes generated from `previous_tag`.
-4. `npm publish <tarball>` through trusted publishing, if the version is absent.
+4. `npm publish <tarball>` through the selected authentication method, if the
+   version is absent.
 5. Re-read the registry with retries and require the published SHA-512 integrity
    to equal the prepared artifact. The `latest` dist-tag is required to equal the
    version only when the version is the one npm should be serving as latest.
@@ -239,6 +238,7 @@ rather than at the next feature release:
 1. Land a small `0.7.1` version/release-automation pull request.
 2. Run `prepare` for `0.7.1`; record the run ID.
 3. Run `release` with that exact run ID and `previous_tag=v0.7.0`.
+   Select `authentication=oidc`.
 4. Approve the `npm-release` deployment.
 5. Confirm the publish step used OIDC and that npm shows provenance:
 
@@ -246,8 +246,9 @@ rather than at the next feature release:
    npm view @erdemtuna/doc-review@0.7.1 --registry=https://registry.npmjs.org
    ```
 
-6. Only after this succeeds, require 2FA for publishing and disallow classic
-   publishing tokens in the npm package settings.
+6. Delete and revoke any active fallback token. Keep package publishing set to
+   require 2FA or a granular bypass token if the permanent fallback must remain
+   usable; selecting “disallow tokens” disables the fallback by design.
 
 ## Recovery
 
@@ -276,5 +277,7 @@ version itself changes.
   releases; an in-flight release is never cancelled by a newer dispatch.
 - Only the final publishing job holds `contents: write` and `id-token: write`.
   Guard, prepare and verification jobs are read-only.
+- OIDC remains the default. The token path cannot run without the protected
+  `NPM_PUBLISH_TOKEN` environment secret and uses it only in the publish step.
 - The inherited `release.published` publish workflow was removed, so making a
   GitHub Release public can no longer trigger a second npm publish.
