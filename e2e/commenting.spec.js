@@ -527,13 +527,17 @@ test("layout shifts reposition an attached composer without scroll or resize", a
   const frame = await waitForSdk(page);
   await selectText(frame, "#copy");
   await frame.locator("#commentAction").click();
-  const before = await page.locator("#compose").boundingBox();
+  const compose = page.locator("#compose");
+  await expect(compose).toBeVisible();
+  const before = await compose.boundingBox();
+  expect(before).not.toBeNull();
   const targetBefore = await frame.locator("#copy").boundingBox();
+  expect(targetBefore).not.toBeNull();
   await frame.locator("#spacer").evaluate((element) => {
     element.style.height = "240px";
   });
   await expect.poll(async () => (await frame.locator("#copy").boundingBox()).y).toBeGreaterThan(targetBefore.y + 150);
-  await expect.poll(async () => (await page.locator("#compose").boundingBox()).y).toBeGreaterThan(before.y + 10);
+  await expect.poll(async () => (await compose.boundingBox())?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(before.y + 10);
 });
 
 test("desktop composer pins to nested clipping edges, never sheets, and reveals an element", async ({ page, review }) => {

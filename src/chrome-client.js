@@ -1318,7 +1318,6 @@ function cancelCompose({ restoreFocus = true, preserveRetarget = false } = {}) {
     preserveRetarget,
   });
   render();
-  if (restoreFocus) frame.focus();
   return true;
 }
 
