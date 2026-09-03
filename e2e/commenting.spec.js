@@ -35,12 +35,14 @@ async function acknowledgeBatch(review, target, batchId) {
 
 async function addSelectionComment(page, frame, selector, feedback) {
   const before = Number(await page.locator("#toolbarCount").textContent());
+  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(before);
   await selectText(frame, selector);
   await frame.locator("#commentAction").click();
   await page.locator("#composeText").fill(feedback);
   await page.locator("#composeAdd").click();
   await expect(page.locator("#compose")).toBeHidden();
   await expect(page.locator("#toolbarCount")).toHaveText(String(before + 1));
+  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(before + 1);
 }
 
 test("View is default and writable HTML switches through Edit back to View", async ({ page, review }) => {
@@ -650,7 +652,7 @@ test("Back to selection reports unavailable when clipping cannot reveal the targ
 });
 
 test("mode selector is centered and light-dismisses across parent and hostile iframe handlers", async ({ page, review }) => {
-  const file = writeFile(review, "menu-dismiss.html", `<!doctype html><button id="hostile">Interact</button>
+  const file = writeFile(review, "menu-dismiss.html", `<!doctype html><button id="hostile">Interact</button><button id="other">Other</button>
     <script>
       const button = document.querySelector('#hostile');
       button.addEventListener('pointerdown', event => event.stopPropagation());
@@ -685,6 +687,7 @@ test("mode selector is centered and light-dismisses across parent and hostile if
   await page.locator("#modeButton").click();
   await frame.locator("#hostile").click();
   await expect(page.locator("#modeMenu")).toBeHidden();
+  await frame.locator("#other").focus();
   await page.locator("#modeButton").click();
   await frame.locator("#hostile").focus();
   await expect(page.locator("#modeMenu")).toBeHidden();

@@ -49,6 +49,7 @@ let lastTargetGeometrySignature = "";
 let lastTargetRelation = null;
 let geometryWatchTimer = null;
 let watchedGeometrySignature = "";
+let selectionTimer = null;
 /** True when the page's own scripts rewrote the DOM before any user edit. */
 let dynamic = false;
 
@@ -1448,6 +1449,11 @@ function boot() {
     ) clearPending();
   });
 
+  els.commentAction.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
   els.commentAction.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1586,10 +1592,10 @@ function boot() {
     true
   );
 
-  let selectionTimer = null;
   document.addEventListener("selectionchange", () => {
     clearTimeout(selectionTimer);
-    els.commentAction.style.display = "none";
+    if (!composeOpen && selectionIsActive()) clearPending();
+    else els.commentAction.style.display = "none";
     selectionTimer = setTimeout(() => {
       if (selectionIsActive()) {
         hideActionControls();
