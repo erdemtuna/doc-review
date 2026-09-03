@@ -965,7 +965,13 @@ function clearPending({ keepRetarget = false } = {}) {
 function restoreTargetFocus(target) {
   if (!target) return;
   if (target.kind === "element" && target.element?.isConnected) {
-    target.element.focus({ preventScroll: true });
+    const element = target.element;
+    element.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+      if (element.isConnected && document.activeElement !== element) {
+        element.focus({ preventScroll: true });
+      }
+    });
     return;
   }
   const range = target.range;
