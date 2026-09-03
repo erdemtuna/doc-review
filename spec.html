@@ -283,7 +283,7 @@
 
   <main>
     <section class="panel active wrap" id="panel-product" role="tabpanel" aria-labelledby="tab-product" data-panel="product">
-      <span class="status">Built · v0.4.0</span>
+      <span class="status">Built · current branch</span>
       <h2>What it does</h2>
       <p>doc-review gives any shell-capable coding agent a browser review loop. The human fixes small things directly, comments on exact text or elements, and sends everything together. The agent receives structured feedback, updates the source, and refreshes the page.</p>
 
@@ -293,7 +293,7 @@
       <h2>Core loop</h2>
       <div class="cards four">
         <article class="card"><span class="step">1 · Open</span><h3>Use the real output</h3><p>Open an HTML file, rendered Markdown file, or localhost route.</p></article>
-        <article class="card"><span class="step">2 · Review</span><h3>Edit in place</h3><p>Rewrite copy, delete elements, and anchor comments to the page.</p></article>
+        <article class="card"><span class="step">2 · Review</span><h3>Comment or edit</h3><p>Start in View, leave contextual comments, or switch to Edit for direct changes.</p></article>
         <article class="card"><span class="step">3 · Apply</span><h3>Send one batch</h3><p>The agent gets edits, comments, and an optional overall note as JSON.</p></article>
         <article class="card"><span class="step">4 · Repeat</span><h3>See the result</h3><p>The agent updates the source, acknowledges the batch, and the page reloads.</p></article>
       </div>
@@ -324,12 +324,12 @@
         <table>
           <thead><tr><th>Human action</th><th>Product behavior</th></tr></thead>
           <tbody>
-            <tr><td>Type over text</td><td>The page changes immediately. The review rail records the exact before and after text.</td></tr>
-            <tr><td>Select text</td><td>A focused comment box opens, anchored to that exact quote.</td></tr>
-            <tr><td>Click a block</td><td>The comment applies to the image, chart, section, or other element.</td></tr>
+            <tr><td>Switch to Edit and type</td><td>The page changes immediately. The review drawer records the exact before and after text.</td></tr>
+            <tr><td>Select text</td><td>A nearby comment action opens a composer anchored to that exact quote.</td></tr>
+            <tr><td>Hover or focus a block</td><td>The contextual action comments on the image, chart, control, section, or other element without taking over its normal click.</td></tr>
             <tr><td>Click the delete control</td><td>The element disappears and the deletion is added to the edit list.</td></tr>
             <tr><td>Command-click a local link</td><td>The linked page opens in the same review session. Feedback from visited pages stays grouped in one batch.</td></tr>
-            <tr><td>Send</td><td>All edits, comments, and the overall note go to the waiting agent together.</td></tr>
+            <tr><td>Open Comments and send</td><td>The drawer keeps feedback scrollable while the overall note and Send to agent controls remain fixed.</td></tr>
           </tbody>
         </table>
       </div>
@@ -362,22 +362,22 @@
       <div class="cards">
         <article class="card"><h3>The page stays recognizable</h3><p>The reviewed content keeps its own layout, styling, and behavior. doc-review adds only the review chrome and edit affordances.</p></article>
         <article class="card"><h3>Nothing sent is lost</h3><p>Pending batches persist across poll timeouts, server restarts, and computer sleep until an agent acknowledges them.</p></article>
-        <article class="card"><h3>One primary action</h3><p>Review first, then Send. The agent responds through the changed page rather than another chat thread.</p></article>
+        <article class="card"><h3>One review entry point</h3><p>Comments opens the review drawer, where the final Send to agent action stays available. The agent responds through the changed page rather than another chat thread.</p></article>
         <article class="card"><h3>Status tells the truth</h3><p>The UI distinguishes waiting, working, and not listening instead of implying an agent is active when it is not.</p></article>
       </div>
     </section>
 
     <section class="panel wrap" id="panel-design" role="tabpanel" aria-labelledby="tab-design" data-panel="design" hidden>
       <h2>Reference screens</h2>
-      <p>These screens show the core review experience: the artifact stays visually intact while comments, direct edits, deletions, and the final Send action live in the rail.</p>
+      <p>These screens show the core review experience: the artifact stays visually intact while the toolbar controls mode, comments stay near their anchors, and the drawer manages the complete feedback batch.</p>
       <div class="mock-grid">
         <figure class="mock">
-          <img src="spec-assets/main-value-screen.png" alt="The /doc-review interface with an editable product spec on the left and two anchored feedback cards in the right rail.">
-          <figcaption><strong>Reviewing</strong>Select exact text or click a whole element to leave anchored feedback without describing where the issue is.</figcaption>
+          <img src="spec-assets/main-value-screen.png" alt="The /doc-review interface in View mode with a contextual comment composer beside selected text.">
+          <figcaption><strong>Reviewing</strong>Select exact text or use an element's contextual action to leave anchored feedback without describing where the issue is.</figcaption>
         </figure>
         <figure class="mock">
-          <img src="spec-assets/main-action-screen.png" alt="The /doc-review interface while composing an element comment, with direct edits and a deletion listed in the right rail.">
-          <figcaption><strong>Composing and editing</strong>Direct edits, deletions, comments, and an overall note are collected into one batch for the agent.</figcaption>
+          <img src="spec-assets/main-action-screen.png" alt="The /doc-review Comments drawer with feedback scrolling above fixed overall-note and Send to agent controls.">
+          <figcaption><strong>Managing the batch</strong>Direct edits, deletions, comments, and an overall note are collected without permanently shrinking the artifact.</figcaption>
         </figure>
       </div>
     </section>
@@ -388,7 +388,7 @@
         <li>The CLI starts or reuses a local Node server and opens a tokenized review URL.</li>
         <li>The server loads a file or fetches an allowed loopback URL, then injects the review SDK into the rendered page.</li>
         <li>The SDK captures direct edits, deletions, selections, and element comments inside an isolated iframe.</li>
-        <li>The review rail groups feedback by file or URL and sends one durable batch.</li>
+        <li>The Comments drawer groups feedback by file or URL and sends one durable batch while contextual surfaces stay tied to reviewed content.</li>
         <li>A foreground long-poll returns JSON to the agent. The agent updates source and acknowledges the batch.</li>
       </ol>
 
@@ -413,7 +413,7 @@
           <thead><tr><th>Layer</th><th>Shipped approach</th></tr></thead>
           <tbody>
             <tr><td>Runtime</td><td>Node.js 20+ using built-in HTTP, file system, and process APIs.</td></tr>
-            <tr><td>Browser UI</td><td>Vanilla JavaScript review rail plus a sandboxed iframe and <code>postMessage</code>.</td></tr>
+            <tr><td>Browser UI</td><td>Vanilla JavaScript toolbar, contextual surfaces, review drawer, sandboxed iframe, and capability-bound <code>postMessage</code>.</td></tr>
             <tr><td>Persistence</td><td>Local JSON state for comments and pending batches; atomic writes for editable HTML files.</td></tr>
             <tr><td>Change detection</td><td>Native file watching reloads agent updates while suppressing the tool's own save echoes.</td></tr>
             <tr><td>Agent transport</td><td>Long-poll HTTP to stdout JSON with at-least-once delivery until acknowledgement.</td></tr>

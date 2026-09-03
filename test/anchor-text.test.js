@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildContext, findQuote, tidy } from "../src/anchor-text.js";
+import { buildContext, findQuote, tidy, tidyMiddle } from "../src/anchor-text.js";
 
 test("buildContext captures the quote with surrounding context", () => {
   const text = "The quick brown fox jumps over the lazy dog";
@@ -54,6 +54,40 @@ test("tidy collapses whitespace and truncates", () => {
   assert.equal(tidy("  a\n\n  b  "), "a b");
   assert.equal(tidy("abcdefghij", 5), "abcd…");
   assert.equal(tidy(null), "");
+});
+
+test("tidyMiddle preserves short text and collapses whitespace", () => {
+  assert.equal(tidyMiddle("  alpha\n\n beta  ", 40), "alpha beta");
+});
+
+test("tidyMiddle preserves both ends within the grapheme budget", () => {
+  const value = tidyMiddle("abcdefghijklmnopqrstuvwxyz", 11);
+  assert.ok(value.startsWith("abcdef"));
+  assert.ok(value.endsWith("wxyz"));
+  assert.equal([...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)].length, 11);
+});
+
+test("tidyMiddle handles unbroken and complex grapheme text", () => {
+  for (const text of [
+    "🇺🇸".repeat(20),
+    "👍🏽".repeat(20),
+    "e\u0301".repeat(20),
+    "👨‍👩‍👧‍👦".repeat(20),
+  ]) {
+    const value = tidyMiddle(text, 9);
+    const parts = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)]
+      .map(({ segment }) => segment);
+    assert.equal(parts.length, 9);
+    assert.equal(parts[5], "…");
+    assert.equal(parts[0], [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)][0].segment);
+    assert.equal(parts.at(-1), [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].at(-1).segment);
+  }
+});
+
+test("tidyMiddle prefers nearby word boundaries", () => {
+  const value = tidyMiddle("alpha beta gamma delta epsilon zeta eta theta", 24);
+  assert.match(value, /^[^…]+\u2026[^…]+$/);
+  assert.ok(!value.includes(" …") && !value.includes("… "));
 });
 
 test("findQuote survives whitespace reflow inside the quote", () => {

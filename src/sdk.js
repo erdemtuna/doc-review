@@ -7,9 +7,12 @@
  */
 import { buildContext, findQuote } from "./anchor-text.js";
 import { hashClickAction, navigationHref } from "./click-target.js";
+import { acceptedOpenGeneration, targetMessage } from "./comment-target.js";
 import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "./editing.js";
 import { frameMessage, initializeChannelFromDocument, matchesFrameMessage } from "./frame-channel.js";
-import { keepBodyEditable, serializeDocument, UI_ATTR, MARK_ATTR } from "./serialize.js";
+import { iconMarkup } from "./icons.js";
+import { keepBodyInReviewMode } from "./review-mode.js";
+import { serializeDocument, UI_ATTR, MARK_ATTR } from "./serialize.js";
 
 initializeChannelFromDocument();
 
@@ -24,7 +27,14 @@ const CHROME_ORIGIN = `${location.protocol}//${location.hostname === "127.0.0.1"
 
 const post = (type, payload) => parent.postMessage(frameMessage(type, payload), CHROME_ORIGIN);
 
-let pending = null; // { id, marks } for an uncommitted highlight
+let pending = null; // semantic target plus cloned range/element until commit or cancel
+let retarget = null;
+let targetGeneration = 0;
+let targetObserver = null;
+let targetIntersection = null;
+let reviewMode = "view";
+let savePolicy = "writable";
+let modeController = null;
 let hoverTarget = null;
 let hoverMove = null; // the innermost block under the cursor, movable via the handle
 let hoverMedia = null; // the img/video under the cursor, resizable via the grip
@@ -32,8 +42,20 @@ let resizing = null; // live drag state while the grip is held
 let suppressUntil = 0; // ignore the mouseup/click that ends a resize drag
 let saveTimer = null;
 let composeOpen = false;
+let commentOpenRequestGeneration = null;
+let activeCommentId = null;
+let modeMenuOpen = false;
+let lastTargetGeometrySignature = "";
+let lastTargetRelation = null;
+let geometryWatchTimer = null;
+let watchedGeometrySignature = "";
+let selectionTimer = null;
 /** True when the page's own scripts rewrote the DOM before any user edit. */
 let dynamic = false;
+
+const diagnostic = (event, detail = {}) => {
+  console.info("[doc-review-frame]", { event, ...detail });
+};
 
 // ------------------------------------------------------------------ overlay
 
@@ -98,21 +120,33 @@ shadow.innerHTML = `
       position: fixed; z-index: 2147483646; height: 0; display: none;
       border-top: 2px solid #1b1a16; border-radius: 1px; pointer-events: none;
     }
+    .comment-action {
+      position: fixed; z-index: 2147483647; width: 30px; height: 30px;
+      display: none; align-items: center; justify-content: center; padding: 0;
+      border: 1px solid #d9d5c9; border-radius: 999px; background: #1b1a16; color: #fff;
+      cursor: pointer; pointer-events: auto; box-shadow: 0 5px 16px rgba(27,26,22,.24);
+    }
+    .comment-action:hover, .comment-action:focus-visible { background: #34312b; outline: 3px solid rgba(90,99,216,.32); }
+    .selection-cues { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; }
+    .selection-cue { position: fixed; border-radius: 2px; background: rgba(245,196,0,.2); }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
   <div class="box outline" id="outline"></div>
   <div class="box active" id="activeBox"></div>
   <div class="chips" id="chips">
-    <button class="chip danger" id="chipDelete" title="Delete this block" aria-label="Delete this block">&#10005;</button>
+    <button class="chip danger" id="chipDelete" title="Delete this block" aria-label="Delete this block">${iconMarkup("trash", { size: 14 })}</button>
   </div>
   <div class="grip" id="grip" title="Drag to resize"></div>
   <div class="hint" id="hint"></div>
   <div class="linkbox" id="linkbox">
     <input id="linkInput" type="text" placeholder="Link to&hellip;" spellcheck="false">
-    <button class="chip" id="linkApply" title="Apply link (&#9166;)" aria-label="Apply link">&#8629;</button>
-    <button class="chip danger" id="linkRemove" title="Remove link" aria-label="Remove link">&#10005;</button>
+    <button class="chip" id="linkApply" title="Apply link" aria-label="Apply link">${iconMarkup("check", { size: 14 })}</button>
+    <button class="chip danger" id="linkRemove" title="Remove link" aria-label="Remove link">${iconMarkup("x", { size: 14 })}</button>
   </div>
   <div class="mover" id="mover" title="Drag to move this block">&#10303;</div>
   <div class="dropline" id="dropline"></div>
+  <div class="selection-cues" id="selectionCues"></div>
+  <button class="comment-action" id="commentAction" title="Comment on this target" aria-label="Comment on this target">${iconMarkup("messageSquarePlus", { size: 17 })}</button>
 `;
 
 const els = {};
@@ -130,6 +164,8 @@ const mountOverlay = () => {
   els.linkRemove = shadow.getElementById("linkRemove");
   els.mover = shadow.getElementById("mover");
   els.dropline = shadow.getElementById("dropline");
+  els.selectionCues = shadow.getElementById("selectionCues");
+  els.commentAction = shadow.getElementById("commentAction");
 };
 
 function showMover(el) {
@@ -218,6 +254,335 @@ function showHint(text, x, y) {
   els.hint.style.display = "block";
   els.hint.style.left = `${x + 12}px`;
   els.hint.style.top = `${y + 16}px`;
+}
+
+const rectData = (rect) => ({
+  left: rect.left,
+  top: rect.top,
+  right: rect.right,
+  bottom: rect.bottom,
+  width: rect.width,
+  height: rect.height,
+});
+
+const viewportData = () => ({ width: window.innerWidth, height: window.innerHeight });
+
+function intersectRects(one, two) {
+  const left = Math.max(one.left, two.left);
+  const top = Math.max(one.top, two.top);
+  const right = Math.min(one.right, two.right);
+  const bottom = Math.min(one.bottom, two.bottom);
+  if (right <= left || bottom <= top) return null;
+  return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
+function targetRects(target = pending) {
+  if (!target) return [];
+  if (target.kind === "selection" && target.range) {
+    return [...target.range.getClientRects()].map(rectData);
+  }
+  if (target.element?.isConnected) return [rectData(target.element.getBoundingClientRect())];
+  return [];
+}
+
+function targetElement(target) {
+  if (!target) return null;
+  if (target.kind === "element") return target.element || null;
+  const node = target.range?.commonAncestorContainer;
+  return node?.nodeType === 1 ? node : node?.parentElement || null;
+}
+
+function targetConnected(target) {
+  if (!target) return false;
+  if (target.kind === "element") return !!target.element?.isConnected;
+  const range = target.range;
+  return !!(
+    range &&
+    document.body.contains(range.startContainer) &&
+    document.body.contains(range.endContainer)
+  );
+}
+
+function clippingStartNode(target) {
+  const element = targetElement(target);
+  return target?.kind === "selection" ? element : element?.parentElement;
+}
+
+function effectiveClipRect(target) {
+  let clip = {
+    left: 0,
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+  let node = clippingStartNode(target);
+  while (node && node !== document.body && node !== document.documentElement) {
+    const style = getComputedStyle(node);
+    const clipsX = /(auto|scroll|hidden|clip)/.test(`${style.overflow} ${style.overflowX}`);
+    const clipsY = /(auto|scroll|hidden|clip)/.test(`${style.overflow} ${style.overflowY}`);
+    if (clipsX || clipsY) {
+      const rect = node.getBoundingClientRect();
+      const ancestorClip = {
+        left: clipsX ? rect.left + node.clientLeft : clip.left,
+        right: clipsX ? rect.left + node.clientLeft + node.clientWidth : clip.right,
+        top: clipsY ? rect.top + node.clientTop : clip.top,
+        bottom: clipsY ? rect.top + node.clientTop + node.clientHeight : clip.bottom,
+      };
+      ancestorClip.width = ancestorClip.right - ancestorClip.left;
+      ancestorClip.height = ancestorClip.bottom - ancestorClip.top;
+      clip = intersectRects(clip, ancestorClip);
+      if (!clip) return null;
+    }
+    node = node.parentElement;
+  }
+  return clip;
+}
+
+function targetGeometry(target = pending) {
+  const clip = effectiveClipRect(target);
+  const rects = targetRects(target).filter((rect) =>
+    ["left", "top", "right", "bottom", "width", "height"].every((key) => Number.isFinite(rect[key])) &&
+    rect.width >= 0 &&
+    rect.height >= 0
+  );
+  if (!targetConnected(target) || !clip || !rects.length) {
+    return { relation: "unavailable", clip: clip || {
+      left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight,
+      width: window.innerWidth, height: window.innerHeight,
+    }, rects: [], horizontal: target?.horizontal ?? null, rejected: targetConnected(target) ? "invalid" : "disconnected" };
+  }
+  if (rects.some((rect) => rect.left < clip.left - 1 || rect.right > clip.right + 1)) {
+    return { relation: "unavailable", clip, rects: [], horizontal: target?.horizontal ?? null, rejected: "horizontally-clipped" };
+  }
+  if (rects.every((rect) => rect.bottom <= clip.top)) {
+    return { relation: "above", clip, rects: [], horizontal: target?.horizontal ?? null };
+  }
+  if (rects.every((rect) => rect.top >= clip.bottom)) {
+    return { relation: "below", clip, rects: [], horizontal: target?.horizontal ?? null };
+  }
+  const visible = rects.map((rect) => intersectRects(rect, clip)).filter(Boolean);
+  if (!visible.length) {
+    return { relation: "unavailable", clip, rects: [], horizontal: target?.horizontal ?? null, rejected: "unavailable" };
+  }
+  const attached = visible[visible.length - 1];
+  target.horizontal = attached.right;
+  return { relation: "visible", clip, rects: visible, horizontal: target.horizontal };
+}
+
+function rectVisibleThroughAncestors(rect, target) {
+  const viewport = viewportData();
+  if (
+    !Number.isFinite(rect.left) ||
+    !Number.isFinite(rect.top) ||
+    rect.right <= 0 ||
+    rect.bottom <= 0 ||
+    rect.left >= viewport.width ||
+    rect.top >= viewport.height
+  ) return false;
+  let node = clippingStartNode(target);
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll|hidden|clip)/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`)) {
+      const clip = node.getBoundingClientRect();
+      if (rect.right <= clip.left || rect.left >= clip.right || rect.bottom <= clip.top || rect.top >= clip.bottom) {
+        return false;
+      }
+    }
+    node = node.parentElement;
+  }
+  return true;
+}
+
+function visibleRects(rects, target = pending) {
+  return rects.filter((rect) => rectVisibleThroughAncestors(rect, target));
+}
+
+function renderSelectionCues(rects) {
+  els.selectionCues.textContent = "";
+  if (!composeOpen || !pending || pending.kind !== "selection") return;
+  for (const rect of visibleRects(rects, pending)) {
+    const cue = document.createElement("span");
+    cue.className = "selection-cue";
+    cue.style.left = `${rect.left}px`;
+    cue.style.top = `${rect.top}px`;
+    cue.style.width = `${rect.width}px`;
+    cue.style.height = `${rect.height}px`;
+    els.selectionCues.append(cue);
+  }
+}
+
+function positionCommentAction(rects, target = retarget || pending) {
+  const visible = visibleRects(rects, target);
+  const rect = visible[visible.length - 1];
+  if (!rect || (composeOpen && !retarget)) {
+    els.commentAction.style.display = "none";
+    return false;
+  }
+  els.commentAction.style.display = "flex";
+  els.commentAction.style.left = `${Math.max(4, Math.min(window.innerWidth - 34, rect.right + 6))}px`;
+  els.commentAction.style.top = `${Math.max(4, Math.min(window.innerHeight - 34, rect.top - 4))}px`;
+  return true;
+}
+
+function postTarget(type, target = pending) {
+  if (!target) return;
+  const geometry = targetGeometry(target);
+  const message = targetMessage(
+    {
+      kind: target.kind,
+      quote: target.quote,
+      anchor: target.anchor,
+      rects: geometry.rects,
+      generation: target.generation,
+      relation: geometry.relation,
+      clip: geometry.clip,
+      horizontal: geometry.horizontal,
+    },
+    viewportData()
+  );
+  if (!message) return;
+  const signature = JSON.stringify({
+    generation: message.generation,
+    relation: message.relation,
+    clip: message.clip,
+    rects: message.rects,
+    horizontal: message.horizontal,
+  });
+  if (type !== "eh:openComment" && signature === lastTargetGeometrySignature) return;
+  if (type !== "eh:openComment") lastTargetGeometrySignature = signature;
+  if (lastTargetRelation !== message.relation) {
+    diagnostic("anchor-relation-transition", {
+      from: lastTargetRelation,
+      to: message.relation,
+      targetGeneration: message.generation,
+    });
+    lastTargetRelation = message.relation;
+  }
+  if (geometry.rejected) {
+    diagnostic("geometry-rejected", {
+      reason: geometry.rejected,
+      targetGeneration: message.generation,
+    });
+  }
+  post(type, {
+    kind: message.kind,
+    quote: message.quote,
+    anchor: message.anchor,
+    rects: message.rects,
+    targetGeneration: message.generation,
+    relation: message.relation,
+    clip: message.clip,
+    horizontal: message.horizontal,
+    viewport: viewportData(),
+  });
+}
+
+function disconnectTargetObservers() {
+  targetObserver?.disconnect();
+  targetIntersection?.disconnect();
+  targetObserver = null;
+  targetIntersection = null;
+}
+
+const roundedGeometry = (value) => Number.isFinite(value) ? Math.round(value * 2) / 2 : null;
+
+function geometryWatchSignature() {
+  const target = retarget || pending;
+  const targetState = target ? targetGeometry(target) : null;
+  let activeState = null;
+  if (activeCommentId) {
+    const marks = marksFor(activeCommentId);
+    const element = marks[0] || document.querySelector(`[data-eh-el="${CSS.escape(activeCommentId)}"]`);
+    if (element) {
+      const rects = marks.length
+        ? marks.map((mark) => rectData(mark.getBoundingClientRect()))
+        : [rectData(element.getBoundingClientRect())];
+      activeState = {
+        rects,
+        clip: effectiveClipRect({ kind: "element", element }),
+      };
+    }
+  }
+  const normalize = (state) => state && {
+    relation: state.relation,
+    rects: (state.rects || []).map((rect) => [
+      roundedGeometry(rect.left),
+      roundedGeometry(rect.top),
+      roundedGeometry(rect.right),
+      roundedGeometry(rect.bottom),
+    ]),
+    clip: state.clip && [
+      roundedGeometry(state.clip.left),
+      roundedGeometry(state.clip.top),
+      roundedGeometry(state.clip.right),
+      roundedGeometry(state.clip.bottom),
+    ],
+  };
+  return JSON.stringify({
+    target: normalize(targetState),
+    active: normalize(activeState),
+  });
+}
+
+function refreshGeometryWatch() {
+  const shouldWatch = !!(pending || retarget || activeCommentId);
+  if (!shouldWatch) {
+    clearInterval(geometryWatchTimer);
+    geometryWatchTimer = null;
+    watchedGeometrySignature = "";
+    return;
+  }
+  if (geometryWatchTimer) return;
+  watchedGeometrySignature = geometryWatchSignature();
+  geometryWatchTimer = setInterval(() => {
+    if (!(pending || retarget || activeCommentId)) {
+      refreshGeometryWatch();
+      return;
+    }
+    const next = geometryWatchSignature();
+    if (next === watchedGeometrySignature) return;
+    watchedGeometrySignature = next;
+    scheduleTargetGeometry();
+    if (activeCommentId) activate(activeCommentId, false);
+  }, 100);
+}
+
+function observePendingTarget(target = pending) {
+  disconnectTargetObservers();
+  if (!target) return;
+  const observed = target.kind === "element"
+    ? target.element
+    : target.range?.commonAncestorContainer?.nodeType === 1
+      ? target.range.commonAncestorContainer
+      : target.range?.commonAncestorContainer?.parentElement;
+  if (!observed) return;
+  if ("ResizeObserver" in window) {
+    targetObserver = new ResizeObserver(scheduleTargetGeometry);
+    targetObserver.observe(observed);
+  }
+  if ("IntersectionObserver" in window) {
+    targetIntersection = new IntersectionObserver(scheduleTargetGeometry, { threshold: [0, .01, 1] });
+    targetIntersection.observe(observed);
+  }
+  refreshGeometryWatch();
+}
+
+let targetGeometryQueued = false;
+function scheduleTargetGeometry() {
+  if (targetGeometryQueued) return;
+  targetGeometryQueued = true;
+  requestAnimationFrame(() => {
+    targetGeometryQueued = false;
+    if (!pending && !retarget) return;
+    const actionTarget = retarget || pending;
+    const actionRects = targetRects(actionTarget);
+    positionCommentAction(actionRects, actionTarget);
+    renderSelectionCues(targetRects(pending));
+    if (composeOpen) postTarget("eh:targetGeometry", pending);
+    else postTarget("eh:target", pending);
+  });
 }
 
 // ------------------------------------------------------------ text plumbing
@@ -389,6 +754,20 @@ function targetFor(node) {
   return { el: block, label: pinnedLabels.get(block), authored: false };
 }
 
+function commentTargetFor(node) {
+  const el = node && node.nodeType === 1 ? node : node && node.parentElement;
+  const control = el?.closest?.("a[href], button, summary, input, select, textarea, [role='button'], [role='tab']");
+  if (control && !isOurs(control)) {
+    const label =
+      control.getAttribute("aria-label") ||
+      control.getAttribute("title") ||
+      clip(control.textContent, 80) ||
+      control.tagName.toLowerCase();
+    return { el: control, label, authored: false };
+  }
+  return targetFor(node);
+}
+
 /**
  * The nearest rendered block around a node, ignoring authored data-block
  * containers. List conversion and drop targeting need the line the caret is
@@ -511,7 +890,8 @@ function watchSelfRendering() {
 }
 
 function emitSave() {
-  if (dynamic) {
+  if (reviewMode !== "edit") return;
+  if (savePolicy === "feedback-only" || dynamic) {
     post("eh:dynamic", {});
     return;
   }
@@ -525,8 +905,9 @@ function emitSave() {
 }
 
 function scheduleSave() {
+  if (reviewMode !== "edit") return;
   clearTimeout(saveTimer);
-  if (!dynamic) post("eh:saving", {});
+  if (savePolicy === "writable" && !dynamic) post("eh:saving", {});
   saveTimer = setTimeout(emitSave, SAVE_DEBOUNCE_MS);
 }
 
@@ -554,6 +935,7 @@ function flushEdits() {
 }
 
 function queueEdit(payload) {
+  if (reviewMode !== "edit") return;
   const key = `${payload.label}\u0000${payload.kind}`;
   const queued = editQueue.get(key);
   if (queued && (queued.staged_assets || payload.staged_assets)) {
@@ -567,16 +949,49 @@ function queueEdit(payload) {
 
 // ------------------------------------------------------------- interactions
 
-function clearPending() {
+function clearPending({ keepRetarget = false } = {}) {
+  commentOpenRequestGeneration = null;
   pending = null;
+  if (!keepRetarget) retarget = null;
+  lastTargetGeometrySignature = "";
+  lastTargetRelation = null;
+  disconnectTargetObservers();
   place(els.activeBox, null);
+  els.commentAction.style.display = "none";
+  els.selectionCues.textContent = "";
+  refreshGeometryWatch();
+}
+
+function restoreTargetFocus(target) {
+  if (!target) return;
+  if (target.kind === "element" && target.element?.isConnected) {
+    const element = target.element;
+    element.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+      if (element.isConnected && document.activeElement !== element) {
+        element.focus({ preventScroll: true });
+      }
+    });
+    return;
+  }
+  const range = target.range;
+  if (!range || !document.body.contains(range.commonAncestorContainer)) return;
+  const focusTarget = targetElement(target);
+  if (focusTarget?.matches?.("a[href], button, input, select, textarea, summary, [tabindex]")) {
+    focusTarget.focus({ preventScroll: true });
+  } else if (reviewMode === "edit") {
+    document.body.focus({ preventScroll: true });
+  } else {
+    window.focus();
+  }
+  const selection = document.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 /**
- * A settled selection opens the compose card but is otherwise left completely
- * alone: still selected, still editable. Nothing is written into the document
- * until the comment is actually committed, so typing or Backspace behaves
- * exactly as it would in any editable page.
+ * Remember a settled selection without opening composition. The explicit
+ * contextual action or keyboard shortcut owns that transition.
  */
 function settleSelection() {
   const sel = document.getSelection();
@@ -592,30 +1007,151 @@ function settleSelection() {
   if (!offsets) return false;
 
   const context = buildContext(text, offsets.start, offsets.end);
-  pending = { kind: "selection", context };
-
-  post("eh:compose", {
+  targetGeneration += 1;
+  const target = {
     kind: "selection",
     quote,
     anchor: { ...context, selector: cssPath(range.commonAncestorContainer.parentElement || document.body) },
-  });
+    context,
+    range: range.cloneRange(),
+    generation: targetGeneration,
+  };
+  if (composeOpen && pending) retarget = target;
+  else {
+    pending = target;
+    retarget = null;
+  }
+  observePendingTarget(target);
+  scheduleTargetGeometry();
   return true;
 }
 
-function openElementCompose(container) {
-  if (pending && pending.element === container.el) return;
-  pending = { kind: "element", element: container.el };
-  place(els.activeBox, container.el);
-  post("eh:compose", {
+function setElementTarget(container) {
+  if (
+    !container?.el ||
+    (pending && pending.kind === "element" && pending.element === container.el) ||
+    (retarget && retarget.kind === "element" && retarget.element === container.el)
+  ) {
+    if (pending || retarget) scheduleTargetGeometry();
+    return;
+  }
+  targetGeneration += 1;
+  const next = {
     kind: "element",
+    element: container.el,
     quote: container.label,
     anchor: { selector: cssPath(container.el), label: container.label },
+    generation: targetGeneration,
+  };
+  if (composeOpen && pending) retarget = next;
+  else {
+    pending = next;
+    retarget = null;
+  }
+  observePendingTarget(next);
+  scheduleTargetGeometry();
+}
+
+function openPendingCompose() {
+  if (!pending && !retarget) {
+    if (!settleSelection()) return false;
+  }
+  const target = retarget || pending;
+  commentOpenRequestGeneration = target.generation;
+  postTarget("eh:openComment", target);
+  return true;
+}
+
+function acceptCommentOpen(msg) {
+  const requested = Number(msg.requestedGeneration);
+  if (commentOpenRequestGeneration === requested) commentOpenRequestGeneration = null;
+  if (!msg.accepted) {
+    const authoritative = Number(msg.targetGeneration);
+    if (pending?.generation === authoritative) {
+      composeOpen = true;
+    } else if (retarget?.generation === authoritative) {
+      pending = retarget;
+      retarget = null;
+      composeOpen = true;
+      observePendingTarget(pending);
+      scheduleTargetGeometry();
+    } else {
+      composeOpen = false;
+    }
+    diagnostic("composer-open-rejected", { targetGeneration: requested });
+    return;
+  }
+  if (Number(msg.targetGeneration) !== requested) {
+    diagnostic("geometry-rejected", { reason: "stale", targetGeneration: requested });
+    return;
+  }
+  const acceptedGeneration = acceptedOpenGeneration(
+    {
+      pendingGeneration: pending?.generation || null,
+      retargetGeneration: retarget?.generation || null,
+    },
+    { accepted: true, requestedGeneration: requested }
+  );
+  const candidate = retarget?.generation === acceptedGeneration
+    ? retarget
+    : pending?.generation === acceptedGeneration
+      ? pending
+      : null;
+  if (!candidate) {
+    diagnostic("geometry-rejected", { reason: "stale", targetGeneration: requested });
+    return;
+  }
+  pending = candidate;
+  retarget = null;
+  composeOpen = true;
+  lastTargetGeometrySignature = "";
+  observePendingTarget(pending);
+  positionCommentAction([]);
+  renderSelectionCues(targetRects(pending));
+  scheduleTargetGeometry();
+}
+
+function deactivateComment() {
+  activeCommentId = null;
+  for (const mark of document.querySelectorAll(`mark[${MARK_ATTR}]`)) mark.classList.remove("eh-active");
+  place(els.activeBox, null);
+  refreshGeometryWatch();
+}
+
+function revealTarget(generation) {
+  diagnostic("reveal-target-requested", { targetGeneration: generation });
+  if (!composeOpen || !pending || pending.generation !== generation || !targetConnected(pending)) {
+    diagnostic("reveal-target-failed", { targetGeneration: generation });
+    post("eh:revealTargetResult", { targetGeneration: generation, success: false });
+    return;
+  }
+  const target = pending.kind === "element"
+    ? pending.element
+    : pending.range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? pending.range.startContainer
+      : pending.range.startContainer.parentElement;
+  if (!target?.isConnected) {
+    diagnostic("reveal-target-failed", { targetGeneration: generation });
+    post("eh:revealTargetResult", { targetGeneration: generation, success: false });
+    return;
+  }
+  target.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const authoritative = composeOpen && pending && pending.generation === generation;
+      const revealed = authoritative && targetGeometry(pending).relation === "visible";
+      scheduleTargetGeometry();
+      diagnostic(revealed ? "reveal-target-succeeded" : "reveal-target-failed", {
+        targetGeneration: generation,
+      });
+      post("eh:revealTargetResult", { targetGeneration: generation, success: revealed });
+    });
   });
 }
 
 /** Commit turns the remembered range into real <mark> wrappers. */
-function commitPending(id) {
-  if (!pending) return;
+function commitPending(id, generation, { restoreFocus = false } = {}) {
+  if (!pending || (generation && generation !== pending.generation)) return;
   if (pending.kind === "element") {
     if (pending.element && pending.element.isConnected) pending.element.setAttribute("data-eh-el", id);
   } else {
@@ -623,12 +1159,32 @@ function commitPending(id) {
     const hit = findQuote(text, pending.context);
     if (hit) wrapOffsets(map, hit.start, hit.end, id);
   }
-  const sel = document.getSelection();
-  if (sel) sel.removeAllRanges();
-  clearPending();
+  if (restoreFocus) restoreTargetFocus(pending);
+  else {
+    const sel = document.getSelection();
+    if (sel) sel.removeAllRanges();
+  }
+  clearPending({ keepRetarget: true });
 }
 
 function reanchor(comments) {
+  const authoritative = new Set((comments || []).map((comment) => String(comment.id)));
+  const staleMarks = new Set();
+  for (const mark of document.querySelectorAll(`mark[${MARK_ATTR}]`)) {
+    const id = mark.getAttribute(MARK_ATTR);
+    if (id && !authoritative.has(id)) staleMarks.add(id);
+  }
+  for (const id of staleMarks) unwrap(id);
+  for (const element of document.querySelectorAll("[data-eh-el]")) {
+    if (!authoritative.has(element.getAttribute("data-eh-el"))) element.removeAttribute("data-eh-el");
+  }
+  if (activeCommentId && !authoritative.has(activeCommentId)) {
+    const staleId = activeCommentId;
+    activeCommentId = null;
+    place(els.activeBox, null);
+    post("eh:commentGeometry", { id: staleId, rects: [], visible: false, viewport: viewportData() });
+  }
+
   const resolved = [];
   const orphaned = [];
   for (const comment of comments) {
@@ -656,6 +1212,7 @@ function reanchor(comments) {
 }
 
 function activate(id, scroll) {
+  activeCommentId = id || null;
   const marks = marksFor(id);
   let target = marks[0] || null;
   if (!target) {
@@ -665,6 +1222,19 @@ function activate(id, scroll) {
   for (const mark of document.querySelectorAll(`mark[${MARK_ATTR}]`)) mark.classList.remove("eh-active");
   for (const mark of marks) mark.classList.add("eh-active");
   place(els.activeBox, target);
+  const rects = marks.length
+    ? marks.map((mark) => rectData(mark.getBoundingClientRect()))
+    : target
+      ? [rectData(target.getBoundingClientRect())]
+      : [];
+  const visible = visibleRects(rects, { kind: "element", element: target });
+  post("eh:commentGeometry", {
+    id,
+    rects: visible,
+    visible: visible.length > 0,
+    viewport: viewportData(),
+  });
+  refreshGeometryWatch();
   if (target && scroll) {
     // Reveal a target hidden inside a collapsed tab or accordion.
     let hidden = target.closest("[hidden]") || null;
@@ -690,6 +1260,7 @@ function activate(id, scroll) {
     // scrollIntoView walks every scrollable ancestor, so targets inside an
     // app's inner scroll container are reached too, not just window-scrolled ones.
     target.scrollIntoView({ block: "center", behavior: "smooth" });
+    setTimeout(() => activate(id, false), 180);
   }
 }
 
@@ -709,25 +1280,24 @@ function boot() {
   `;
   document.head.appendChild(style);
 
-  // React/Next.js hydration may remove an attribute that was added after the
-  // server rendered the page. Keep edit mode on after hydration settles so a
-  // real app stays directly editable, not just its initial HTML response.
-  keepBodyEditable(document.body);
-  document.body.spellcheck = false;
+  modeController = keepBodyInReviewMode(document.body, "view");
   baseline = serialize();
   bootSnapshot = baseline;
   watchSelfRendering();
+
+  const notifyChromeInteraction = (event) => {
+    if (isOurs(event.target)) return;
+    post("eh:interaction", { interaction: event.type });
+  };
+  document.addEventListener("pointerdown", notifyChromeInteraction, true);
+  document.addEventListener("focusin", notifyChromeInteraction, true);
+  window.addEventListener("focus", notifyChromeInteraction, true);
 
   document.addEventListener("mouseup", (event) => {
     if (isOurs(event.target) || resizing || Date.now() < suppressUntil) return;
     setTimeout(() => {
       if (settleSelection()) return;
-      const target = targetFor(event.target);
-      if (target) {
-        openElementCompose(target);
-        return;
-      }
-      post("eh:dismiss", {});
+      if (!composeOpen && pending?.kind === "selection") clearPending();
     }, 0);
   });
 
@@ -737,8 +1307,14 @@ function boot() {
       if (isOurs(event.target)) return;
       const modified = event.metaKey || event.ctrlKey;
       const href = navigationHref(event.target);
+      const mark = event.target.closest && event.target.closest(`mark[${MARK_ATTR}]`);
+      if (mark) {
+        event.preventDefault();
+        post("eh:activate", { id: mark.getAttribute(MARK_ATTR) });
+        return;
+      }
 
-      if (modified) {
+      if (reviewMode === "view") {
         if (href) {
           event.preventDefault();
           event.stopPropagation();
@@ -757,49 +1333,108 @@ function boot() {
             }
           }
           else if (classification === "navigate") {
-            // This document is about to be torn down: anything still sitting in
-            // the debounce windows must ship first or it is lost. Message order
-            // is guaranteed, so the edits land before the navigation does.
+            post("eh:navigate", { href });
+          }
+        }
+        return;
+      }
+
+      if (modified) {
+        if (href) {
+          event.preventDefault();
+          event.stopPropagation();
+          const classification = classifyHref(href);
+          if (classification === "external") {
+            const external = externalHref(href, document.baseURI);
+            if (external) post("eh:external", { href: external });
+          } else if (classification === "hash") {
+            const action = hashClickAction(href, location.hash);
+            if (action.kind === "scroll") {
+              const el = document.getElementById(action.id) || document.getElementsByName(action.id)[0] || document.body;
+              el.scrollIntoView({ behavior: "smooth" });
+            } else {
+              location.hash = action.hash;
+            }
+          } else if (classification === "navigate") {
             flushSave();
             post("eh:navigate", { href });
           }
         }
-        return; // let the artifact's own handlers run
+        return;
       }
 
-      // Plain clicks belong to editing: never navigate, never fire artifact JS.
+      // Edit keeps activation suppression so direct manipulation cannot navigate.
       if (href || (event.target.closest && event.target.closest("button, [role='button'], summary"))) {
         event.preventDefault();
         event.stopPropagation();
       }
-      const mark = event.target.closest && event.target.closest(`mark[${MARK_ATTR}]`);
-      if (mark) post("eh:activate", { id: mark.getAttribute(MARK_ATTR) });
     },
     true
   );
 
   document.addEventListener("submit", (event) => {
-    if (!event.metaKey && !event.ctrlKey) event.preventDefault();
-  }, true);
+    if (event.defaultPrevented) return;
+    if (reviewMode === "edit") {
+      if (!event.metaKey && !event.ctrlKey) event.preventDefault();
+      return;
+    }
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const submitter = event.submitter;
+    const method = String(submitter?.formMethod || form.method || "get").toLowerCase();
+    if (method === "dialog") return;
+    event.preventDefault();
+    if (method !== "get") {
+      post("eh:formBlocked", { reason: "Only GET form navigation is available in View mode." });
+      return;
+    }
+    const action =
+      submitter?.getAttribute("formaction") ??
+      form.getAttribute("action") ??
+      "";
+    if (!action) {
+      post("eh:formBlocked", { reason: "This form does not name a reviewable destination." });
+      return;
+    }
+    const query = new URLSearchParams();
+    for (const [name, value] of new FormData(form)) {
+      if (typeof value === "string") query.append(name, value);
+    }
+    if (submitter?.name) query.append(submitter.name, submitter.value);
+    const hashIndex = action.indexOf("#");
+    const hash = hashIndex >= 0 ? action.slice(hashIndex) : "";
+    const base = hashIndex >= 0 ? action.slice(0, hashIndex) : action;
+    const separator = base.includes("?") ? "&" : "?";
+    const href = query.size ? `${base}${separator}${query}${hash}` : action;
+    post("eh:navigate", { href });
+  });
 
   document.addEventListener("mouseover", (event) => {
     if (isOurs(event.target) || resizing || moving) return;
-    const target = targetFor(event.target);
+    const target = commentTargetFor(event.target);
     hoverTarget = target ? target.el : null;
     // The move handle works per element, not per labeled container, so each
     // paragraph inside a card can travel on its own.
     hoverMove = hoverTarget ? innermostBlock(event.target) || hoverTarget : null;
     hoverMedia = event.target.closest ? event.target.closest("img, video") : null;
     place(els.outline, hoverTarget);
-    if (controlsAreSuppressed()) hideActionControls();
+    const selectionActive = selectionIsActive();
+    if (!selectionActive && target && !composeOpen) setElementTarget(target);
+    if (reviewMode !== "edit" || controlsAreSuppressed()) hideActionControls();
     else {
       showChip(hoverTarget);
       showMover(hoverMove);
     }
-    showGrip(hoverMedia);
+    showGrip(reviewMode === "edit" ? hoverMedia : null);
     const interactive = event.target.closest && event.target.closest("a[href], [data-href], button, [role='button']");
     const draggable = hoverMedia && hoverMedia.tagName === "IMG";
-    showHint(interactive ? "⌘-click to open" : draggable ? "Drag to move" : "", event.clientX, event.clientY);
+    showHint(reviewMode === "edit" && interactive ? "⌘-click to open" : reviewMode === "edit" && draggable ? "Drag to move" : "", event.clientX, event.clientY);
+  });
+
+  document.addEventListener("focusin", (event) => {
+    if (isOurs(event.target) || selectionIsActive() || composeOpen) return;
+    const target = commentTargetFor(event.target);
+    if (target) setElementTarget(target);
   });
 
   document.addEventListener("mouseleave", () => {
@@ -812,11 +1447,29 @@ function boot() {
     showMover(null);
     showGrip(null);
     showHint("");
+    if (
+      !composeOpen &&
+      !commentOpenRequestGeneration &&
+      pending?.kind === "element" &&
+      !pending.element?.contains(document.activeElement)
+    ) clearPending();
+  });
+
+  els.commentAction.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  els.commentAction.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openPendingCompose();
   });
 
   // ------------------------------------------------------------ image resize
 
   els.grip.addEventListener("pointerdown", (event) => {
+    if (reviewMode !== "edit") return;
     if (!hoverMedia || !hoverMedia.isConnected) return;
     event.preventDefault();
     event.stopPropagation();
@@ -865,7 +1518,7 @@ function boot() {
   els.chipDelete.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!hoverTarget) return;
+    if (reviewMode !== "edit" || !hoverTarget) return;
     userEdited = true;
     const target = targetFor(hoverTarget);
     const label = target ? target.label : "Element";
@@ -934,7 +1587,7 @@ function boot() {
   document.addEventListener(
     "beforeinput",
     (event) => {
-      if (isOurs(event.target)) return;
+      if (isOurs(event.target) || reviewMode !== "edit") return;
       suppressActionControlsWhileTyping();
       // From here on, DOM drift is the human typing, not the page rendering.
       userEdited = true;
@@ -946,8 +1599,18 @@ function boot() {
   );
 
   document.addEventListener("selectionchange", () => {
-    if (selectionIsActive()) hideActionControls();
-    else restoreActionControls();
+    clearTimeout(selectionTimer);
+    if (!composeOpen && selectionIsActive()) clearPending();
+    else els.commentAction.style.display = "none";
+    selectionTimer = setTimeout(() => {
+      if (selectionIsActive()) {
+        hideActionControls();
+        settleSelection();
+      } else {
+        restoreActionControls();
+        if (!composeOpen && pending?.kind === "selection") clearPending();
+      }
+    }, 40);
   });
 
   // ------------------------------------------------------------------ links
@@ -1092,6 +1755,21 @@ function boot() {
       const sel = document.getSelection();
       const anchor = sel ? sel.anchorNode : null;
 
+      if (
+        event.altKey &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "m"
+      ) {
+        if (selectionIsActive()) settleSelection();
+        if (openPendingCompose()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+
+      if (reviewMode !== "edit") return;
+
       // ⌘K links the selection, like Docs, Word, and Notion.
       if (meta && !event.shiftKey && !event.altKey && (event.key === "k" || event.key === "K")) {
         if (openLinkbox()) {
@@ -1184,6 +1862,7 @@ function boot() {
   let dragging = null; // { el, fromBlock, fromLabel, overBlock, dropped } during an image drag
 
   document.addEventListener("dragstart", (event) => {
+    if (reviewMode !== "edit") return;
     const img = event.target && event.target.nodeType === 1 && event.target.tagName === "IMG" ? event.target : null;
     if (!img || isOurs(img)) return;
     const target = targetFor(img);
@@ -1202,6 +1881,7 @@ function boot() {
   });
 
   document.addEventListener("dragover", (event) => {
+    if (reviewMode !== "edit") return;
     if (!dragging) {
       // External payloads would navigate the frame or paste file:// markup.
       if (event.dataTransfer && [...(event.dataTransfer.types || [])].includes("Files")) {
@@ -1245,6 +1925,7 @@ function boot() {
   };
 
   document.addEventListener("drop", (event) => {
+    if (reviewMode !== "edit") return;
     if (dragging) {
       // The move itself is the drop's default action, so the edit rows can
       // only be read after it has run.
@@ -1281,6 +1962,7 @@ function boot() {
   };
 
   els.mover.addEventListener("pointerdown", (event) => {
+    if (reviewMode !== "edit") return;
     const el = hoverMove && hoverMove.isConnected ? hoverMove : hoverTarget;
     if (!el || !el.isConnected) return;
     event.preventDefault();
@@ -1345,7 +2027,7 @@ function boot() {
   document.addEventListener(
     "paste",
     (event) => {
-      if (isOurs(event.target)) return;
+      if (isOurs(event.target) || reviewMode !== "edit") return;
       const items = event.clipboardData ? [...event.clipboardData.items] : [];
       const images = items.filter((item) => item.kind === "file" && /^image\//.test(item.type));
       if (!images.length) return;
@@ -1389,7 +2071,7 @@ function boot() {
   };
 
   document.addEventListener("input", (event) => {
-    if (isOurs(event.target)) return;
+    if (isOurs(event.target) || reviewMode !== "edit") return;
     // A drop fires deleteByDrag/insertFromDrop input events whose selection
     // points anywhere; finalizeImageDrag writes the real rows instead.
     if (dragging) return;
@@ -1416,9 +2098,16 @@ function boot() {
 
   const reposition = () => {
     place(els.outline, hoverTarget);
-    showChip(hoverTarget);
-    showMover(moving ? null : hoverMove);
-    showGrip(resizing ? resizing.el : hoverMedia);
+    if (reviewMode === "edit" && !controlsAreSuppressed()) {
+      showChip(hoverTarget);
+      showMover(moving ? null : hoverMove);
+      showGrip(resizing ? resizing.el : hoverMedia);
+    } else {
+      hideActionControls();
+      showGrip(null);
+    }
+    scheduleTargetGeometry();
+    if (activeCommentId) activate(activeCommentId, false);
     // The popup is viewport-fixed; scrolled away from its text it just lies.
     if (linkState) closeLinkbox(false);
   };
@@ -1433,6 +2122,7 @@ function boot() {
       reposition();
     });
   };
+  document.addEventListener("scroll", scheduleReposition, true);
   window.addEventListener("scroll", scheduleReposition, true);
   window.addEventListener("resize", scheduleReposition);
 
@@ -1461,15 +2151,39 @@ function boot() {
         reanchor(msg.comments || []);
         break;
       case "eh:commit":
-        commitPending(msg.id);
+        if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
+        commitPending(msg.id, msg.targetGeneration, { restoreFocus: !!msg.restoreFocus });
         composeOpen = false;
         break;
       case "eh:cancel":
-        clearPending();
+        if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
+        {
+          const discardThrough = Number(msg.discardThroughGeneration) || Number(msg.targetGeneration) || 0;
+          const newerRetarget = retarget && retarget.generation > discardThrough ? retarget : null;
+          if (msg.restoreFocus && !newerRetarget) restoreTargetFocus(pending);
+          clearPending({ keepRetarget: !!newerRetarget || !!msg.preserveRetarget });
+          if (newerRetarget) {
+            pending = newerRetarget;
+            retarget = null;
+          }
+        }
         composeOpen = false;
+        if (pending) {
+          observePendingTarget(pending);
+          scheduleTargetGeometry();
+        }
         break;
-      case "eh:composeOpen":
-        composeOpen = true;
+      case "eh:commentOpenResult":
+        acceptCommentOpen(msg);
+        break;
+      case "eh:deactivateComment":
+        deactivateComment();
+        break;
+      case "eh:revealTarget":
+        revealTarget(msg.targetGeneration);
+        break;
+      case "eh:modeMenuState":
+        modeMenuOpen = !!msg.open;
         break;
       case "eh:remove":
         unwrap(msg.id);
@@ -1492,13 +2206,22 @@ function boot() {
         editQueue.clear();
         break;
       case "eh:raw":
-        checkDynamic(String(msg.html || ""));
+        if (savePolicy === "writable") checkDynamic(String(msg.html || ""));
         break;
-      case "eh:feedbackOnly":
-        // The chrome already knows saves must not happen (e.g. a Markdown
-        // source rendered for review); no comparison needed.
-        dynamic = true;
+      case "eh:configureReview": {
+        reviewMode = msg.mode === "edit" ? "edit" : "view";
+        savePolicy = msg.savePolicy === "feedback-only" ? "feedback-only" : "writable";
+        modeController.setMode(reviewMode);
+        if (reviewMode === "view") {
+          showChip(null);
+          showMover(null);
+          showGrip(null);
+          els.linkbox.style.display = "none";
+        }
+        scheduleTargetGeometry();
+        post("eh:configurationApplied", { mode: reviewMode, savePolicy });
         break;
+      }
       case "eh:restoreScroll":
         window.scrollTo(msg.x || 0, msg.y || 0);
         break;

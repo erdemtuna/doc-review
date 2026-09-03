@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { newestComments, pageUrl, replacePage } from "../src/chrome-session.js";
+import { modePresentation, newestComments, pageUrl, replacePage } from "../src/chrome-session.js";
 
 test("page refreshes keep session context and clear stale cross-page counts", () => {
   assert.equal(pageUrl("abc123", "session with spaces"), "/api/page/abc123?session=session%20with%20spaces");
@@ -16,6 +16,19 @@ test("page refreshes keep session context and clear stale cross-page counts", ()
 
   assert.equal(state.page, refreshed);
   assert.deepEqual(state.others, []);
+});
+
+test("toolbar modes expose the approved descriptions", () => {
+  assert.deepEqual(modePresentation(), {
+    label: "View",
+    icon: "eye",
+    description: "Editing off, comments enabled",
+  });
+  assert.deepEqual(modePresentation("edit"), {
+    label: "Edit",
+    icon: "pencil",
+    description: "Direct editing on",
+  });
 });
 
 test("comments are newest-first and an edited comment moves to the top", () => {

@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, Store, resolveAsset } from "./state.js";
+import { normalizeCommentAnchor } from "./comment-anchor.js";
 import { injectSdk, stripSdk } from "./html-transform.js";
 import { isMarkdown, renderMarkdownPage } from "./markdown.js";
 import { canonicalTarget, ensureStateDir, localUrl, SERVER_PROTOCOL, serverPath, stateDir, targetKey } from "./paths.js";
@@ -274,7 +275,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           id: c.id,
           kind: c.kind,
           quote: c.quote,
-          anchor: c.anchor,
+          anchor: c.anchor == null ? c.anchor : normalizeCommentAnchor(c.kind, c.anchor),
           feedback: c.feedback,
           ...(c.correction ? { correction: true, correction_of: c.correctionOf } : {}),
         })),
@@ -562,6 +563,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (route === "/chrome.css") return serveFile(res, path.join(here, "chrome.css"));
       if (route === "/chrome.js") return serveFile(res, path.join(here, "chrome-client.js"));
       if (route === "/chrome-session.js") return serveFile(res, path.join(here, "chrome-session.js"));
+      if (route === "/icons.js") return serveFile(res, path.join(here, "icons.js"), opaqueModuleCors(req));
+      if (route === "/positioning.js") return serveFile(res, path.join(here, "positioning.js"), opaqueModuleCors(req));
+      if (route === "/review-mode.js") return serveFile(res, path.join(here, "review-mode.js"), opaqueModuleCors(req));
+      if (route === "/comment-target.js") return serveFile(res, path.join(here, "comment-target.js"), opaqueModuleCors(req));
       if (route === "/sdk.js") return serveFile(res, path.join(here, "sdk.js"), opaqueModuleCors(req));
       if (route === "/editing.js") return serveFile(res, path.join(here, "editing.js"), opaqueModuleCors(req));
       if (route === "/anchor-text.js") return serveFile(res, path.join(here, "anchor-text.js"), opaqueModuleCors(req));
@@ -829,15 +834,21 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
 
         if (action === "comment" && req.method === "POST") {
           const body = await readBody(req);
+          const kind = body.kind === "element" ? "element" : "selection";
+          const feedback = String(body.feedback || "").trim();
           const comment = {
             id: uid("c"),
-            kind: body.kind === "element" ? "element" : "selection",
+            kind,
             quote: String(body.quote || ""),
-            anchor: body.anchor || null,
-            feedback: String(body.feedback || ""),
+            anchor: normalizeCommentAnchor(
+              kind,
+              body.anchor || (kind === "selection" ? { quote: String(body.quote || "") } : null)
+            ),
+            feedback,
             createdAt: Date.now(),
           };
           if (!comment.feedback) return json(res, 400, { error: "empty feedback" });
+          if (!comment.anchor) return json(res, 400, { error: "invalid comment anchor" });
           store.addComment(key, comment);
           return json(res, 200, { comment, page: pageState(key) });
         }

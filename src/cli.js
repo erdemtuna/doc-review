@@ -4,7 +4,15 @@ import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { canonicalTarget, ensureStateDir, SERVER_PROTOCOL, serverPath, statePath, targetKey } from "./paths.js";
+import {
+  canonicalTarget,
+  ensureStateDir,
+  SERVER_PROTOCOL,
+  serverPath,
+  serverProtocolMatches,
+  statePath,
+  targetKey,
+} from "./paths.js";
 import { readServerLock } from "./server-lock.js";
 import { installSkills, shellQuote } from "./setup.js";
 
@@ -69,7 +77,7 @@ async function alive(server) {
     if (res.status !== 200) return false;
     const health = JSON.parse(res.raw);
     return (
-      health.protocol === SERVER_PROTOCOL &&
+      serverProtocolMatches(health.protocol) &&
       health.pid === server.pid &&
       health.instance_id === server.instance_id
     );
@@ -82,7 +90,7 @@ async function ensureServer() {
   ensureStateDir();
   for (let launch = 0; launch < 3; launch += 1) {
     const saved = readServerRecord();
-    if (saved?.protocol === SERVER_PROTOCOL && saved.port && saved.instance_id && (await alive(saved))) return saved;
+    if (serverProtocolMatches(saved?.protocol) && saved.port && saved.instance_id && (await alive(saved))) return saved;
 
     const child = spawn(process.execPath, [path.join(here, "server-entry.js")], {
       detached: true,
@@ -95,7 +103,7 @@ async function ensureServer() {
       const record = readServerRecord();
       // Same protocol gate as above: a still-running server from an older
       // version answers /health too, and must not be adopted here.
-      if (record?.protocol === SERVER_PROTOCOL && record.port && record.instance_id && (await alive(record))) return record;
+      if (serverProtocolMatches(record?.protocol) && record.port && record.instance_id && (await alive(record))) return record;
       if (child.exitCode !== null && !readServerLock()) break;
     }
   }
@@ -239,7 +247,7 @@ async function pollCommand(input, { ackId = "", timeoutSecs = 0 } = {}) {
 async function statusCommand(input) {
   const target = canonicalTarget(input).value;
   const saved = readServerRecord();
-  if (saved?.protocol === SERVER_PROTOCOL && saved.port && saved.instance_id && (await alive(saved))) {
+  if (serverProtocolMatches(saved?.protocol) && saved.port && saved.instance_id && (await alive(saved))) {
     const res = await request(saved, { method: "GET", path: `/api/status?target=${encodeURIComponent(target)}` });
     if (res.status === 200) {
       process.stdout.write(`${JSON.stringify(JSON.parse(res.raw), null, 2)}\n`);

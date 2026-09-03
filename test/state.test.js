@@ -36,6 +36,25 @@ test("reopening a page keeps its comments", () => {
   assert.equal(reloaded.page(key).comments[0].feedback, "tighten");
 });
 
+test("state persists semantic anchors without presentation geometry", () => {
+  const store = new Store();
+  const opened = store.openPage(page("anchor-privacy.html", "<p>Alpha</p>"), "<p>Alpha</p>");
+  store.addComment(opened.key, {
+    id: "safe-anchor",
+    kind: "selection",
+    quote: "Alpha",
+    feedback: "Tighten",
+    anchor: {
+      quote: "Alpha",
+      selector: "p",
+      rects: [{ left: 1 }],
+      viewport: { width: 800 },
+      generation: 2,
+    },
+  });
+  assert.deepEqual(store.page(opened.key).comments[0].anchor, { quote: "Alpha", selector: "p" });
+});
+
 test("edits dedupe on label and kind", () => {
   const store = new Store();
   const { key } = store.openPage(page("c.html", "<p>x</p>"), "<p>x</p>");

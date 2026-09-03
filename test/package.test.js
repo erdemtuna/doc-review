@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { stateDir } from "../src/paths.js";
+import { SERVER_PROTOCOL, serverProtocolMatches, stateDir } from "../src/paths.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -50,4 +50,11 @@ test("state discovery uses only the doc-review namespace", () => {
     if (previousHumanReview === undefined) delete process.env.HUMAN_REVIEW_STATE_DIR;
     else process.env.HUMAN_REVIEW_STATE_DIR = previousHumanReview;
   }
+});
+
+test("the contextual review contract does not reuse the v0.7 protocol", () => {
+  assert.equal(SERVER_PROTOCOL, 12);
+  assert.equal(serverProtocolMatches(12), true);
+  assert.equal(serverProtocolMatches(11), false);
+  assert.equal(serverProtocolMatches("11"), false);
 });

@@ -1,6 +1,6 @@
 # Doc Review
 
-Edit HTML and Markdown files directly, leave comments like a Google Doc, and send all your feedback to your AI agent at once.
+Review HTML, Markdown, and localhost pages, edit when you choose, leave contextual comments, and send all feedback to your AI agent at once.
 
 [Read the original Human Review launch post](https://creatoreconomy.so/p/use-my-human-review-skill-to-edit-html-markdown-visually)
 
@@ -51,9 +51,15 @@ Review a page running on localhost:
 /doc-review (localhost URL)
 ```
 
-Doc Review opens the file in your browser. Make direct edits, leave comments, and click Send. Your agent receives all your feedback in one batch, updates the source, and refreshes the page for another review.
+Doc Review opens in **View** (`Editing off, comments enabled`) so links, buttons, summaries, tabs, and application controls work normally. The centered mode selector switches to **Edit** (`Direct editing on`) when you want to change content directly. Commenting stays available in both modes.
 
-Note: For HTML files, direct edits and resizes save automatically. For Markdown and localhost pages, click Send so your agent can apply them to the source.
+Select text, or hover or focus an element, then use the nearby comment icon. `Ctrl+Alt+M` (`Cmd+Option+M` on macOS) opens a comment for the current selection. Press Enter to submit or Shift+Enter for a new line. On desktop the composer stays beside its target, or pins to the effective top or bottom scrolling edge when that target leaves view. **Back to selection** reveals the target without changing the draft. The full-width sheet is used only at the narrow responsive breakpoint.
+
+**Comments** is the single toolbar entry point for the closed-by-default review drawer. Its feedback inventory scrolls independently while the overall note and **Send to agent** controls remain fixed. Submitting a comment creates its normal highlight and increments the count, but keeps the card closed until you activate its mark or choose **Jump to**. Focus returns to the exact element or selection you reviewed.
+
+Aligned cards show **Edit**, **Close**, and **More**; drawer cards show **Jump to**, **Edit**, and **More**. Delete lives only in **More** and requires an inline confirmation. Quote hints preserve both the beginning and ending of long selections. Editing has explicit **Save** and **Cancel** controls: Enter saves, Shift+Enter adds a line, Escape cancels, and moving focus never autosaves. A draft follows its comment between aligned and drawer cards and keeps its caret through target movement.
+
+For writable HTML files, Edit saves direct changes automatically. Markdown and localhost remain editable feedback-only surfaces: their rendered HTML is never written over the source, so click Send and let the agent apply those edits.
 
 File and rendered Markdown reviews run with authored scripts and inline handlers
 blocked, an opaque iframe origin, and no popup or download permission. Their
@@ -89,8 +95,8 @@ complete acknowledgement command is included in each response's `next_step`.
 - **Resize images** by dragging their corner, and **move images** by dragging them to a new spot.
 - **Rearrange the page** — hover any block and drag the handle on its left edge to move the whole block somewhere else.
 - **Paste images** from your clipboard — file reviews save them beside the document; localhost reviews stage them for the agent to place in the app source.
-- **Select a phrase and leave a comment** anchored to the exact text.
-- **Comment on an image, chart, or section** by clicking the element.
+- **Select a phrase and leave a comment** from the contextual icon, or press Ctrl+Alt+M / Cmd+Option+M.
+- **Comment on an image, chart, control, or section** from its hover or keyboard-focus affordance without taking over its normal click.
 - **Remove elements** without explaining the deletion in chat.
 - **Command-click links** to review multiple pages without losing your feedback.
 - **Send every edit and comment at once** instead of writing a long chat message.
@@ -107,6 +113,7 @@ Doc Review works well for editing AI-generated plans, updating landing pages, re
 - [`SKILL.md`](src/SKILL.md) teaches Claude Code, Codex, and other agents how to use Doc Review.
 
 Everything runs on your computer. Doc Review doesn’t require an account, cloud service, database, or API key.
+Comment geometry remains local, transient presentation data and is never written to review state or sent to the agent. After the agent acknowledges the exact delivered `batch_id`, the comments carried by that batch disappear; newer comments and corrections remain.
 
 ## Upstream project
 

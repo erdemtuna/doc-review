@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { keepBodyEditable, serializeDocument, UI_ATTR, MARK_ATTR } from "../src/serialize.js";
+import { keepBodyInReviewMode } from "../src/review-mode.js";
+import { serializeDocument, UI_ATTR, MARK_ATTR } from "../src/serialize.js";
 
 // jsdom (a dev dependency) needs Node 22+; the library itself supports Node 20.
 // On older Node these DOM tests skip rather than fail the whole suite.
@@ -51,13 +52,17 @@ test("serialization strips everything doc-review added to the live page", { skip
 test("edit mode survives a framework removing contenteditable during hydration", { skip }, async () => {
   const dom = new JSDOM(PAGE);
   const body = dom.window.document.body;
-  const observer = keepBodyEditable(body);
+  const controller = keepBodyInReviewMode(body, "edit");
 
   body.removeAttribute("contenteditable");
   await new Promise((resolve) => dom.window.queueMicrotask(resolve));
 
   assert.equal(body.getAttribute("contenteditable"), "true");
-  observer.disconnect();
+  controller.setMode("view");
+  body.setAttribute("contenteditable", "true");
+  await new Promise((resolve) => dom.window.queueMicrotask(resolve));
+  assert.equal(body.hasAttribute("contenteditable"), false);
+  controller.disconnect();
 });
 
 test("a static page serializes identically to its parsed disk copy", { skip }, () => {

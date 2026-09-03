@@ -44,6 +44,51 @@ function request(port, token, { method = "GET", route = "/", body = null } = {})
 const j = (res) => JSON.parse(res.raw);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+test("comment POST trims feedback and strips presentation geometry", async (t) => {
+  const file = path.join(tmp, "geometry-privacy.html");
+  fs.writeFileSync(file, "<!doctype html><p>Alpha</p>");
+  const { port, token, dispose } = await start(0);
+  t.after(async () => dispose());
+  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
+
+  const empty = await request(port, token, {
+    method: "POST",
+    route: `/api/page/${opened.key}/comment`,
+    body: { kind: "selection", quote: "Alpha", anchor: { quote: "Alpha" }, feedback: " \n " },
+  });
+  assert.equal(empty.status, 400);
+
+  const added = j(await request(port, token, {
+    method: "POST",
+    route: `/api/page/${opened.key}/comment`,
+    body: {
+      kind: "selection",
+      quote: "Alpha",
+      feedback: "  Tighten this.  ",
+      anchor: {
+        quote: "Alpha",
+        prefix: "",
+        suffix: "",
+        selector: "p",
+        rects: [{ left: 1, top: 2 }],
+        viewport: { width: 800, height: 600 },
+        generation: 4,
+      },
+    },
+  }));
+  assert.equal(added.comment.feedback, "Tighten this.");
+  assert.deepEqual(added.comment.anchor, { quote: "Alpha", selector: "p" });
+
+  await request(port, token, {
+    method: "POST",
+    route: `/api/page/${opened.key}/send`,
+    body: { sessionId: opened.sessionId, note: "" },
+  });
+  const batch = j(await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` }));
+  assert.deepEqual(batch.pages[0].comments[0].anchor, { quote: "Alpha", selector: "p" });
+  assert.doesNotMatch(JSON.stringify(batch), /rects|viewport|generation|relation|clip|horizontal/);
+});
+
 /**
  * Fire `poll --ack <batch_id>` the way an agent whose feedback is already delivered
  * does: the ack clears the batch, then the request long-polls for the next
