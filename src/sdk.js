@@ -1284,6 +1284,7 @@ function boot() {
   };
   document.addEventListener("pointerdown", notifyChromeInteraction, true);
   document.addEventListener("focusin", notifyChromeInteraction, true);
+  window.addEventListener("focus", notifyChromeInteraction, true);
 
   document.addEventListener("mouseup", (event) => {
     if (isOurs(event.target) || resizing || Date.now() < suppressUntil) return;
@@ -2145,7 +2146,7 @@ function boot() {
       case "eh:cancel":
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
         if (msg.restoreFocus) restoreTargetFocus(pending);
-        clearPending({ keepRetarget: !!msg.preserveRetarget || !!retarget });
+        clearPending({ keepRetarget: !!msg.preserveRetarget });
         composeOpen = false;
         if (retarget) {
           observePendingTarget(retarget);

@@ -34,10 +34,13 @@ async function acknowledgeBatch(review, target, batchId) {
 }
 
 async function addSelectionComment(page, frame, selector, feedback) {
+  const before = Number(await page.locator("#toolbarCount").textContent());
   await selectText(frame, selector);
   await frame.locator("#commentAction").click();
   await page.locator("#composeText").fill(feedback);
   await page.locator("#composeAdd").click();
+  await expect(page.locator("#compose")).toBeHidden();
+  await expect(page.locator("#toolbarCount")).toHaveText(String(before + 1));
 }
 
 test("View is default and writable HTML switches through Edit back to View", async ({ page, review }) => {
