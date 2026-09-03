@@ -1,8 +1,8 @@
-# Human Review
+# Doc Review
 
 Review HTML, Markdown, and localhost pages, edit when you choose, leave contextual comments, and send all feedback to your AI agent at once.
 
-[Read the full launch post](https://creatoreconomy.so/p/use-my-human-review-skill-to-edit-html-markdown-visually)
+[Read the original Human Review launch post](https://creatoreconomy.so/p/use-my-human-review-skill-to-edit-html-markdown-visually)
 
 https://github.com/user-attachments/assets/7cab09c9-eaa0-4e8b-984d-2925e810b5c2
 
@@ -16,41 +16,46 @@ Sometimes you want to change one sentence yourself. Instead, you end up typing:
 
 Then the agent changes the file and you have to check whether it understood every instruction. This gets even harder when you’re reviewing a long plan, Markdown document, landing page, or multi-page website.
 
-## How to install /human-review
+## How to install /doc-review
 
 The easiest way to install the skill is to paste this into ChatGPT, Claude Code, Codex, or your favorite coding agent:
 
 ```text
-Install the /human-review skill globally from https://github.com/petergyang/human-review
+Install the /doc-review skill globally from https://github.com/erdemtuna/doc-review
 ```
 
 You can also install it with `npx`:
 
 ```sh
-npx -y human-review setup --global
+npx -y @erdemtuna/doc-review setup --global
 ```
 
-## How to use /human-review
+This fork uses the `doc-review` command, `/doc-review` skill, and
+`~/.doc-review` state directory. It does not install a `human-review` alias or
+migrate upstream state and skill files; remove those old files manually if you
+no longer need them.
 
-![Human Review visual editor](assets/human-review.png)
+## How to use /doc-review
+
+![Doc Review visual editor](assets/doc-review.png)
 
 Open an HTML or Markdown file:
 
 ```text
-/human-review (your file)
+/doc-review (your file)
 ```
 
 Review a page running on localhost:
 
 ```text
-/human-review (localhost URL)
+/doc-review (localhost URL)
 ```
 
-Human Review opens in **View** (`Editing off, comments enabled`) so links, buttons, summaries, tabs, and application controls work normally. The centered mode selector switches to **Edit** (`Direct editing on`) when you want to change content directly. Commenting stays available in both modes.
+Doc Review opens in **View** (`Editing off, comments enabled`) so links, buttons, summaries, tabs, and application controls work normally. The centered mode selector switches to **Edit** (`Direct editing on`) when you want to change content directly. Commenting stays available in both modes.
 
 Select text, or hover or focus an element, then use the nearby comment icon. `Ctrl+Alt+M` (`Cmd+Option+M` on macOS) opens a comment for the current selection. Press Enter to submit or Shift+Enter for a new line. On desktop the composer stays beside its target, or pins to the effective top or bottom scrolling edge when that target leaves view. **Back to selection** reveals the target without changing the draft. The full-width sheet is used only at the narrow responsive breakpoint.
 
-**Comments** is the single toolbar entry point for the closed-by-default review drawer. Its feedback inventory scrolls independently while the overall note and **Send to agent** controls remain fixed; keyboard users can skip directly to that send region. Submitting a comment creates its normal highlight and increments the count, but keeps the card closed until you activate its mark or choose **Jump to**. Focus returns to the exact element or selection you reviewed.
+**Comments** is the single toolbar entry point for the closed-by-default review drawer. Its feedback inventory scrolls independently while the overall note and **Send to agent** controls remain fixed. Submitting a comment creates its normal highlight and increments the count, but keeps the card closed until you activate its mark or choose **Jump to**. Focus returns to the exact element or selection you reviewed.
 
 Aligned cards show **Edit**, **Close**, and **More**; drawer cards show **Jump to**, **Edit**, and **More**. Delete lives only in **More** and requires an inline confirmation. Quote hints preserve both the beginning and ending of long selections. Editing has explicit **Save** and **Cancel** controls: Enter saves, Shift+Enter adds a line, Escape cancels, and moving focus never autosaves. A draft follows its comment between aligned and drawer cards and keeps its caret through target movement.
 
@@ -76,7 +81,7 @@ Agent polling returns an immutable `batch_id`. After applying the batch, the
 agent acknowledges that exact receipt and keeps waiting:
 
 ```sh
-human-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
+npx -y @erdemtuna/doc-review poll path/to/file.html --ack b_0123456789abcdef --timeout 600
 ```
 
 A stale or repeated batch ID is harmless: it never clears newer feedback. The
@@ -96,25 +101,23 @@ complete acknowledgement command is included in each response's `next_step`.
 - **Command-click links** to review multiple pages without losing your feedback.
 - **Send every edit and comment at once** instead of writing a long chat message.
 
-I use Human Review to edit AI-generated plans, update landing pages, review localhost apps, and remove the extra copy AI likes to add to UX.
+Doc Review works well for editing AI-generated plans, updating landing pages, reviewing localhost apps, and removing extra copy from a UX.
 
 ## What’s inside
 
-- [`cli.js`](src/cli.js) contains the `human-review`, `poll`, `status`, and `setup` commands.
+- [`cli.js`](src/cli.js) contains the `doc-review`, `poll`, `status`, and `setup` commands.
 - [`server.js`](src/server.js) runs the local review session.
 - [`sdk.js`](src/sdk.js) handles editing, comments, highlights, and feedback.
 - [`chrome-client.js`](src/chrome-client.js) contains the visual review interface.
 - [`markdown.js`](src/markdown.js) renders Markdown files for review.
-- [`SKILL.md`](src/SKILL.md) teaches Claude Code, Codex, and other agents how to use Human Review.
+- [`SKILL.md`](src/SKILL.md) teaches Claude Code, Codex, and other agents how to use Doc Review.
 
-Everything runs on your computer. Human Review doesn’t require an account, cloud service, database, or API key.
+Everything runs on your computer. Doc Review doesn’t require an account, cloud service, database, or API key.
 Comment geometry remains local, transient presentation data and is never written to review state or sent to the agent. After the agent acknowledges the exact delivered `batch_id`, the comments carried by that batch disappear; newer comments and corrections remain.
 
-## Want more great AI skills?
+## Upstream project
 
-Check out [Behind the Craft](https://behindthecraft.com), my personal AI system with over a dozen other quality skills and courses.
-
-Subscribe to my [YouTube channel](https://www.youtube.com/@PeterYangYT?sub_confirmation=1) and [newsletter](https://creatoreconomy.so) for practical AI tutorials and interviews.
+Doc Review is an independent fork of [Human Review](https://github.com/petergyang/human-review), originally created by Peter Yang. The fork preserves the upstream MIT license and continues from the upstream `v0.6.1` release.
 
 ## License
 

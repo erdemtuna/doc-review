@@ -1,5 +1,5 @@
 /**
- * human-review chrome. Owns the toolbar, contextual surfaces, drawer, and every
+ * doc-review chrome. Owns the toolbar, contextual surfaces, drawer, and every
  * call to the local server.
  * It never touches the artifact DOM directly — the SDK does that, over
  * postMessage, because the artifact iframe lives on the other loopback
@@ -72,7 +72,7 @@ const state = {
 };
 
 const diagnostic = (event, detail = {}) => {
-  console.info("[human-review]", { event, ...detail });
+  console.info("[doc-review]", { event, ...detail });
 };
 
 const patchFlights = new Map();
@@ -257,7 +257,7 @@ function handoffPrompt(pollCommand) {
 async function api(path, options) {
   const res = await fetch(path, {
     ...options,
-    headers: { "content-type": "application/json", "x-human-review-token": state.token, ...(options && options.headers) },
+    headers: { "content-type": "application/json", "x-doc-review-token": state.token, ...(options && options.headers) },
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
@@ -565,7 +565,7 @@ function render() {
   if (!page) return;
   const editWasFocused = skipEditCaptureOnce ? false : captureEditState();
   skipEditCaptureOnce = false;
-  document.title = page.filename || 'human-review';
+  document.title = page.filename || 'doc-review';
 
   const comments = newestComments(page.comments);
   const edits = page.edits || [];
@@ -1612,7 +1612,7 @@ window.addEventListener("message", async (event) => {
       try {
         const saved = await fetch(`/api/page/${state.key}/asset?type=${encodeURIComponent(msg.assetType || "")}`, {
           method: "POST",
-          headers: { "content-type": "application/octet-stream", "x-human-review-token": state.token },
+          headers: { "content-type": "application/octet-stream", "x-doc-review-token": state.token },
           body: msg.bytes,
         });
         const data = await saved.json();
@@ -1855,7 +1855,7 @@ $("theme").addEventListener("click", () => {
   const dark = document.documentElement.dataset.theme !== "dark";
   applyTheme(dark);
   try {
-    localStorage.setItem("human-review:theme", dark ? "dark" : "light");
+    localStorage.setItem("doc-review:theme", dark ? "dark" : "light");
   } catch {}
 });
 
@@ -1955,7 +1955,7 @@ function connect() {
 (async function start() {
   installStaticIcons();
   try {
-    applyTheme(localStorage.getItem("human-review:theme") === "dark");
+    applyTheme(localStorage.getItem("doc-review:theme") === "dark");
   } catch {}
 
   const bootstrap = await api(`/api/session/${state.sessionId}/page`).catch(() => null);

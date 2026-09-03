@@ -39,7 +39,7 @@ function pruneData(data, now = Date.now()) {
 
 function normalizeState(parsed, makeBatchId) {
   if (!parsed || typeof parsed !== "object" || !parsed.pages || typeof parsed.pages !== "object") {
-    throw new Error("Invalid human-review state: expected a pages object.");
+    throw new Error("Invalid doc-review state: expected a pages object.");
   }
   const data = {
     pages: parsed.pages,
@@ -60,11 +60,11 @@ function normalizeState(parsed, makeBatchId) {
   }
   for (const record of Object.values(data.batches)) {
     if (!record || typeof record !== "object" || !record.batch || !Array.isArray(record.cleanup)) {
-      throw new Error("Invalid human-review state: malformed feedback batch.");
+      throw new Error("Invalid doc-review state: malformed feedback batch.");
     }
     const existingId = record.batch_id || record.batch.batch_id;
     if (record.batch_id && record.batch.batch_id && record.batch_id !== record.batch.batch_id) {
-      throw new Error("Invalid human-review state: feedback batch IDs disagree.");
+      throw new Error("Invalid doc-review state: feedback batch IDs disagree.");
     }
     if (!existingId) {
       record.batch_id = makeBatchId();
@@ -83,7 +83,7 @@ function normalizeState(parsed, makeBatchId) {
       }
     }
     if (!DELIVERY_STATES.has(record.delivery_state)) {
-      throw new Error(`Invalid human-review state: unknown delivery state ${record.delivery_state}.`);
+      throw new Error(`Invalid doc-review state: unknown delivery state ${record.delivery_state}.`);
     }
     for (const page of record.batch.pages || []) {
       for (const comment of page.comments || []) normalizeAnchor(comment);
@@ -98,7 +98,7 @@ function normalizeState(parsed, makeBatchId) {
  * and a failed rename never leaves a predictable orphan behind.
  */
 export function atomicWrite(file, data) {
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.human-review.tmp`;
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.doc-review.tmp`;
   fs.writeFileSync(tmp, data, { flag: "wx" });
   try {
     fs.renameSync(tmp, file);

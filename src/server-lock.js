@@ -44,12 +44,12 @@ export function acquireServerLock({ pid = process.pid, instanceId = crypto.rando
 
     const existing = readServerLock();
     if (!existing || !existing.instance_id || !Number.isInteger(Number(existing.pid))) {
-      const invalid = new Error("The human-review server lock is malformed and cannot be reclaimed safely.");
+      const invalid = new Error("The doc-review server lock is malformed and cannot be reclaimed safely.");
       invalid.code = "SERVER_LOCK_INVALID";
       throw invalid;
     }
     if (isProcessAlive(Number(existing.pid))) {
-      const locked = new Error(`Human Review state is already owned by server PID ${existing.pid}.`);
+      const locked = new Error(`Doc Review state is already owned by server PID ${existing.pid}.`);
       locked.code = "SERVER_LOCKED";
       locked.owner = existing;
       throw locked;
@@ -64,7 +64,7 @@ export function acquireServerLock({ pid = process.pid, instanceId = crypto.rando
     }
     const moved = JSON.parse(fs.readFileSync(quarantine, "utf8"));
     if (!sameOwner(moved, existing)) {
-      throw new Error("The human-review server lock changed while reclaiming it.");
+      throw new Error("The doc-review server lock changed while reclaiming it.");
     }
     fs.unlinkSync(quarantine);
   }

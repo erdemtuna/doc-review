@@ -17,7 +17,7 @@ const PAGE = `<!DOCTYPE html>
 <html><head><title>Spec</title></head>
 <body><h1>Plan</h1><p>Ship the <strong>review loop</strong> this week.</p></body></html>`;
 
-test("serialization strips everything human-review added to the live page", { skip }, () => {
+test("serialization strips everything doc-review added to the live page", { skip }, () => {
   const dom = new JSDOM(PAGE);
   const doc = dom.window.document;
 
@@ -45,7 +45,7 @@ test("serialization strips everything human-review added to the live page", { sk
   const html = serializeDocument(doc);
   assert.ok(html.startsWith("<!DOCTYPE html>"), "doctype survives");
   assert.match(html, /<strong>review loop<\/strong>/, "marked text is unwrapped in place");
-  assert.doesNotMatch(html, /data-eh-/, "no human-review attributes remain");
+  assert.doesNotMatch(html, /data-eh-/, "no doc-review attributes remain");
   assert.doesNotMatch(html, /contenteditable/, "editing mode is not persisted");
 });
 

@@ -28,7 +28,7 @@ async function pollBatch(review, target) {
 async function acknowledgeBatch(review, target, batchId) {
   const response = await fetch(
     `http://127.0.0.1:${review.port}/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batchId)}`,
-    { headers: { "x-human-review-token": review.token } }
+    { headers: { "x-doc-review-token": review.token } }
   );
   await response.body.cancel();
 }
@@ -595,7 +595,7 @@ test("Back to selection reveals a nested selection and rejects a stale generatio
     window.__revealDiagnostics = [];
     const originalInfo = console.info.bind(console);
     console.info = (...args) => {
-      if (args[0] === "[human-review-frame]" && args[1]?.event) {
+      if (args[0] === "[doc-review-frame]" && args[1]?.event) {
         window.__revealDiagnostics.push(args[1].event);
       }
       originalInfo(...args);

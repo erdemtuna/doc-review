@@ -1,7 +1,7 @@
 /**
  * Document serialization, shared by the in-page SDK and Node tests.
  *
- * Everything human-review adds to a live page — the overlay, highlight marks, the
+ * Everything doc-review adds to a live page — the overlay, highlight marks, the
  * injected style/script, contenteditable — must vanish on the way back to disk,
  * so the saved file renders exactly as it does standalone.
  */

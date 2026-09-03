@@ -5,11 +5,15 @@ import fs from "node:fs";
 
 // Bump this when the CLI and detached server no longer share the same request
 // contract. A new CLI must not silently reuse an older background server.
-export const SERVER_PROTOCOL = 10;
+export const SERVER_PROTOCOL = 12;
+
+export function serverProtocolMatches(protocol) {
+  return Number(protocol) === SERVER_PROTOCOL;
+}
 
 export function stateDir() {
-  const override = process.env.HUMAN_REVIEW_STATE_DIR;
-  return override ? path.resolve(override) : path.join(homedir(), ".human-review");
+  const override = process.env.DOC_REVIEW_STATE_DIR;
+  return override ? path.resolve(override) : path.join(homedir(), ".doc-review");
 }
 
 export function statePath() {
@@ -45,7 +49,7 @@ export function localUrl(target) {
     throw new Error(`Invalid localhost URL: ${value}`);
   }
   if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
-    throw new Error("human-review URL support is limited to localhost, 127.0.0.1, and [::1].");
+    throw new Error("doc-review URL support is limited to localhost, 127.0.0.1, and [::1].");
   }
   if (parsed.username || parsed.password) {
     throw new Error("Localhost review URLs cannot contain credentials.");

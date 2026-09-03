@@ -7,8 +7,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-safety-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-safety-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const { start } = await import("../src/server.js");
@@ -22,7 +22,7 @@ function request(port, token, { method = "GET", route = "/", body = null } = {})
         method,
         path: route,
         headers: {
-          "x-human-review-token": token,
+          "x-doc-review-token": token,
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },
@@ -100,7 +100,7 @@ function ackAndAbandon(port, token, target, batchId, ms = 200) {
       host: "127.0.0.1",
       port,
       path: `/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batchId)}`,
-      headers: { "x-human-review-token": token },
+      headers: { "x-doc-review-token": token },
     });
     req.on("error", () => {});
     req.on("response", () => setTimeout(() => {
@@ -323,7 +323,7 @@ test("ending a review releases the waiting agent and keeps unsent feedback", asy
 });
 
 test("poll --timeout rejects malformed values instead of waiting forever", async () => {
-  const env = { ...process.env, HUMAN_REVIEW_STATE_DIR: process.env.HUMAN_REVIEW_STATE_DIR };
+  const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
   const run = (args) =>
     new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ["src/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
@@ -348,7 +348,7 @@ test("poll --timeout rejects malformed values instead of waiting forever", async
 });
 
 test("poll requires an explicit batch ID after --ack", async () => {
-  const env = { ...process.env, HUMAN_REVIEW_STATE_DIR: process.env.HUMAN_REVIEW_STATE_DIR };
+  const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
   const run = (args) =>
     new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ["src/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });

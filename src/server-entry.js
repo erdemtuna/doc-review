@@ -1,12 +1,12 @@
 import { start } from "./server.js";
 
-const port = Number(process.env.HUMAN_REVIEW_PORT || 0);
+const port = Number(process.env.DOC_REVIEW_PORT || 0);
 let review;
 try {
   review = await start(port);
 } catch (err) {
   if (err.code !== "SERVER_LOCKED") {
-    console.error(`human-review server could not start: ${err.message}`);
+    console.error(`doc-review server could not start: ${err.message}`);
     process.exitCode = 1;
   }
 }
@@ -17,7 +17,7 @@ async function shutdown() {
   try {
     await review.dispose();
   } catch (err) {
-    console.error(`human-review server shutdown failed: ${err.message}`);
+    console.error(`doc-review server shutdown failed: ${err.message}`);
     process.exitCode = 1;
   }
 }

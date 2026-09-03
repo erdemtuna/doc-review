@@ -4,8 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-test-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-test-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { atomicWrite, Store, resolveAsset } = await import("../src/state.js");
 const { canonicalTarget, localUrl, targetKey } = await import("../src/paths.js");
@@ -132,7 +132,7 @@ test("stale pages and pages whose file vanished are pruned on load", () => {
 });
 
 function statePathFor() {
-  return path.join(process.env.HUMAN_REVIEW_STATE_DIR, "state.json");
+  return path.join(process.env.DOC_REVIEW_STATE_DIR, "state.json");
 }
 
 test("sent batches persist across a restart, and an ack stays acked", () => {
@@ -259,7 +259,7 @@ test("legacy batches get a stable ID, require redelivery, and make edits correct
   const file = page("legacy.html", "<p>x</p>");
   const key = targetKey(file);
   const now = Date.now();
-  fs.mkdirSync(process.env.HUMAN_REVIEW_STATE_DIR, { recursive: true });
+  fs.mkdirSync(process.env.DOC_REVIEW_STATE_DIR, { recursive: true });
   fs.writeFileSync(
     statePathFor(),
     JSON.stringify({

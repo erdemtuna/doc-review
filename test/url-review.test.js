@@ -5,8 +5,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-url-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-url-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { start } = await import("../src/server.js");
 
@@ -19,7 +19,7 @@ function request(port, token, { method = "GET", route = "/", body = null } = {})
         method,
         path: route,
         headers: {
-          "x-human-review-token": token,
+          "x-doc-review-token": token,
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },

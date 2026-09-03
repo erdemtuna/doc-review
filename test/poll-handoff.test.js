@@ -8,8 +8,8 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-poll-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-poll-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function request(server, method, route, body) {
@@ -22,7 +22,7 @@ function request(server, method, route, body) {
         method,
         path: route,
         headers: {
-          ...(token ? { "x-human-review-token": token } : {}),
+          ...(token ? { "x-doc-review-token": token } : {}),
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },
@@ -57,7 +57,7 @@ function collect(child) {
 }
 
 async function waitForServer() {
-  const record = path.join(process.env.HUMAN_REVIEW_STATE_DIR, "server.json");
+  const record = path.join(process.env.DOC_REVIEW_STATE_DIR, "server.json");
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
       const saved = JSON.parse(fs.readFileSync(record, "utf8"));
@@ -77,7 +77,7 @@ test("poll exits with the feedback batch when the user sends", async (t) => {
 
   const reviewServer = spawn(process.execPath, ["src/server-entry.js"], {
     cwd: project,
-    env: { ...process.env, HUMAN_REVIEW_STATE_DIR: process.env.HUMAN_REVIEW_STATE_DIR },
+    env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
     stdio: "ignore",
   });
 
@@ -102,7 +102,7 @@ test("poll exits with the feedback batch when the user sends", async (t) => {
 
   const child = spawn(process.execPath, ["src/cli.js", "poll", file], {
     cwd: project,
-    env: { ...process.env, HUMAN_REVIEW_STATE_DIR: process.env.HUMAN_REVIEW_STATE_DIR },
+    env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const resultPromise = collect(child);

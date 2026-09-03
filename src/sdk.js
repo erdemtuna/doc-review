@@ -1,5 +1,5 @@
 /**
- * human-review artifact SDK.
+ * doc-review artifact SDK.
  *
  * Runs inside the sandboxed iframe alongside the artifact. It owns the
  * document: editing, highlights, target resolution and serialization. It never
@@ -53,7 +53,7 @@ let watchedGeometrySignature = "";
 let dynamic = false;
 
 const diagnostic = (event, detail = {}) => {
-  console.info("[human-review-frame]", { event, ...detail });
+  console.info("[doc-review-frame]", { event, ...detail });
 };
 
 // ------------------------------------------------------------------ overlay

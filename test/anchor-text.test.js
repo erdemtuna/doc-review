@@ -17,7 +17,7 @@ test("buildContext clamps at both ends of the text", () => {
 });
 
 test("findQuote locates a unique quote", () => {
-  const text = "human-review turns an HTML file into a reviewable page";
+  const text = "doc-review turns an HTML file into a reviewable page";
   const start = text.indexOf("turns");
   const hit = findQuote(text, buildContext(text, start, start + 5));
   assert.deepEqual([hit.start, hit.end], [start, start + 5]);

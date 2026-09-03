@@ -6,8 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { JSDOM } from "jsdom";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "human-review-markdown-"));
-process.env.HUMAN_REVIEW_STATE_DIR = path.join(tmp, "state");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-markdown-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
 const { start } = await import("../src/server.js");
 const { isMarkdown, renderMarkdownPage } = await import("../src/markdown.js");
@@ -21,7 +21,7 @@ function request(port, token, { method = "GET", route = "/", body = null } = {})
         method,
         path: route,
         headers: {
-          "x-human-review-token": token,
+          "x-doc-review-token": token,
           ...(body ? { "content-type": "application/json" } : {}),
         },
       },
