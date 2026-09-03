@@ -397,8 +397,7 @@ test("draft retarget submits first and a failed submit blocks retargeting", asyn
 
   await page.locator("#composeCancel").click();
   await selectText(frame, "#four");
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#commentAction").click();
+  await frame.locator("body").dispatchEvent("keydown", { key: "m", ctrlKey: true, altKey: true });
   await expect(page.locator("#composeQuote")).toContainText("Four target");
 });
 
