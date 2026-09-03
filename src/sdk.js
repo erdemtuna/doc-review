@@ -1280,7 +1280,7 @@ function boot() {
   watchSelfRendering();
 
   const notifyChromeInteraction = (event) => {
-    if (!modeMenuOpen || isOurs(event.target)) return;
+    if (isOurs(event.target)) return;
     post("eh:interaction", { interaction: event.type });
   };
   document.addEventListener("pointerdown", notifyChromeInteraction, true);
@@ -2151,11 +2151,19 @@ function boot() {
         break;
       case "eh:cancel":
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
-        if (msg.restoreFocus) restoreTargetFocus(pending);
-        clearPending({ keepRetarget: !!msg.preserveRetarget });
+        {
+          const discardThrough = Number(msg.discardThroughGeneration) || Number(msg.targetGeneration) || 0;
+          const newerRetarget = retarget && retarget.generation > discardThrough ? retarget : null;
+          if (msg.restoreFocus && !newerRetarget) restoreTargetFocus(pending);
+          clearPending({ keepRetarget: !!newerRetarget || !!msg.preserveRetarget });
+          if (newerRetarget) {
+            pending = newerRetarget;
+            retarget = null;
+          }
+        }
         composeOpen = false;
-        if (retarget) {
-          observePendingTarget(retarget);
+        if (pending) {
+          observePendingTarget(pending);
           scheduleTargetGeometry();
         }
         break;

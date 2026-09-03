@@ -1303,10 +1303,20 @@ async function openCompose(detail) {
 function cancelCompose({ restoreFocus = true, preserveRetarget = false } = {}) {
   if (!state.compose || state.composeLifecycle === "submitting") return false;
   const generation = state.compose.generation;
+  const discardThroughGeneration = Math.max(
+    generation,
+    Number(state.compose.rejectedTargetGeneration) || generation
+  );
   state.compose = null;
   setComposeLifecycle("closed", "cancel");
   setComposePlacement("hidden");
-  toFrame({ type: "eh:cancel", targetGeneration: generation, restoreFocus, preserveRetarget });
+  toFrame({
+    type: "eh:cancel",
+    targetGeneration: generation,
+    discardThroughGeneration,
+    restoreFocus,
+    preserveRetarget,
+  });
   render();
   if (restoreFocus) frame.focus();
   return true;
@@ -1522,6 +1532,12 @@ window.addEventListener("message", async (event) => {
       let accepted = false;
       if (detail && (!state.target || detail.generation >= state.target.generation)) {
         accepted = await openCompose(detail);
+      }
+      if (!accepted && state.compose) {
+        state.compose.rejectedTargetGeneration = Math.max(
+          Number(state.compose.rejectedTargetGeneration) || 0,
+          requestedGeneration
+        );
       }
       toFrame({
         type: "eh:commentOpenResult",
