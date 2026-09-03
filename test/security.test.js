@@ -79,6 +79,10 @@ test("the local server refuses strangers", async (t) => {
     const channel = await request(port, { route: "/frame-channel.js" });
     assert.equal(channel.status, 200);
     assert.equal(channel.headers["access-control-allow-origin"], undefined);
+    const icons = await request(port, { route: "/icons.js", headers: { origin: "null" } });
+    assert.equal(icons.status, 200);
+    assert.equal(icons.headers["access-control-allow-origin"], "null");
+    assert.match(icons.raw, /export const ICON_NODES/);
   });
 
   await t.test("a DNS-rebound host header is rejected everywhere", async () => {

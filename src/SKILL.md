@@ -1,16 +1,38 @@
 ---
 name: human-review
-description: Open an HTML file, Markdown file, or localhost page in the browser so the user can edit text directly and leave comments on specific parts, then send all edits and comments back to you. Use after writing or updating something the user will read — specs, plans, reports, newsletter drafts, landing pages, slide decks, and locally running web pages.
+description: Open an HTML file, Markdown file, or localhost page in a View-first browser review so the user can optionally edit, leave contextual comments, and send all feedback back to you. Use after writing or updating something the user will read — specs, plans, reports, newsletter drafts, landing pages, slide decks, and locally running web pages.
 ---
 
 # human-review
 
-The user reviews your HTML, Markdown, or localhost page in a real browser: they fix small things
-by typing, select anything to comment on it, and send you the whole batch at once.
+The user reviews your HTML, Markdown, or localhost page in a real browser. It starts in View,
+where normal page controls work. They can switch to Edit, comment explicitly in either mode,
+and send the whole batch at once.
 
 Markdown files open rendered. Their quotes and edits reference the rendered text,
 and the file itself is never touched — apply every change to the Markdown source,
 keeping its formatting syntax.
+
+Comments open from a contextual icon after a text selection or an element hover/focus.
+The keyboard shortcut is Ctrl+Alt+M, or Cmd+Option+M on macOS. Enter submits the
+comment and Shift+Enter adds a new line. On desktop the composer stays attached
+to its target or pins to the effective top or bottom clipping edge; Back to
+selection reveals an offscreen target without changing the draft.
+
+Comments is the single toolbar entry point. The drawer inventory scrolls
+independently while the overall note and Send to agent controls remain fixed.
+Submitting creates the normal target mark and count but leaves the card closed
+until the user explicitly activates the mark or chooses Jump to. Focus returns
+to the reviewed element or selection. Aligned cards expose Edit, Close, and
+More; drawer cards expose Jump to, Edit, and More. Delete is available only
+through More and an inline confirmation. Long quote hints preserve both ends.
+
+Existing-comment editing uses explicit Save and Cancel controls and never saves
+on blur. Enter saves, Shift+Enter inserts a line, and Escape cancels. The draft,
+focus, and caret follow the comment between aligned and drawer cards and survive
+target movement. Closing an aligned card only hides its active presentation.
+Acknowledging the exact delivered batch removes only the comments that batch
+carried; newer comments and corrections survive.
 
 ## The loop
 
@@ -139,5 +161,5 @@ guessing from the DOM:
 <div data-container="Metrics callout">…</div>
 ```
 
-`data-block` names a region for the edit list. `data-container` also makes the block
-clickable as a comment target.
+`data-block` names a region for the edit list. `data-container` also gives the block a
+stable label for its hover/focus comment affordance.

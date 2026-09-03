@@ -1,13 +1,30 @@
 /**
- * human-review chrome. Owns the rail UI and every call to the local server.
+ * human-review chrome. Owns the toolbar, contextual surfaces, drawer, and every
+ * call to the local server.
  * It never touches the artifact DOM directly — the SDK does that, over
  * postMessage, because the artifact iframe lives on the other loopback
  * hostname: a separate origin that can never reach this page or its token.
  */
-import { tidy } from "./anchor-text.js";
-import { newestComments, pageUrl, replacePage } from "./chrome-session.js";
+import { tidyMiddle } from "./anchor-text.js";
+import {
+  clearOwned,
+  createCommentUi,
+  migrateCommentUi,
+  mutationIsCurrent,
+  ownConfirmation,
+  ownEdit,
+  ownMenu,
+  newestComments,
+  pageUrl,
+  reconcileCommentUi,
+  replacePage,
+} from "./chrome-session.js";
+import { sanitizeClientRects, sanitizeClipRect, sanitizeRelation } from "./comment-target.js";
 import { externalHref } from "./editing.js";
 import { framePolicy } from "./frame-policy.js";
+import { createIcon } from "./icons.js";
+import { alignedCardPosition, placeContextualSurface, visibleViewport } from "./positioning.js";
+import { normalizeReviewMode, reviewConfiguration } from "./review-mode.js";
 
 const $ = (id) => document.getElementById(id);
 const frame = $("frame");
@@ -18,7 +35,18 @@ const state = {
   key: null,
   page: null,
   compose: null,
-  active: null,
+  composeLifecycle: "closed",
+  composePlacement: "hidden",
+  target: null,
+  activeSavedCommentId: null,
+  activeGeometry: new Map(),
+  commentUi: createCommentUi(),
+  pageEpoch: 0,
+  reviewMode: "view",
+  savePolicy: "writable",
+  modeApplying: false,
+  modeMenuOpen: false,
+  drawerOpen: false,
   agent: "idle",
   save: "idle",
   savedAt: "",
@@ -39,7 +67,179 @@ const state = {
   readyGeneration: null,
   frameReadyTimer: null,
   frameReadyRetries: 0,
+  configurationGeneration: null,
+  saveConflict: false,
 };
+
+const diagnostic = (event, detail = {}) => {
+  console.info("[human-review]", { event, ...detail });
+};
+
+const patchFlights = new Map();
+const deleteFlights = new Map();
+let requestedFocus = null;
+let editFocusRequested = false;
+let skipEditCaptureOnce = false;
+
+function advancePageEpoch(reason) {
+  state.pageEpoch += 1;
+  diagnostic("page-epoch-advanced", { epoch: state.pageEpoch, reason });
+  return state.pageEpoch;
+}
+
+function commentById(id) {
+  return state.page?.comments?.find((comment) => comment.id === id) || null;
+}
+
+function domId(value) {
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, (char) => `-${char.codePointAt(0).toString(16)}-`);
+}
+
+function controlId(commentId, surface, action) {
+  return `comment-${surface}-${domId(commentId)}-${action}`;
+}
+
+function requestControlFocus(id) {
+  requestedFocus = id;
+}
+
+function editTextarea(commentId) {
+  const root = state.drawerOpen ? $("cards") : $("alignedCard");
+  return root?.querySelector(`textarea[data-comment-edit="${CSS.escape(commentId)}"]`) || null;
+}
+
+function captureEditState() {
+  const edit = state.commentUi.edit;
+  if (!edit) return false;
+  const input = editTextarea(edit.commentId);
+  if (!input) return false;
+  edit.draft = input.value;
+  edit.selectionStart = input.selectionStart;
+  edit.selectionEnd = input.selectionEnd;
+  return document.activeElement === input;
+}
+
+function restoreTransientFocus(editWasFocused = false) {
+  const focusId = requestedFocus;
+  requestedFocus = null;
+  const shouldFocusEdit = editWasFocused || editFocusRequested;
+  requestAnimationFrame(() => {
+    if (focusId) {
+      document.getElementById(focusId)?.focus();
+      return;
+    }
+    const edit = state.commentUi.edit;
+    if (!shouldFocusEdit || !edit) return;
+    const input = editTextarea(edit.commentId);
+    if (!input || input.closest("[hidden]")) {
+      editFocusRequested = true;
+      return;
+    }
+    editFocusRequested = false;
+    input.focus();
+    input.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+  });
+}
+
+function moveTransientSurface(surface) {
+  const menu = state.commentUi.menu;
+  if (menu) {
+    menu.surface = surface;
+    menu.triggerId = controlId(menu.commentId, surface, "more");
+  }
+  if (state.commentUi.confirmation) state.commentUi.confirmation.surface = surface;
+}
+
+function announce(message) {
+  const region = $("liveRegion");
+  region.textContent = "";
+  requestAnimationFrame(() => {
+    region.textContent = message;
+  });
+}
+
+function replaceIcon(container, name, title = "") {
+  container.textContent = "";
+  container.append(createIcon(name, { title }));
+}
+
+function installStaticIcons() {
+  document.querySelectorAll("[data-icon]").forEach((container) => {
+    replaceIcon(container, container.dataset.icon);
+  });
+  replaceIcon($("modeChevron"), "chevronDown");
+  replaceIcon($("composeClose"), "x");
+  replaceIcon($("drawerClose"), "x");
+}
+
+function openModeMenu() {
+  if (state.modeMenuOpen) return;
+  state.modeMenuOpen = true;
+  $("modeMenu").hidden = false;
+  $("modeButton").setAttribute("aria-expanded", "true");
+  toFrame({ type: "eh:modeMenuState", open: true });
+  $("modeMenu").querySelector(`[data-mode="${state.reviewMode}"]`)?.focus();
+}
+
+function closeModeMenu(reason = "dismissed", { restoreFocus = false } = {}) {
+  if (!state.modeMenuOpen) return false;
+  state.modeMenuOpen = false;
+  $("modeMenu").hidden = true;
+  $("modeButton").setAttribute("aria-expanded", "false");
+  toFrame({ type: "eh:modeMenuState", open: false });
+  diagnostic("mode-menu-close", { reason });
+  if (restoreFocus) $("modeButton").focus();
+  return true;
+}
+
+function openDrawer() {
+  captureEditState();
+  skipEditCaptureOnce = true;
+  state.drawerOpen = true;
+  moveTransientSurface("drawer");
+  editFocusRequested = !!state.commentUi.edit;
+  render();
+  if (!state.commentUi.edit) requestAnimationFrame(() => $("commentsSection").focus());
+}
+
+function closeDrawer() {
+  if (!state.drawerOpen) return;
+  captureEditState();
+  skipEditCaptureOnce = true;
+  state.drawerOpen = false;
+  const transientOwner =
+    state.commentUi.edit?.commentId ||
+    state.commentUi.confirmation?.commentId ||
+    state.commentUi.menu?.commentId ||
+    null;
+  if (transientOwner && commentById(transientOwner)) {
+    state.activeSavedCommentId = transientOwner;
+    moveTransientSurface("aligned");
+    toFrame({ type: "eh:activate", id: transientOwner, scroll: false });
+  } else if (state.activeSavedCommentId) {
+    moveTransientSurface("aligned");
+  }
+  editFocusRequested = !!state.commentUi.edit;
+  render();
+  if (!state.commentUi.edit) $("commentsButton").focus();
+}
+
+function setComposeLifecycle(next, reason) {
+  if (state.composeLifecycle === next) return;
+  const from = state.composeLifecycle;
+  state.composeLifecycle = next;
+  const submitting = next === "submitting";
+  $("composeCancel").disabled = submitting;
+  $("composeClose").disabled = submitting;
+  diagnostic("composer-lifecycle-transition", { from, to: next, reason });
+}
+
+function setComposePlacement(next) {
+  if (state.composePlacement === next) return;
+  const from = state.composePlacement;
+  state.composePlacement = next;
+  diagnostic("placement-transition", { from, to: next });
+}
 
 /**
  * Most reviewers drive an agent from a chat (Claude Code, Codex, Cursor), not
@@ -66,6 +266,102 @@ async function api(path, options) {
     throw error;
   }
   return res.json();
+}
+
+const editPipelines = new Map();
+const editBacklogs = new Map();
+const editErrors = new Map();
+
+function editIdentity(payload) {
+  return `${String(payload.label || "")}\u0000${String(payload.kind || "")}`;
+}
+
+function editBacklog(key) {
+  let backlog = editBacklogs.get(key);
+  if (!backlog) {
+    backlog = new Map();
+    editBacklogs.set(key, backlog);
+  }
+  return backlog;
+}
+
+function persistEdit(key, payload) {
+  const identity = editIdentity(payload);
+  const backlog = editBacklog(key);
+  backlog.set(identity, payload);
+  const previous = editPipelines.get(key) || Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(async () => {
+      try {
+        const result = await api(`/api/page/${key}/edit`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (backlog.get(identity) === payload) backlog.delete(identity);
+        editErrors.delete(key);
+        if (state.key === key) {
+          state.page = result.page;
+          state.sent = false;
+          render();
+        }
+        return true;
+      } catch (err) {
+        editErrors.set(key, err);
+        if (state.key === key) {
+          toast(`${err.message}. Your edit is still queued locally.`);
+          announce("An edit could not be saved. Retry before leaving the page or sending feedback.");
+        }
+        return false;
+      }
+    });
+  editPipelines.set(key, current);
+  void current.finally(() => {
+    if (editPipelines.get(key) === current) editPipelines.delete(key);
+  });
+  return current;
+}
+
+async function settleEditPersistence(key) {
+  const inFlight = editPipelines.get(key);
+  if (inFlight) await inFlight;
+  const backlog = editBacklogs.get(key);
+  if (backlog?.size) {
+    const retry = [...backlog.values()];
+    editErrors.delete(key);
+    for (const payload of retry) persistEdit(key, payload);
+    const retried = editPipelines.get(key);
+    if (retried) await retried;
+  }
+  if (editBacklogs.get(key)?.size) {
+    throw editErrors.get(key) || new Error("An edit could not be saved");
+  }
+}
+
+function reconcilePage(page, { syncAnchors = false, reason = "mutation", advance = reason !== "mutation" } = {}) {
+  const previousIds = new Set((state.page?.comments || []).map((comment) => comment.id));
+  if (advance) advancePageEpoch(reason);
+  replacePage(state, page);
+  const commentIds = new Set((page.comments || []).map((comment) => comment.id));
+  for (const id of state.activeGeometry.keys()) {
+    if (!commentIds.has(id)) state.activeGeometry.delete(id);
+  }
+  if (state.activeSavedCommentId && !commentIds.has(state.activeSavedCommentId)) {
+    state.activeSavedCommentId = null;
+  }
+  const removedTransient = reconcileCommentUi(state.commentUi, page.comments || []);
+  state.orphans = new Set([...state.orphans].filter((id) => commentIds.has(id)));
+  if (syncAnchors && !state.frameLoading) {
+    toFrame({ type: "eh:anchors", comments: page.comments || [] });
+  }
+  if (reason === "acknowledgement") {
+    const removed = [...previousIds].filter((id) => !commentIds.has(id));
+    if (removed.length) {
+      announce(`${removed.length === 1 ? "Comment" : "Comments"} delivered and removed`);
+      if (removedTransient.size) requestAnimationFrame(() => (state.drawerOpen ? $("commentsSection") : frame).focus());
+    }
+  }
+  diagnostic("page-reconciled", { reason, epoch: state.pageEpoch });
 }
 
 // Keep the reviewed app on a different loopback origin from the review shell.
@@ -96,6 +392,8 @@ function suspendFrame() {
   state.renderId = null;
   state.frameLoading = true;
   state.readyGeneration = null;
+  state.configurationGeneration = null;
+  frame.removeAttribute("data-sdk-ready");
 }
 
 function beginFrameTransition() {
@@ -145,33 +443,90 @@ function rotateCurrentFrame() {
  * typing. The timeout covers a torn-down or never-booted frame.
  */
 let flushWaiter = null;
-function flushFrame() {
-  if (state.frameLoading || !state.frameCapability) return Promise.resolve();
+let configurationWaiter = null;
+async function flushFrame() {
+  const key = state.key;
+  if (!state.frameLoading && state.frameCapability) {
+    await new Promise((resolve) => {
+      const settle = () => {
+        if (flushWaiter !== settle) return;
+        flushWaiter = null;
+        resolve();
+      };
+      flushWaiter = settle;
+      toFrame({ type: "eh:flush" });
+      setTimeout(settle, 400);
+    });
+  }
+  if (key) await settleEditPersistence(key);
+}
+
+function configureFrame() {
+  if (state.frameLoading || !state.frameCapability) return Promise.resolve(false);
+  const configuration = reviewConfiguration(state.page, state.reviewMode);
+  state.savePolicy = configuration.savePolicy;
   return new Promise((resolve) => {
-    const settle = () => {
-      if (flushWaiter !== settle) return;
-      flushWaiter = null;
-      resolve();
+    const settle = (applied) => {
+      if (configurationWaiter?.settle !== settle) return;
+      configurationWaiter = null;
+      resolve(applied);
     };
-    flushWaiter = settle;
-    toFrame({ type: "eh:flush" });
-    setTimeout(settle, 400);
+    configurationWaiter = { ...configuration, settle };
+    toFrame({ type: "eh:configureReview", ...configuration });
+    setTimeout(() => settle(false), 3000);
   });
+}
+
+async function setReviewMode(nextMode) {
+  const next = normalizeReviewMode(nextMode);
+  closeModeMenu("selection");
+  if (next === state.reviewMode || state.modeApplying) return;
+  state.modeApplying = true;
+  render();
+  try {
+    if (state.reviewMode === "edit" && next === "view") {
+      await flushFrame();
+      await activeSavePromise;
+      if (state.saveConflict) {
+        toast("Resolve the save conflict before leaving Edit");
+        announce("Save conflict. Edit mode remains active.");
+        return;
+      }
+    }
+    state.reviewMode = next;
+    const applied = await configureFrame();
+    if (!applied) throw new Error("The reviewed page did not confirm the mode change");
+    diagnostic("mode-change", { mode: next, savePolicy: state.savePolicy });
+    announce(`${next === "edit" ? "Edit" : "View"} mode active`);
+  } catch (err) {
+    state.reviewMode = next === "edit" ? "view" : "edit";
+    toast(`${err.message}. Stay in ${state.reviewMode === "edit" ? "Edit" : "View"} and retry.`);
+  } finally {
+    state.modeApplying = false;
+    render();
+  }
 }
 
 async function loadPage(key, { reload = true } = {}) {
   const returning = state.page;
+  advancePageEpoch(returning ? "navigation" : "reload");
   const generation = beginFrameTransition();
   state.frameReadyRetries = 0;
   state.key = key;
   const page = await api(pageUrl(key, state.sessionId));
   if (state.key !== key || state.renderGeneration !== generation) return;
-  replacePage(state, page);
+  reconcilePage(page, { reason: "reload", advance: false });
+  state.savePolicy = reviewConfiguration(state.page, state.reviewMode).savePolicy;
   state.framePolicy = framePolicy(state.page, ARTIFACT_ORIGIN);
   frame.setAttribute("sandbox", state.framePolicy.sandbox);
   state.orphans = new Set();
   state.compose = null;
-  state.active = null;
+  setComposeLifecycle("closed", "page-change");
+  setComposePlacement("hidden");
+  state.target = null;
+  state.activeSavedCommentId = null;
+  state.activeGeometry.clear();
+  state.commentUi = createCommentUi();
   state.sent = false;
   state.dynamic = false;
   state.baseHash = null;
@@ -208,116 +563,51 @@ const clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute:
 function render() {
   const page = state.page;
   if (!page) return;
+  const editWasFocused = skipEditCaptureOnce ? false : captureEditState();
+  skipEditCaptureOnce = false;
   document.title = page.filename || 'human-review';
 
   const comments = newestComments(page.comments);
   const edits = page.edits || [];
 
   $("count").textContent = String(comments.length);
+  $("toolbarCount").textContent = String(comments.length);
   $("empty").hidden = comments.length > 0 || !!state.compose;
+  $("modeLabel").textContent = state.reviewMode === "edit" ? "Edit" : "View";
+  replaceIcon($("modeIcon"), state.reviewMode === "edit" ? "pencil" : "eye");
+  $("modeButton").disabled = state.modeApplying;
+  for (const item of $("modeMenu").querySelectorAll("[data-mode]")) {
+    const checked = item.dataset.mode === state.reviewMode;
+    item.setAttribute("aria-checked", String(checked));
+    const check = item.querySelector(".menu-check");
+    check.textContent = "";
+    if (checked) check.append(createIcon("check"));
+  }
+  $("drawer").classList.toggle("open", state.drawerOpen);
+  $("drawer").setAttribute("aria-hidden", String(!state.drawerOpen));
+  $("commentsButton").setAttribute("aria-expanded", String(state.drawerOpen));
+  $("drawerBackdrop").hidden = !state.drawerOpen;
 
   // --- compose
   const composeWrap = $("compose");
   if (state.compose) {
     composeWrap.hidden = false;
     $("composeKind").textContent = state.compose.kind === "element" ? "Element" : "Selection";
-    $("composeQuote").textContent = tidy(state.compose.quote, 260);
+    $("composeQuote").textContent = tidyMiddle(state.compose.quote, 260);
+    requestAnimationFrame(positionCompose);
   } else {
     composeWrap.hidden = true;
     $("composeText").value = "";
+    $("composeError").hidden = true;
   }
 
   // --- comment cards
   const list = $("cards");
   list.textContent = "";
   for (const comment of comments) {
-    const card = document.createElement("div");
-    card.className = `comment${state.active === comment.id ? " active" : ""}`;
-    card.dataset.id = comment.id;
-
-    const head = document.createElement("div");
-    head.className = "comment-head";
-
-    const who = document.createElement("span");
-    who.className = "who";
-    who.append("You");
-    const sep = document.createElement("span");
-    sep.className = "sep";
-    sep.textContent = "·";
-    const when = document.createElement("span");
-    when.className = "when";
-    when.textContent = ago(comment.updatedAt || comment.createdAt);
-    who.append(sep, when);
-
-    if (comment.correction) {
-      const badge = document.createElement("span");
-      badge.className = "badge correction";
-      badge.textContent = "correction";
-      who.append(badge);
-    } else if (comment.updatedAt) {
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = "edited";
-      who.append(badge);
-    }
-
-    if (state.orphans.has(comment.id)) {
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.textContent = "orphaned";
-      who.append(badge);
-    }
-
-    const jump = document.createElement("button");
-    jump.type = "button";
-    jump.className = "jump";
-    jump.textContent = "Jump to";
-    jump.addEventListener("click", (event) => {
-      event.stopPropagation();
-      setActive(comment.id, true);
-    });
-
-    const edit = document.createElement("button");
-    edit.type = "button";
-    edit.className = "jump edit-comment";
-    edit.textContent = "Edit";
-    edit.addEventListener("click", (event) => {
-      event.stopPropagation();
-      editComment(card, body, comment);
-    });
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "remove";
-    remove.title = "Delete comment";
-    remove.setAttribute("aria-label", "Delete comment");
-    remove.textContent = "✕";
-    remove.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      toFrame({ type: "eh:remove", id: comment.id });
-      state.page = (await api(`/api/page/${state.key}/comment/${comment.id}`, { method: "DELETE" })).page;
-      render();
-    });
-
-    const quote = document.createElement("p");
-    quote.className = "quote";
-    quote.textContent = tidy(comment.quote, 140);
-
-    const body = document.createElement("p");
-    body.className = "body";
-    body.textContent = comment.feedback;
-    body.title = "Click to edit";
-    body.addEventListener("click", (event) => {
-      event.stopPropagation();
-      editComment(card, body, comment);
-    });
-
-    head.append(who, jump, edit, remove);
-
-    card.append(head, quote, body);
-    card.addEventListener("click", () => setActive(comment.id, false));
-    list.append(card);
+    list.append(renderCommentCard(comment, "drawer"));
   }
+  renderAlignedCard(comments);
 
   // --- your edits
   const box = $("editsBox");
@@ -376,14 +666,18 @@ function render() {
       count.textContent = String(other.count);
       row.append(label, count);
       row.addEventListener("click", async () => {
-        await flushFrame();
-        suspendFrame();
-        await api(`/api/session/${state.sessionId}/goto`, {
-          method: "POST",
-          body: JSON.stringify({ key: other.key }),
-        });
-        state.scroll = { x: 0, y: 0 };
-        await loadPage(other.key);
+        try {
+          await flushFrame();
+          suspendFrame();
+          await api(`/api/session/${state.sessionId}/goto`, {
+            method: "POST",
+            body: JSON.stringify({ key: other.key }),
+          });
+          state.scroll = { x: 0, y: 0 };
+          await loadPage(other.key);
+        } catch (err) {
+          toast(`${err.message}. Stay on this page and retry.`);
+        }
       });
       list.append(row);
     }
@@ -411,13 +705,6 @@ function render() {
           : hasNote
             ? "Send note to agent"
             : "Nothing to send yet";
-  if (!send.disabled) {
-    const key = document.createElement("span");
-    key.className = "key";
-    key.textContent = "⌘⏎";
-    send.append(" ", key);
-  }
-
   // After sending, say what happens next. If nothing is polling, the loop would
   // otherwise dead-end silently, so hand over the exact command to run.
   $("agentLine").hidden = !delivered;
@@ -426,6 +713,506 @@ function render() {
   // Server-authoritative, so it survives a browser refresh.
   $("handoff").hidden = !stranded;
   if (stranded) $("handoffCmd").textContent = handoffPrompt(state.pollCommand || page.pollCommand);
+  restoreTransientFocus(editWasFocused);
+}
+
+function positionCompose() {
+  if (!state.compose || state.composeLifecycle === "closed") {
+    setComposePlacement("hidden");
+    return;
+  }
+  const viewport = visibleViewport();
+  const frameRect = frame.getBoundingClientRect();
+  const surface = $("compose");
+  if (state.compose.relation !== "unavailable") surface.hidden = false;
+  const placement = placeContextualSurface(state.compose, {
+    frameRect,
+    viewport,
+    surfaceWidth: Math.min(340, viewport.width - 24),
+    surfaceHeight: Math.max(190, surface.offsetHeight),
+    narrow: matchMedia("(max-width: 720px)").matches,
+    toolbarHeight: 48,
+  });
+  surface.classList.toggle("sheet", placement.kind === "sheet");
+  surface.classList.toggle("edge-top", placement.kind === "edge-top");
+  surface.classList.toggle("edge-bottom", placement.kind === "edge-bottom");
+  setComposePlacement(placement.kind);
+  const edge = placement.kind === "edge-top" || placement.kind === "edge-bottom";
+  $("composeDirection").hidden = !edge;
+  $("composeDirectionText").textContent = placement.kind === "edge-top"
+    ? "Selection is above"
+    : placement.kind === "edge-bottom"
+      ? "Selection is below"
+      : "";
+  surface.hidden = placement.kind === "hidden";
+  if (placement.kind !== "sheet" && placement.kind !== "hidden") {
+    surface.style.left = `${placement.left}px`;
+    surface.style.top = `${placement.top}px`;
+    surface.style.width = `${placement.width}px`;
+  } else {
+    surface.style.left = "";
+    surface.style.top = "";
+    surface.style.width = "";
+  }
+}
+
+function makeAction(label, className = "card-action") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  return button;
+}
+
+function makeWho(comment, surface) {
+  const who = document.createElement("span");
+  who.className = "who";
+  who.append("You");
+  if (surface === "drawer") {
+    const sep = document.createElement("span");
+    sep.className = "sep";
+    sep.textContent = "·";
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = ago(comment.updatedAt || comment.createdAt);
+    who.append(sep, when);
+  }
+  if (comment.correction) {
+    const badge = document.createElement("span");
+    badge.className = "badge correction";
+    badge.textContent = "correction";
+    who.append(badge);
+  } else if (comment.updatedAt) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "edited";
+    who.append(badge);
+  }
+  if (state.orphans.has(comment.id)) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "orphaned";
+    who.append(badge);
+  }
+  return who;
+}
+
+function commentUiKind(commentId) {
+  if (state.commentUi.edit?.commentId === commentId) return "edit";
+  if (state.commentUi.confirmation?.commentId === commentId) return "confirmation";
+  if (state.commentUi.menu?.commentId === commentId) return "menu";
+  return "normal";
+}
+
+function renderMore(comment, surface, open, disabled = false) {
+  const triggerId = controlId(comment.id, surface, "more");
+  const menuId = controlId(comment.id, surface, "menu");
+  const trigger = makeAction("More", "card-action more-trigger");
+  trigger.id = triggerId;
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", String(open));
+  trigger.setAttribute("aria-controls", menuId);
+  trigger.disabled = disabled;
+  trigger.prepend(createIcon("moreHorizontal", { size: 14 }));
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (open) {
+      closeCommentMenu({ restoreFocus: true });
+    } else {
+      if (!ownMenu(state.commentUi, comment.id, surface, triggerId)) {
+        focusCurrentCommentEdit();
+        return;
+      }
+      toFrame({ type: "eh:modeMenuState", open: true });
+      requestControlFocus(controlId(comment.id, surface, "delete-item"));
+      render();
+    }
+  });
+  return trigger;
+}
+
+function renderCommentCard(comment, surface) {
+  const card = document.createElement(surface === "aligned" ? "article" : "div");
+  if (surface === "drawer") {
+    card.className = `comment${state.activeSavedCommentId === comment.id ? " active" : ""}`;
+  }
+  card.dataset.id = comment.id;
+  card.dataset.surface = surface;
+
+  const kind = commentUiKind(comment.id);
+  const editOwnedElsewhere = !!(
+    state.commentUi.edit &&
+    state.commentUi.edit.commentId !== comment.id
+  );
+  const head = document.createElement("div");
+  head.className = "comment-head";
+  head.append(makeWho(comment, surface));
+
+  if (kind === "normal") {
+    if (surface === "drawer") {
+      const jump = makeAction("Jump to");
+      jump.disabled = editOwnedElsewhere;
+      jump.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setActive(comment.id, true);
+      });
+      head.append(jump);
+    }
+    const edit = makeAction("Edit");
+    edit.id = controlId(comment.id, surface, "edit");
+    edit.setAttribute("aria-label", "Edit comment");
+    edit.disabled = editOwnedElsewhere;
+    edit.addEventListener("click", (event) => {
+      event.stopPropagation();
+      startCommentEdit(comment, surface);
+    });
+    head.append(edit);
+    if (surface === "aligned") {
+      const close = makeAction("Close");
+      close.setAttribute("aria-label", "Close comment card");
+      close.addEventListener("click", (event) => {
+        event.stopPropagation();
+        dismissActiveComment("close", { restoreFocus: true });
+      });
+      head.append(close);
+    }
+    head.append(renderMore(comment, surface, false, editOwnedElsewhere));
+  } else if (kind === "menu") {
+    head.append(renderMore(comment, surface, true));
+  }
+
+  const quote = document.createElement("p");
+  quote.className = "quote";
+  quote.textContent = tidyMiddle(comment.quote, 140);
+  card.append(head, quote);
+
+  if (kind === "edit") {
+    const edit = state.commentUi.edit;
+    const input = document.createElement("textarea");
+    input.className = "body-edit";
+    input.rows = 3;
+    input.value = edit.draft;
+    input.readOnly = edit.status === "saving";
+    input.dataset.commentEdit = comment.id;
+    input.setAttribute("aria-label", "Edit comment text");
+    input.addEventListener("input", () => {
+      edit.draft = input.value;
+      edit.selectionStart = input.selectionStart;
+      edit.selectionEnd = input.selectionEnd;
+      edit.validation = "";
+    });
+    const rememberSelection = () => {
+      edit.selectionStart = input.selectionStart;
+      edit.selectionEnd = input.selectionEnd;
+    };
+    input.addEventListener("select", rememberSelection);
+    input.addEventListener("keyup", rememberSelection);
+    input.addEventListener("click", (event) => {
+      event.stopPropagation();
+      rememberSelection();
+    });
+    input.addEventListener("compositionstart", () => {
+      edit.composing = true;
+    });
+    input.addEventListener("compositionend", () => {
+      edit.composing = false;
+      rememberSelection();
+    });
+    input.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      rememberSelection();
+      if (event.key === "Enter" && !event.shiftKey) {
+        if (edit.composing || event.isComposing) return;
+        event.preventDefault();
+        void saveCommentEdit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        cancelCommentEdit();
+      }
+    });
+    card.append(input);
+
+    const helper = document.createElement("p");
+    helper.className = "edit-help";
+    helper.textContent = "Enter to save · Shift+Enter for new line";
+    card.append(helper);
+    if (edit.validation) {
+      const validation = document.createElement("p");
+      validation.className = "comment-validation";
+      validation.setAttribute("role", "alert");
+      validation.textContent = edit.validation;
+      card.append(validation);
+    }
+    const actions = document.createElement("div");
+    actions.className = "comment-edit-actions";
+    const save = makeAction(edit.status === "saving" ? "Saving…" : "Save", "btn-primary");
+    save.disabled = edit.status === "saving";
+    save.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void saveCommentEdit();
+    });
+    const cancel = makeAction("Cancel", "btn-ghost");
+    cancel.disabled = edit.status === "saving";
+    cancel.addEventListener("click", (event) => {
+      event.stopPropagation();
+      cancelCommentEdit();
+    });
+    actions.append(save, cancel);
+    card.append(actions);
+  } else if (kind === "confirmation") {
+    const confirmation = state.commentUi.confirmation;
+    const prompt = document.createElement("p");
+    prompt.className = "delete-prompt";
+    prompt.textContent = "Delete this comment?";
+    const actions = document.createElement("div");
+    actions.className = "delete-actions";
+    const cancel = makeAction("Cancel", "btn-ghost");
+    cancel.disabled = confirmation.status === "deleting";
+    cancel.addEventListener("click", (event) => {
+      event.stopPropagation();
+      cancelDeleteConfirmation();
+    });
+    const remove = makeAction(confirmation.status === "deleting" ? "Deleting…" : "Delete", "btn-danger");
+    remove.id = controlId(comment.id, surface, "confirm-delete");
+    remove.disabled = confirmation.status === "deleting";
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void deleteComment(comment.id);
+    });
+    actions.append(cancel, remove);
+    card.append(prompt, actions);
+  } else {
+    const body = document.createElement("p");
+    body.className = "body";
+    body.textContent = comment.feedback;
+    body.title = "Click to edit";
+    if (!editOwnedElsewhere) {
+      body.addEventListener("click", (event) => {
+        event.stopPropagation();
+        startCommentEdit(comment, surface);
+      });
+    }
+    card.append(body);
+  }
+
+  if (kind === "menu") {
+    const menu = document.createElement("div");
+    menu.id = controlId(comment.id, surface, "menu");
+    menu.className = "comment-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-labelledby", controlId(comment.id, surface, "more"));
+    const remove = makeAction("Delete", "comment-menu-item");
+    remove.id = controlId(comment.id, surface, "delete-item");
+    remove.setAttribute("role", "menuitem");
+    remove.prepend(createIcon("trash", { size: 14 }));
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toFrame({ type: "eh:modeMenuState", open: false });
+      if (!ownConfirmation(state.commentUi, comment.id, surface)) {
+        focusCurrentCommentEdit();
+        return;
+      }
+      requestControlFocus(controlId(comment.id, surface, "confirm-delete"));
+      render();
+    });
+    menu.append(remove);
+    card.append(menu);
+  }
+
+  if (surface === "drawer") {
+    card.addEventListener("click", () => {
+      if (kind === "normal" && !editOwnedElsewhere) setActive(comment.id, false);
+    });
+  }
+  return card;
+}
+
+function positionAlignedCard() {
+  const host = $("alignedCard");
+  const comment = commentById(state.activeSavedCommentId);
+  const geometry = comment ? state.activeGeometry.get(comment.id) : null;
+  if (!comment || state.drawerOpen || matchMedia("(max-width: 720px)").matches || !geometry?.visible) {
+    host.hidden = true;
+    return false;
+  }
+  const viewport = visibleViewport();
+  const position = alignedCardPosition(geometry.rects, {
+    frameRect: frame.getBoundingClientRect(),
+    viewport,
+  });
+  if (!position) {
+    host.hidden = true;
+    return false;
+  }
+  host.style.left = `${position.left}px`;
+  host.style.top = `${position.top}px`;
+  host.hidden = false;
+  return true;
+}
+
+function renderAlignedCard(comments) {
+  const host = $("alignedCard");
+  host.textContent = "";
+  const comment = comments.find((item) => item.id === state.activeSavedCommentId);
+  if (!comment) {
+    host.hidden = true;
+    return;
+  }
+  const card = renderCommentCard(comment, "aligned");
+  while (card.firstChild) host.append(card.firstChild);
+  positionAlignedCard();
+}
+
+async function deleteComment(id) {
+  if (deleteFlights.has(id)) return deleteFlights.get(id);
+  const confirmation = state.commentUi.confirmation;
+  if (!confirmation || confirmation.commentId !== id || confirmation.status === "deleting") return false;
+  confirmation.status = "deleting";
+  render();
+  const startEpoch = state.pageEpoch;
+  const flight = (async () => {
+    try {
+      const result = await api(`/api/page/${state.key}/comment/${id}`, { method: "DELETE" });
+      if (!mutationIsCurrent(startEpoch, state.pageEpoch, state.page?.comments, id)) return false;
+      reconcilePage(result.page, { reason: "mutation" });
+      toFrame({ type: "eh:remove", id });
+      state.activeGeometry.delete(id);
+      if (state.activeSavedCommentId === id) state.activeSavedCommentId = null;
+      render();
+      return true;
+    } catch (err) {
+      if (mutationIsCurrent(startEpoch, state.pageEpoch, state.page?.comments, id)) {
+        if (state.commentUi.confirmation?.commentId === id) state.commentUi.confirmation.status = "idle";
+        toast(err.message);
+        render();
+      }
+      return false;
+    }
+  })().finally(() => {
+    if (deleteFlights.get(id) === flight) deleteFlights.delete(id);
+  });
+  deleteFlights.set(id, flight);
+  return flight;
+}
+
+function cancelDeleteConfirmation() {
+  const confirmation = state.commentUi.confirmation;
+  if (!confirmation || confirmation.status === "deleting") return false;
+  const triggerId = controlId(confirmation.commentId, confirmation.surface, "more");
+  clearOwned(state.commentUi, "confirmation");
+  requestControlFocus(triggerId);
+  render();
+  return true;
+}
+
+function startCommentEdit(comment, surface) {
+  if (!ownEdit(state.commentUi, comment, surface)) {
+    focusCurrentCommentEdit();
+    return false;
+  }
+  editFocusRequested = true;
+  render();
+  return true;
+}
+
+function focusCurrentCommentEdit() {
+  editFocusRequested = true;
+  announce("Save or cancel the current comment edit first");
+  requestAnimationFrame(() => {
+    const edit = state.commentUi.edit;
+    editTextarea(edit?.commentId)?.focus();
+  });
+}
+
+function cancelCommentEdit() {
+  const edit = state.commentUi.edit;
+  if (!edit || edit.status === "saving") return false;
+  const surface = state.drawerOpen ? "drawer" : edit.originSurface;
+  const focusId = controlId(edit.commentId, surface, "edit");
+  clearOwned(state.commentUi, "edit");
+  requestControlFocus(focusId);
+  render();
+  return true;
+}
+
+function saveCommentEdit() {
+  const edit = state.commentUi.edit;
+  if (!edit || edit.status === "saving") return edit ? patchFlights.get(edit.commentId) : false;
+  captureEditState();
+  const feedback = edit.draft.trim();
+  if (!feedback) {
+    edit.validation = "Comment text is required.";
+    editFocusRequested = true;
+    render();
+    return false;
+  }
+  if (feedback === edit.original) {
+    clearOwned(state.commentUi, "edit");
+    requestControlFocus(controlId(edit.commentId, state.drawerOpen ? "drawer" : edit.originSurface, "edit"));
+    render();
+    return true;
+  }
+  if (patchFlights.has(edit.commentId)) return patchFlights.get(edit.commentId);
+  edit.status = "saving";
+  edit.validation = "";
+  const id = edit.commentId;
+  const startEpoch = state.pageEpoch;
+  editFocusRequested = true;
+  render();
+  const flight = executeCommentPatch({ ...edit, draft: feedback }, startEpoch).finally(() => {
+    if (patchFlights.get(id) === flight) patchFlights.delete(id);
+  });
+  patchFlights.set(id, flight);
+  return flight;
+}
+
+async function executeCommentPatch(edit, startEpoch) {
+  const id = edit.commentId;
+  try {
+    const commentIndex = state.page.comments.findIndex((item) => item.id === id);
+    const previousGeometry = state.activeGeometry.get(id);
+    const wasOrphaned = state.orphans.has(id);
+    const remainsActive = state.activeSavedCommentId === id;
+    const result = await api(`/api/page/${state.key}/comment/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ feedback: edit.draft }),
+    });
+    if (!mutationIsCurrent(startEpoch, state.pageEpoch, state.page?.comments, id)) return false;
+    const replacement = commentIndex >= 0 ? result.page.comments[commentIndex] : null;
+    if (replacement && replacement.id !== id) {
+      migrateCommentUi(state.commentUi, id, replacement.id);
+      if (remainsActive && previousGeometry) state.activeGeometry.set(replacement.id, previousGeometry);
+      if (remainsActive) state.activeSavedCommentId = replacement.id;
+      if (wasOrphaned) state.orphans.add(replacement.id);
+    }
+    reconcilePage(result.page, { reason: "mutation" });
+    clearOwned(state.commentUi, "edit");
+    if (result.delivery === "updated-pending") {
+      toast("Updated the feedback waiting for your agent");
+    } else if (result.delivery === "correction") {
+      state.sent = false;
+      toFrame({ type: "eh:remove", id });
+      toFrame({ type: "eh:anchors", comments: state.page.comments });
+      if (remainsActive && replacement) toFrame({ type: "eh:activate", id: replacement.id, scroll: false });
+      toast("Saved as a correction — send it after the current batch is acknowledged");
+    } else {
+      state.sent = false;
+    }
+    render();
+    return true;
+  } catch (err) {
+    if (mutationIsCurrent(startEpoch, state.pageEpoch, state.page?.comments, id)) {
+      const current = state.commentUi.edit;
+      if (current?.commentId === id) {
+        current.status = "idle";
+        current.validation = "";
+        editFocusRequested = true;
+      }
+      toast(err.message);
+      render();
+    }
+    return false;
+  }
 }
 
 function renderSave() {
@@ -454,62 +1241,6 @@ function renderSave() {
   else $("saveText").textContent = state.savedAt ? `Saved to ${name} · ${state.savedAt}` : `Saved to ${name}`;
 }
 
-/** Swap a comment's text for a textarea until the new wording is committed. */
-function editComment(card, body, comment) {
-  if (card.querySelector("textarea")) return;
-  const input = document.createElement("textarea");
-  input.className = "body-edit";
-  input.rows = 3;
-  input.value = comment.feedback;
-  let done = false;
-  const finish = () => {
-    done = true;
-    render();
-  };
-  const commit = async () => {
-    if (done) return;
-    done = true;
-    const feedback = input.value.trim();
-    if (!feedback || feedback === comment.feedback) return render();
-    try {
-      const result = await api(`/api/page/${state.key}/comment/${comment.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ feedback }),
-      });
-      state.page = result.page;
-      if (result.delivery === "updated-pending") {
-        toast("Updated the feedback waiting for your agent");
-      } else if (result.delivery === "correction") {
-        state.sent = false;
-        toFrame({ type: "eh:remove", id: comment.id });
-        toFrame({ type: "eh:anchors", comments: state.page.comments });
-        toast("Saved as a correction — send it after the current batch is acknowledged");
-      } else {
-        state.sent = false;
-      }
-    } catch (err) {
-      toast(err.message);
-    }
-    render();
-  };
-  input.addEventListener("keydown", (event) => {
-    event.stopPropagation();
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      commit();
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      finish();
-    }
-  });
-  input.addEventListener("blur", commit);
-  input.addEventListener("click", (event) => event.stopPropagation());
-  body.replaceWith(input);
-  input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
-}
-
 function toast(message) {
   const el = document.createElement("div");
   el.className = "toast";
@@ -519,64 +1250,141 @@ function toast(message) {
 }
 
 function setActive(id, scroll) {
-  state.active = id;
+  state.activeSavedCommentId = id;
   toFrame({ type: "eh:activate", id, scroll: !!scroll });
   render();
 }
 
+function dismissActiveComment(reason, { restoreFocus = false } = {}) {
+  const id = state.activeSavedCommentId;
+  if (!id) return false;
+  state.activeSavedCommentId = null;
+  state.activeGeometry.delete(id);
+  toFrame({ type: "eh:deactivateComment" });
+  render();
+  announce("Comment card closed");
+  diagnostic("saved-card-deactivated", { reason });
+  if (restoreFocus) frame.focus();
+  return true;
+}
+
 // ------------------------------------------------------------------ compose
 
-/**
- * The card deliberately does not steal focus. The selection stays live in the
- * document so you can type over it or delete it; click the card when you want
- * to comment on it instead.
- */
 async function openCompose(detail) {
-  if (state.compose && $("composeText").value.trim()) await commitCompose();
+  if (state.compose && state.compose.generation === detail.generation) {
+    if (state.composeLifecycle === "closed") setComposeLifecycle("open", "accepted");
+    $("composeText").focus();
+    return true;
+  }
+  if (state.compose && $("composeText").value.trim()) {
+    const submitted = await commitCompose();
+    if (!submitted) {
+      diagnostic("comment-retarget-blocked", { reason: "submit-failed" });
+      return false;
+    }
+  } else if (state.compose) {
+    cancelCompose({ restoreFocus: false, preserveRetarget: true });
+  }
+  dismissActiveComment("composer-open");
   state.compose = detail;
-  render();
-  toFrame({ type: "eh:composeOpen" });
+  setComposeLifecycle("open", "accepted");
   $("composeText").value = "";
-}
-
-function cancelCompose() {
-  if (!state.compose) return;
-  state.compose = null;
-  toFrame({ type: "eh:cancel" });
+  $("composeError").hidden = true;
+  $("composeAddLabel").textContent = "Comment";
   render();
+  requestAnimationFrame(() => {
+    positionCompose();
+    $("composeText").focus();
+  });
+  announce(`Comment dialog opened for ${detail.kind === "element" ? "element" : "selected text"}`);
+  return true;
 }
 
-async function commitCompose() {
+function cancelCompose({ restoreFocus = true, preserveRetarget = false } = {}) {
+  if (!state.compose || state.composeLifecycle === "submitting") return false;
+  const generation = state.compose.generation;
+  state.compose = null;
+  setComposeLifecycle("closed", "cancel");
+  setComposePlacement("hidden");
+  toFrame({ type: "eh:cancel", targetGeneration: generation, restoreFocus, preserveRetarget });
+  render();
+  if (restoreFocus) frame.focus();
+  return true;
+}
+
+let composeSubmitPromise = null;
+function commitCompose() {
+  if (composeSubmitPromise) {
+    diagnostic("comment-submit-suppressed", { reason: "in-flight" });
+    return composeSubmitPromise;
+  }
+  composeSubmitPromise = executeComposeSubmit().finally(() => {
+    composeSubmitPromise = null;
+  });
+  return composeSubmitPromise;
+}
+
+async function executeComposeSubmit() {
   const compose = state.compose;
   const feedback = $("composeText").value.trim();
-  if (!compose || !feedback) return;
-  const result = await api(`/api/page/${state.key}/comment`, {
-    method: "POST",
-    body: JSON.stringify({ kind: compose.kind, quote: compose.quote, anchor: compose.anchor, feedback }),
-  });
-  toFrame({ type: "eh:commit", id: result.comment.id });
-  state.compose = null;
-  state.page = result.page;
-  state.active = result.comment.id;
-  state.sent = false;
-  render();
+  if (!compose || !feedback) return false;
+  const button = $("composeAdd");
+  button.disabled = true;
+  setComposeLifecycle("submitting", "submit");
+  diagnostic("comment-submit-executed");
+  $("composeError").hidden = true;
+  try {
+    const result = await api(`/api/page/${state.key}/comment`, {
+      method: "POST",
+      body: JSON.stringify({ kind: compose.kind, quote: compose.quote, anchor: compose.anchor, feedback }),
+    });
+    toFrame({
+      type: "eh:commit",
+      id: result.comment.id,
+      targetGeneration: compose.generation,
+      restoreFocus: true,
+    });
+    state.compose = null;
+    setComposeLifecycle("closed", "submitted");
+    setComposePlacement("hidden");
+    state.page = result.page;
+    state.sent = false;
+    render();
+    announce("Comment added");
+    return true;
+  } catch (err) {
+    $("composeError").textContent = `${err.message}. Retry or cancel.`;
+    $("composeError").hidden = false;
+    $("composeAddLabel").textContent = "Retry";
+    diagnostic("comment-request-failure", { status: err.status || 0 });
+    announce("Comment could not be saved. Your draft is still here.");
+    setComposeLifecycle("open", "submit-failed");
+    $("compose").classList.remove("pass-through");
+    requestAnimationFrame(() => $("composeText").focus());
+    return false;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // -------------------------------------------------------------------- saving
 
 let retryTimer = null;
 let saveAttempts = 0;
+let activeSavePromise = Promise.resolve(true);
 
 /** A fresh serialization from the SDK always starts a fresh attempt budget. */
 function saveNow(html) {
   saveAttempts = 0;
-  return saveHtml(html, state.key);
+  state.saveConflict = false;
+  activeSavePromise = saveHtml(html, state.key);
+  return activeSavePromise;
 }
 
 async function saveHtml(html, key) {
   clearTimeout(retryTimer);
   // A retry that outlived a page switch must never write into the new page.
-  if (key !== state.key) return;
+  if (key !== state.key) return false;
   if (!state.baseHash) {
     // The on-disk baseline hasn't arrived yet; wait for it rather than write blind.
     saveAttempts += 1;
@@ -585,7 +1393,7 @@ async function saveHtml(html, key) {
       state.save = "failed";
       renderSave();
     }
-    return;
+    return false;
   }
   try {
     const result = await api(`/api/page/${key}/save`, { method: "POST", body: JSON.stringify({ html, baseHash: state.baseHash }) });
@@ -593,25 +1401,55 @@ async function saveHtml(html, key) {
     state.save = "saved";
     state.savedAt = clock();
     saveAttempts = 0;
+    renderSave();
+    return true;
   } catch (err) {
     if (err.status === 409) {
       // Someone else — usually the agent — wrote the file first. Their version
       // arrives via the reload event; this save is abandoned, not retried.
       state.baseHash = null;
       state.save = "idle";
+      state.saveConflict = true;
       saveAttempts = 0;
       renderSave();
-      return;
+      announce("Save conflict. Edit mode remains active so you can reload safely.");
+      diagnostic("save-conflict");
+      return false;
     }
     saveAttempts += 1;
     state.save = "failed";
     if (saveAttempts < 5) retryTimer = setTimeout(() => saveHtml(html, key), 2000);
     else toast("Couldn't save — your edits still reach the agent as feedback");
+    return false;
   }
-  renderSave();
 }
 
 // ------------------------------------------------------------ frame messages
+
+function targetPayload(msg) {
+  const viewport = {
+    width: Number(msg.viewport?.width),
+    height: Number(msg.viewport?.height),
+  };
+  const generation = Number(msg.targetGeneration);
+  const rawRelation = String(msg.relation || "");
+  if (!["visible", "above", "below", "unavailable"].includes(rawRelation)) return null;
+  const relation = sanitizeRelation(rawRelation);
+  const clip = sanitizeClipRect(msg.clip, viewport);
+  const rects = sanitizeClientRects(msg.rects, viewport);
+  if (!Number.isSafeInteger(generation) || generation < 1 || !clip) return null;
+  if (relation === "visible" && !rects.length) return null;
+  return {
+    kind: msg.kind === "element" ? "element" : "selection",
+    quote: String(msg.quote || ""),
+    anchor: msg.anchor || null,
+    rects,
+    generation,
+    relation,
+    clip,
+    horizontal: Number.isFinite(msg.horizontal) ? Number(msg.horizontal) : null,
+  };
+}
 
 window.addEventListener("message", async (event) => {
   if (!frame.contentWindow || event.source !== frame.contentWindow) return;
@@ -633,6 +1471,7 @@ window.addEventListener("message", async (event) => {
       state.frameReadyRetries = 0;
       state.readyGeneration = state.renderGeneration;
       state.frameLoading = false;
+      frame.dataset.sdkReady = "true";
       const readyCapability = state.frameCapability;
       void api(`/api/session/${state.sessionId}/render/${state.renderId}/ready`, {
         method: "POST",
@@ -647,10 +1486,10 @@ window.addEventListener("message", async (event) => {
         toFrame({ type: "eh:restoreScroll", x: state.scroll.x, y: state.scroll.y });
         state.reloading = false;
       }
-      if (state.page && (state.page.markdown || state.page.feedbackOnly)) {
-        // Rendered sources are editable here but never serialized over their source.
-        toFrame({ type: "eh:feedbackOnly" });
-      } else {
+      const configuration = reviewConfiguration(state.page, state.reviewMode);
+      state.savePolicy = configuration.savePolicy;
+      toFrame({ type: "eh:configureReview", ...configuration });
+      if (configuration.savePolicy === "writable") {
         // Hand the SDK the on-disk HTML so it can spot self-rendering pages.
         api(`/api/page/${state.key}/raw`)
           .then((raw) => {
@@ -661,8 +1500,84 @@ window.addEventListener("message", async (event) => {
       }
       break;
     }
-    case "eh:compose":
-      await openCompose({ kind: msg.kind, quote: msg.quote, anchor: msg.anchor });
+    case "eh:configurationApplied":
+      state.configurationGeneration = state.renderGeneration;
+      if (
+        configurationWaiter &&
+        msg.mode === configurationWaiter.mode &&
+        msg.savePolicy === configurationWaiter.savePolicy
+      ) configurationWaiter.settle(true);
+      announce(`${state.reviewMode === "edit" ? "Edit" : "View"} mode active`);
+      break;
+    case "eh:target": {
+      const detail = targetPayload(msg);
+      if (!detail) return;
+      if (state.target && detail.generation < state.target.generation) return;
+      state.target = detail;
+      break;
+    }
+    case "eh:openComment": {
+      const requestedGeneration = Number(msg.targetGeneration);
+      const detail = targetPayload(msg);
+      let accepted = false;
+      if (detail && (!state.target || detail.generation >= state.target.generation)) {
+        accepted = await openCompose(detail);
+      }
+      toFrame({
+        type: "eh:commentOpenResult",
+        accepted,
+        requestedGeneration,
+        targetGeneration: state.compose?.generation || null,
+      });
+      break;
+    }
+    case "eh:targetGeometry":
+      if (state.compose && msg.targetGeneration !== state.compose.generation) {
+        diagnostic("geometry-rejected", { reason: "stale" });
+        break;
+      }
+      if (state.compose) {
+        const geometry = targetPayload({ ...msg, kind: state.compose.kind });
+        if (!geometry) {
+          diagnostic("geometry-rejected", { reason: "invalid" });
+          break;
+        }
+        state.compose.rects = geometry.rects;
+        state.compose.relation = geometry.relation;
+        state.compose.clip = geometry.clip;
+        state.compose.horizontal = geometry.horizontal ?? state.compose.horizontal;
+        positionCompose();
+      }
+      break;
+    case "eh:commentGeometry": {
+      if (!msg.id) break;
+      const id = String(msg.id);
+      if (!state.page?.comments?.some((comment) => comment.id === id)) {
+        state.activeGeometry.delete(id);
+        break;
+      }
+      const rects = sanitizeClientRects(msg.rects, {
+        width: Number(msg.viewport?.width),
+        height: Number(msg.viewport?.height),
+      });
+      state.activeGeometry.set(id, {
+        rects,
+        visible: msg.visible !== false && rects.length > 0,
+      });
+      if (state.activeSavedCommentId === id) {
+        positionAlignedCard();
+        restoreTransientFocus(false);
+      }
+      break;
+    }
+    case "eh:revealTargetResult":
+      if (!state.compose || msg.targetGeneration !== state.compose.generation) break;
+      announce(msg.success ? "Selection revealed" : "Selection is no longer available");
+      diagnostic(msg.success ? "reveal-target-succeeded" : "reveal-target-failed");
+      break;
+    case "eh:interaction":
+      closeModeMenu("frame-interaction");
+      closeCommentMenu();
       break;
     case "eh:dismiss":
       if (!$("composeText").value.trim()) cancelCompose();
@@ -677,23 +1592,21 @@ window.addEventListener("message", async (event) => {
     case "eh:notInView":
       toast("That comment is not visible in this view");
       break;
+    case "eh:formBlocked":
+      toast(String(msg.reason || "This form cannot be submitted from View mode"));
+      break;
     case "eh:edit":
-      state.page = (await api(`/api/page/${state.key}/edit`, {
-        method: "POST",
-        body: JSON.stringify({
-          label: msg.label,
-          kind: msg.kind,
-          before: msg.before,
-          after: msg.after,
-          before_html: msg.before_html,
-          after_html: msg.after_html,
-          moved_after: msg.moved_after,
-          moved_before: msg.moved_before,
-          staged_assets: msg.staged_assets,
-        }),
-      })).page;
-      state.sent = false;
-      render();
+      void persistEdit(state.key, {
+        label: msg.label,
+        kind: msg.kind,
+        before: msg.before,
+        after: msg.after,
+        before_html: msg.before_html,
+        after_html: msg.after_html,
+        moved_after: msg.moved_after,
+        moved_before: msg.moved_before,
+        staged_assets: msg.staged_assets,
+      });
       break;
     case "eh:asset":
       try {
@@ -742,6 +1655,7 @@ window.addEventListener("message", async (event) => {
     }
     case "eh:navigate":
       try {
+        await flushFrame();
         const result = await api(`/api/session/${state.sessionId}/navigate`, {
           method: "POST",
           body: JSON.stringify({ href: msg.href }),
@@ -757,31 +1671,100 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-// ---------------------------------------------------------------- rail wiring
+// --------------------------------------------------------------- UI wiring
+
+let composeComposing = false;
 
 $("composeAdd").addEventListener("click", commitCompose);
 $("composeCancel").addEventListener("click", cancelCompose);
-
-// Clicking anywhere on the card is the "I meant to comment" gesture.
-$("compose").addEventListener("mousedown", (event) => {
-  if (event.target.closest("button")) return;
-  event.preventDefault();
-  $("composeText").focus();
+$("composeClose").addEventListener("click", cancelCompose);
+$("composeReveal").addEventListener("click", () => {
+  if (!state.compose) return;
+  diagnostic("reveal-target-requested");
+  toFrame({ type: "eh:revealTarget", targetGeneration: state.compose.generation });
 });
 
+$("compose").addEventListener("mousedown", (event) => {
+  if (event.target.closest("button")) return;
+  if (event.target !== $("composeText")) $("composeText").focus();
+});
+
+$("composeText").addEventListener("compositionstart", () => {
+  composeComposing = true;
+});
+$("composeText").addEventListener("compositionend", () => {
+  composeComposing = false;
+});
 $("composeText").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key === "Enter") {
+    event.stopPropagation();
+    if (composeComposing || event.isComposing || event.shiftKey) return;
     event.preventDefault();
-    commitCompose();
+    void commitCompose();
   }
   if (event.key === "Escape") {
+    event.stopPropagation();
     event.preventDefault();
     cancelCompose();
   }
 });
 
+$("modeButton").addEventListener("click", () => {
+  if ($("modeMenu").hidden) openModeMenu();
+  else closeModeMenu("trigger", { restoreFocus: true });
+});
+$("modeMenu").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-mode]");
+  if (item) void setReviewMode(item.dataset.mode);
+});
+$("modeMenu").addEventListener("keydown", (event) => {
+  const items = [...$("modeMenu").querySelectorAll("[data-mode]")];
+  const current = items.indexOf(document.activeElement);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    items[(current + delta + items.length) % items.length].focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeModeMenu("escape", { restoreFocus: true });
+  }
+});
+$("commentsButton").addEventListener("click", openDrawer);
+$("drawerClose").addEventListener("click", closeDrawer);
+$("drawerBackdrop").addEventListener("click", closeDrawer);
+
+const dismissModeMenuOutside = (event) => {
+  if (!state.modeMenuOpen || event.target.closest(".mode-control")) return;
+  closeModeMenu(event.type === "focusin" ? "parent-focus" : "parent-pointer");
+};
+document.addEventListener("pointerdown", dismissModeMenuOutside, true);
+document.addEventListener("focusin", dismissModeMenuOutside, true);
+
+function closeCommentMenu({ restoreFocus = false } = {}) {
+  const menu = state.commentUi.menu;
+  if (!menu) return false;
+  clearOwned(state.commentUi, "menu");
+  toFrame({ type: "eh:modeMenuState", open: false });
+  if (restoreFocus) requestControlFocus(menu.triggerId);
+  render();
+  return true;
+}
+
+const dismissCommentMenuOutside = (event) => {
+  const menu = state.commentUi.menu;
+  if (!menu) return;
+  const menuElement = document.getElementById(controlId(menu.commentId, menu.surface, "menu"));
+  const trigger = document.getElementById(menu.triggerId);
+  if (menuElement?.contains(event.target) || trigger?.contains(event.target)) return;
+  closeCommentMenu();
+};
+document.addEventListener("pointerdown", dismissCommentMenuOutside, true);
+document.addEventListener("focusin", dismissCommentMenuOutside, true);
+
 $("send").addEventListener("click", async () => {
   try {
+    await flushFrame();
     await api(`/api/page/${state.key}/send`, {
       method: "POST",
       body: JSON.stringify({ sessionId: state.sessionId, note: $("note").value.trim() }),
@@ -803,6 +1786,9 @@ $("revert").addEventListener("click", async () => {
   clearTimeout(retryTimer);
   state.baseHash = null;
   try {
+    await settleEditPersistence(state.key).catch(() => {});
+    editBacklogs.delete(state.key);
+    editErrors.delete(state.key);
     state.page = (await api(`/api/page/${state.key}/revert`, { method: "POST" })).page;
     state.save = "idle";
     state.savedAt = "";
@@ -835,9 +1821,9 @@ $("endReview").addEventListener("click", async () => {
     ? `End this review? ${unsent} unsent ${unsent === 1 ? "item" : "items"} will be kept for next time.`
     : "End this review? The waiting agent will be told to stop polling.";
   if (!window.confirm(message)) return;
-  // Ship anything still sitting in the SDK's debounce windows first.
-  await flushFrame();
   try {
+    // Ship anything still sitting in the SDK's debounce windows first.
+    await flushFrame();
     await api(`/api/session/${state.sessionId}/end`, { method: "POST" });
     showEnded();
   } catch (err) {
@@ -865,17 +1851,6 @@ $("note").addEventListener("input", (event) => {
   render(); // keep the send button in step with note-only feedback
 });
 
-$("handle").addEventListener("click", () => {
-  const collapsed = document.body.classList.toggle("collapsed");
-  const handle = $("handle");
-  handle.textContent = collapsed ? "‹" : "›";
-  handle.title = collapsed ? "Show comments panel" : "Hide comments panel";
-  handle.setAttribute("aria-label", handle.title);
-  try {
-    localStorage.setItem("human-review:collapsed", collapsed ? "1" : "0");
-  } catch {}
-});
-
 $("theme").addEventListener("click", () => {
   const dark = document.documentElement.dataset.theme !== "dark";
   applyTheme(dark);
@@ -887,18 +1862,13 @@ $("theme").addEventListener("click", () => {
 function applyTheme(dark) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   const button = $("theme");
-  button.textContent = dark ? "☀" : "☾";
   button.title = dark ? "Switch chrome to light" : "Switch chrome to dark";
   button.setAttribute("aria-label", button.title);
+  replaceIcon(button, dark ? "sun" : "moon");
 }
 
 document.addEventListener("keydown", (event) => {
   const meta = event.metaKey || event.ctrlKey;
-  if (meta && event.key === "Enter") {
-    event.preventDefault();
-    if (!$("send").disabled) $("send").click();
-    return;
-  }
   // ⌘S is reassurance only: flush pending keystrokes, never a state change.
   if (meta && event.key.toLowerCase() === "s") {
     event.preventDefault();
@@ -906,7 +1876,25 @@ document.addEventListener("keydown", (event) => {
     renderSave();
     return;
   }
-  if (event.key === "Escape" && state.compose) cancelCompose();
+  if (event.key === "Tab" && state.commentUi.menu) {
+    closeCommentMenu();
+    return;
+  }
+  if (event.key !== "Escape") return;
+  let handled = false;
+  if (state.commentUi.confirmation) handled = cancelDeleteConfirmation();
+  else if (state.commentUi.menu) handled = closeCommentMenu({ restoreFocus: true });
+  else if (state.commentUi.edit) handled = cancelCommentEdit();
+  else if (state.compose) handled = cancelCompose();
+  else if (state.modeMenuOpen) handled = closeModeMenu("escape", { restoreFocus: true });
+  else if (state.drawerOpen) {
+    closeDrawer();
+    handled = true;
+  } else if (state.activeSavedCommentId) handled = dismissActiveComment("escape", { restoreFocus: true });
+  if (handled) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
 });
 
 // ------------------------------------------------------------------ events
@@ -920,6 +1908,7 @@ function connect() {
   source.addEventListener("ended", () => showEnded());
   source.addEventListener("reload", () => {
     const key = state.key;
+    advancePageEpoch("reload");
     const generation = beginFrameTransition();
     state.frameReadyRetries = 0;
     const hadEdits = state.page ? state.page.edits.length : 0;
@@ -949,9 +1938,10 @@ function connect() {
   });
   source.addEventListener("refresh", async () => {
     const key = state.key;
+    advancePageEpoch("acknowledgement");
     const page = await api(pageUrl(key, state.sessionId));
     if (state.key !== key) return;
-    replacePage(state, page);
+    reconcilePage(page, { syncAnchors: true, reason: "acknowledgement", advance: false });
     state.sent = false;
     render();
   });
@@ -963,9 +1953,9 @@ function connect() {
 // -------------------------------------------------------------------- start
 
 (async function start() {
+  installStaticIcons();
   try {
     applyTheme(localStorage.getItem("human-review:theme") === "dark");
-    if (localStorage.getItem("human-review:collapsed") === "1") $("handle").click();
   } catch {}
 
   const bootstrap = await api(`/api/session/${state.sessionId}/page`).catch(() => null);
@@ -976,6 +1966,15 @@ function connect() {
   connect();
 })();
 
+window.addEventListener("resize", () => {
+  positionCompose();
+  if (state.activeSavedCommentId) positionAlignedCard();
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", positionCompose);
+  window.visualViewport.addEventListener("scroll", positionCompose);
+}
+
 frame.addEventListener("load", () => {
   if (!state.renderId || !state.frameCapability) return;
   if (state.pendingInitialLoad) {
@@ -984,3 +1983,9 @@ frame.addEventListener("load", () => {
   }
   rotateCurrentFrame();
 });
+
+frame.addEventListener("focus", () => {
+  closeCommentMenu();
+  if (state.compose) $("compose").classList.add("pass-through");
+});
+$("compose").addEventListener("focusin", () => $("compose").classList.remove("pass-through"));

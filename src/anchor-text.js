@@ -113,3 +113,48 @@ export function tidy(text, limit = 0) {
   if (!limit || flat.length <= limit) return flat;
   return `${flat.slice(0, limit - 1).trimEnd()}…`;
 }
+
+function graphemes(text) {
+  if (typeof Intl?.Segmenter === "function") {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    return [...segmenter.segment(text)].map(({ segment }) => segment);
+  }
+  // Array.from is deterministic and, unlike string slicing, never splits a
+  // surrogate pair. Older engines may split a multi-code-point grapheme.
+  return Array.from(text);
+}
+
+function nearbyHeadBoundary(parts, ideal) {
+  for (let index = ideal; index >= Math.max(1, ideal - 8); index -= 1) {
+    if (/^\s$/u.test(parts[index - 1])) return index - 1;
+  }
+  return ideal;
+}
+
+function nearbyTailBoundary(parts, ideal) {
+  for (let index = ideal; index < Math.min(parts.length - 1, ideal + 8); index += 1) {
+    if (/^\s$/u.test(parts[index])) return index + 1;
+  }
+  return ideal;
+}
+
+/**
+ * Collapse whitespace and preserve both ends of a long quote. `limit` counts
+ * grapheme clusters, including the ellipsis.
+ */
+export function tidyMiddle(text, limit = 0) {
+  const flat = String(text == null ? "" : text)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!limit) return flat;
+  const parts = graphemes(flat);
+  if (parts.length <= limit) return flat;
+  if (limit <= 1) return "…";
+
+  const available = limit - 1;
+  const idealHead = Math.ceil(available * 0.6);
+  const idealTailStart = parts.length - (available - idealHead);
+  const headEnd = nearbyHeadBoundary(parts, idealHead);
+  const tailStart = nearbyTailBoundary(parts, idealTailStart);
+  return `${parts.slice(0, headEnd).join("").trimEnd()}…${parts.slice(tailStart).join("").trimStart()}`;
+}

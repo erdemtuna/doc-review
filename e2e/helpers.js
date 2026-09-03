@@ -60,6 +60,14 @@ export async function openReview(page, review, target) {
 
 export async function waitForSdk(page) {
   const frame = page.frameLocator("#frame");
+  await expect(page.locator("#frame")).toHaveAttribute("data-sdk-ready", "true");
+  return frame;
+}
+
+export async function enterEditMode(page) {
+  const frame = await waitForSdk(page);
+  await page.locator("#modeButton").click();
+  await page.getByRole("menuitemradio", { name: /^Edit/ }).click();
   await expect(frame.locator("body")).toHaveAttribute("contenteditable", "true");
   return frame;
 }

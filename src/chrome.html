@@ -8,6 +8,27 @@
 </head>
 <body data-session="__SESSION_ID__" data-token="__TOKEN__">
   <div class="app">
+    <header class="toolbar" aria-label="Review controls">
+      <div class="toolbar-product" aria-hidden="true"></div>
+      <div class="mode-control">
+        <button type="button" id="modeButton" class="toolbar-btn" aria-haspopup="menu" aria-expanded="false">
+          <span id="modeIcon"></span><span id="modeLabel">View</span><span id="modeChevron"></span>
+        </button>
+        <div id="modeMenu" class="mode-menu" role="menu" hidden>
+          <button type="button" role="menuitemradio" aria-checked="true" data-mode="view">
+            <span data-icon="eye"></span><span><strong>View</strong><small>Editing off, comments enabled</small></span><span class="menu-check"></span>
+          </button>
+          <button type="button" role="menuitemradio" aria-checked="false" data-mode="edit">
+            <span data-icon="pencil"></span><span><strong>Edit</strong><small>Direct editing on</small></span><span class="menu-check"></span>
+          </button>
+        </div>
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" id="commentsButton" class="toolbar-btn" aria-controls="drawer" aria-label="Comments" aria-expanded="false">
+          <span data-icon="messages"></span><span class="toolbar-label">Comments</span><span id="toolbarCount" class="count-badge">0</span>
+        </button>
+      </div>
+    </header>
     <main class="stage">
       <iframe
         id="frame"
@@ -15,34 +36,50 @@
         sandbox="allow-scripts allow-forms allow-modals"></iframe>
     </main>
 
-    <button type="button" id="handle" class="handle" title="Hide comments panel" aria-label="Hide comments panel">›</button>
-
-    <aside class="rail" id="rail">
-      <div class="rail-scroll">
-        <div class="rail-head">
-          <span class="section">Feedback</span>
-          <span class="dim" id="count">0</span>
-          <button type="button" id="theme" class="icon-btn" title="Switch chrome to dark" aria-label="Switch chrome to dark">☾</button>
+    <section id="compose" class="contextual-compose" role="dialog" aria-modal="false" aria-labelledby="composeTitle" hidden>
+      <div class="compose-head">
+        <div>
+          <span class="chip" id="composeKind">Selection</span>
+          <strong id="composeTitle">Add comment</strong>
         </div>
+        <button type="button" id="composeClose" class="icon-btn" title="Cancel comment" aria-label="Cancel comment"></button>
+      </div>
+      <div id="composeDirection" class="compose-direction" hidden>
+        <span id="composeDirectionText"></span>
+        <button type="button" id="composeReveal" class="link-action">Back to selection</button>
+      </div>
+      <p class="quote" id="composeQuote"></p>
+      <textarea id="composeText" rows="3" placeholder="What should change?" aria-label="Comment" aria-describedby="composeHelp"></textarea>
+      <p id="composeHelp" class="compose-help"><span>Enter to comment</span><span>Shift+Enter for new line</span></p>
+      <p id="composeError" class="compose-error" role="alert" hidden></p>
+      <div class="compose-actions">
+        <button type="button" id="composeAdd" class="btn-primary"><span data-icon="messageSquarePlus"></span><span id="composeAddLabel">Comment</span></button>
+        <button type="button" id="composeCancel" class="btn-ghost">Cancel</button>
+      </div>
+    </section>
 
-        <div id="compose" hidden>
-          <div class="compose">
-            <div class="compose-head">
-              <span class="chip" id="composeKind">Selection</span>
-              <span class="dim">Click to write · Esc to dismiss</span>
-            </div>
-            <p class="quote" id="composeQuote"></p>
-            <textarea id="composeText" rows="3" placeholder="What should change?"></textarea>
-            <div class="compose-actions">
-              <button type="button" id="composeAdd" class="btn-primary">Add comment <span class="key">⏎</span></button>
-              <button type="button" id="composeCancel" class="btn-ghost">Cancel</button>
-            </div>
+    <article id="alignedCard" class="aligned-card" hidden></article>
+
+    <aside class="drawer" id="drawer" aria-label="Review feedback" aria-hidden="true">
+      <div class="drawer-head">
+        <div>
+          <span class="section">Review</span>
+          <h2 id="drawerTitle">Comments</h2>
+        </div>
+        <button type="button" id="theme" class="icon-btn" title="Switch chrome to dark" aria-label="Switch chrome to dark"></button>
+        <button type="button" id="drawerClose" class="icon-btn" title="Close review drawer" aria-label="Close review drawer"></button>
+      </div>
+      <div id="commentsSection" class="drawer-inventory" tabindex="-1" aria-labelledby="inventoryHeading">
+        <section>
+          <div class="rail-head">
+            <span class="section" id="inventoryHeading">Comments</span>
+            <span class="dim" id="count">0</span>
           </div>
-        </div>
 
-        <div id="cards" class="cards"></div>
+          <div id="cards" class="cards"></div>
 
-        <div id="empty" class="empty">Select text or click an element to comment on it</div>
+          <div id="empty" class="empty">Select text or focus an element, then use the comment button</div>
+        </section>
 
         <section id="othersBox" hidden>
           <div class="rail-head tight">
@@ -61,21 +98,30 @@
           <div class="save-line" id="saveLine"><span class="dot"></span><span id="saveText"></span></div>
           <div class="edit-list" id="editList"></div>
         </section>
-      </div>
 
-      <div class="rail-foot">
-        <textarea id="note" rows="2" placeholder="Overall note…"></textarea>
-        <button type="button" id="send" class="send" disabled>Nothing to send yet</button>
-        <div class="agent-line" id="agentLine" hidden><span class="dot amber"></span><span id="agentText"></span></div>
-        <div class="handoff" id="handoff" hidden>
-          <p class="handoff-title">Sent — but no agent is listening yet.</p>
-          <p class="handoff-body">Paste this into your agent — Claude Code, Codex, or Cursor:</p>
-          <div class="handoff-cmd"><code id="handoffCmd"></code></div>
-          <button type="button" id="handoffCopy" class="btn-ghost">Copy prompt</button>
-        </div>
-        <button type="button" id="endReview" class="end-review" title="Stop this review and release the waiting agent">End review</button>
       </div>
+      <footer id="sendSection" class="drawer-footer send-section" tabindex="-1" aria-label="Send feedback">
+        <div class="send-primary">
+          <div class="rail-head tight">
+            <span class="section">Send feedback</span>
+          </div>
+          <textarea id="note" rows="2" placeholder="Overall note…"></textarea>
+          <button type="button" id="send" class="send" disabled>Nothing to send yet</button>
+          <div class="agent-line" id="agentLine" hidden><span class="dot amber"></span><span id="agentText"></span></div>
+        </div>
+        <div class="send-secondary">
+          <div class="handoff" id="handoff" hidden>
+            <p class="handoff-title">Sent — but no agent is listening yet.</p>
+            <p class="handoff-body">Paste this into your agent — Claude Code, Codex, or Cursor:</p>
+            <div class="handoff-cmd"><code id="handoffCmd"></code></div>
+            <button type="button" id="handoffCopy" class="btn-ghost">Copy prompt</button>
+          </div>
+          <button type="button" id="endReview" class="end-review" title="Stop this review and release the waiting agent">End review</button>
+        </div>
+      </footer>
     </aside>
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <div id="liveRegion" class="sr-only" role="status" aria-live="polite"></div>
   </div>
 
   <script type="module" src="/chrome.js"></script>

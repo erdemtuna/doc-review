@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeCommentAnchor } from "./comment-anchor.js";
 import { canonicalTarget, ensureStateDir, pageKey, realFile, statePath, targetKey } from "./paths.js";
 
 /** Anything untouched this long is review debris, not work in progress. */
@@ -46,6 +47,17 @@ function normalizeState(parsed, makeBatchId) {
     receipts: parsed.receipts && typeof parsed.receipts === "object" ? parsed.receipts : {},
   };
   let changed = !parsed.batches || !parsed.receipts;
+  const normalizeAnchor = (comment) => {
+    if (!comment || comment.anchor == null) return;
+    const normalized = normalizeCommentAnchor(comment.kind === "element" ? "element" : "selection", comment.anchor);
+    if (JSON.stringify(normalized) !== JSON.stringify(comment.anchor)) {
+      comment.anchor = normalized;
+      changed = true;
+    }
+  };
+  for (const page of Object.values(data.pages)) {
+    for (const comment of page?.comments || []) normalizeAnchor(comment);
+  }
   for (const record of Object.values(data.batches)) {
     if (!record || typeof record !== "object" || !record.batch || !Array.isArray(record.cleanup)) {
       throw new Error("Invalid human-review state: malformed feedback batch.");
@@ -72,6 +84,9 @@ function normalizeState(parsed, makeBatchId) {
     }
     if (!DELIVERY_STATES.has(record.delivery_state)) {
       throw new Error(`Invalid human-review state: unknown delivery state ${record.delivery_state}.`);
+    }
+    for (const page of record.batch.pages || []) {
+      for (const comment of page.comments || []) normalizeAnchor(comment);
     }
   }
   return { data, changed };
@@ -234,8 +249,12 @@ export class Store {
   }
 
   addComment(key, comment) {
+    const anchor = comment.anchor == null
+      ? comment.anchor
+      : normalizeCommentAnchor(comment.kind === "element" ? "element" : "selection", comment.anchor);
+    if (comment.anchor != null && !anchor) throw new Error("Invalid comment anchor.");
     return this.update(key, (page) => {
-      page.comments.push(comment);
+      page.comments.push({ ...comment, ...(comment.anchor !== undefined ? { anchor } : {}) });
     });
   }
 
