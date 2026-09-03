@@ -1,6 +1,6 @@
 {
   "name": "@erdemtuna/doc-review",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Review and edit agent-generated files and localhost pages in the browser, then send the whole batch back to your agent.",
   "author": "Peter Yang",
   "homepage": "https://github.com/erdemtuna/doc-review#readme",
