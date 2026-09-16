@@ -224,8 +224,13 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       const current = hash(html);
       // Our own autosave must never bounce back as a reload.
       if (lastWritten.get(key) === current) return;
+      try {
+        store.setPristine(key, html, { keepEdits: isMarkdown(page.file) });
+      } catch (err) {
+        console.error(`Could not refresh review baseline for ${page.file}: ${err.message}`);
+        return;
+      }
       lastWritten.set(key, current);
-      store.setPristine(key, html);
       for (const session of sessionsForKey(key)) {
         invalidateSessionRender(session);
         emit(session, "reload", { key });

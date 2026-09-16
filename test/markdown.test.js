@@ -163,3 +163,47 @@ test("a markdown review is rendered, flagged, and never writable", async (t) => 
 });
 
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+test("an external Markdown write refreshes rendering without losing unsent edits", { timeout: 10000 }, async (t) => {
+  const review = await start();
+  t.after(() => review.dispose());
+  const { port, token } = review;
+  const file = path.join(tmp, "external-write.md");
+  fs.writeFileSync(file, "# Original\n\nBefore.\n");
+  const opened = JSON.parse((await request(port, token, {
+    method: "POST", route: "/api/session", body: { file },
+  })).raw);
+  await request(port, token, {
+    method: "POST", route: `/api/page/${opened.key}/edit`,
+    body: { label: "Body", before: "Before.", after: "My unsent wording.", after_html: "<strong>My unsent wording.</strong>" },
+  });
+  await request(port, token, {
+    method: "POST", route: `/api/page/${opened.key}/comment`,
+    body: { quote: "Before.", feedback: "Keep my feedback." },
+  });
+  const edits = structuredClone(review.store.page(opened.key).edits);
+  fs.writeFileSync(file, "# External revision\n\nBefore, reformatted.\n");
+
+  const deadline = Date.now() + 5000;
+  while (!review.store.page(opened.key).pristine.includes("External revision") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.match(review.store.page(opened.key).pristine, /External revision/);
+  assert.deepEqual(review.store.page(opened.key).edits, edits);
+  const registered = JSON.parse((await request(port, token, {
+    method: "POST", route: `/api/session/${opened.sessionId}/render`,
+    body: { key: opened.key, generation: 1 },
+  })).raw);
+  assert.match((await request(port, token, { route: registered.path })).raw, /External revision/);
+  await request(port, token, {
+    method: "POST", route: `/api/page/${opened.key}/send`,
+    body: { sessionId: opened.sessionId, note: "" },
+  });
+  const batch = JSON.parse((await request(port, token, {
+    route: `/api/poll?target=${encodeURIComponent(file)}`,
+  })).raw);
+  assert.equal(batch.pages[0].edits[0].after, "My unsent wording.");
+  assert.equal(batch.pages[0].edits[0].after_html, "<strong>My unsent wording.</strong>");
+  assert.equal(batch.pages[0].comments[0].feedback, "Keep my feedback.");
+  assert.match(fs.readFileSync(file, "utf8"), /External revision/);
+});

@@ -84,6 +84,46 @@ test("clearSent removes only the delivered comments", () => {
   assert.deepEqual(store.page(key).edits, []);
 });
 
+test("a baseline refresh can preserve feedback and an immutable delivered batch", () => {
+  const store = new Store();
+  const { key, file } = store.openPage(page("preserved.md", "# Old"), "# Old");
+  store.addComment(key, { id: "kept-comment", feedback: "Keep this" });
+  store.addEdit(key, "Body", "edited", "old", "new", "<p>old</p>", "<p>new</p>", {
+    staged_assets: [{ path: "kept.png" }],
+  });
+  store.setBatch(key, {
+    batch: {
+      batch_id: "b_preserved",
+      status: "feedback",
+      pages: [{ file, edits: structuredClone(store.page(key).edits) }],
+    },
+    cleanup: [],
+  });
+  store.markBatchDelivered(key);
+  const beforePage = structuredClone(store.page(key));
+  const beforeBatch = structuredClone(store.batch(key));
+
+  store.setPristine(key, "# External revision", { keepEdits: true });
+  const restarted = new Store();
+  assert.equal(restarted.page(key).pristine, "# External revision");
+  assert.deepEqual(restarted.page(key).edits, beforePage.edits);
+  assert.deepEqual(restarted.page(key).comments, beforePage.comments);
+  assert.deepEqual(restarted.batch(key), beforeBatch);
+});
+
+test("failed baseline persistence leaves memory and disk unchanged", () => {
+  const store = new Store();
+  const { key } = store.openPage(page("baseline-failure.md", "# Original"), "# Original");
+  store.addEdit(key, "Body", "edited", "original", "unsent");
+  const disk = fs.readFileSync(statePathFor(), "utf8");
+  const failing = new Store({ write: () => { throw new Error("baseline write failed"); } });
+  const memory = structuredClone(failing.data);
+
+  assert.throws(() => failing.setPristine(key, "# External", { keepEdits: true }), /baseline write failed/);
+  assert.deepEqual(failing.data, memory);
+  assert.equal(fs.readFileSync(statePathFor(), "utf8"), disk);
+});
+
 test("pages are independent of one another", () => {
   const store = new Store();
   const a = store.openPage(page("p1.html", "<p>a</p>"), "<p>a</p>");

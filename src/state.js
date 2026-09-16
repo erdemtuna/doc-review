@@ -363,10 +363,10 @@ export class Store {
   }
 
   /** After the agent writes, its version becomes the new revert target. */
-  setPristine(key, html) {
+  setPristine(key, html, { keepEdits = false } = {}) {
     return this.update(key, (page) => {
       page.pristine = html;
-      page.edits = [];
+      if (!keepEdits) page.edits = [];
     });
   }
 
