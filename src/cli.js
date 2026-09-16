@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -15,6 +14,7 @@ import {
 } from "./paths.js";
 import { readServerLock } from "./server-lock.js";
 import { installSkills, shellQuote } from "./setup.js";
+import { createDeadline, DEFAULT_POLL_SECONDS, isRecoverableTransportError, parseServerResponse, pollUntilDeadline, requestRaw } from "./poll-transport.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8"));
@@ -24,7 +24,7 @@ const HELP = `doc-review ${pkg.version}
   doc-review <file-or-localhost-url> Open a file or localhost page for review
   doc-review poll <target>          Wait for feedback, print it as JSON (for agents)
       --ack <batch_id>             Acknowledge that exact delivered batch, then keep waiting
-      --timeout <secs>             Exit with {"status":"timeout"} if nothing arrives
+      --timeout <secs>             End-to-end cutoff; default 12 hours (43200 seconds)
   doc-review status <target>        Report whether feedback is waiting, without blocking
   doc-review setup                  Teach Claude Code / Codex how to use doc-review
   doc-review setup --global         ...for every project, not just this one
@@ -42,72 +42,64 @@ function readServerRecord() {
   }
 }
 
-function request(server, options, body) {
-  const port = typeof server === "number" ? server : server.port;
-  const token = typeof server === "number" ? "" : server.token || "";
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host: "127.0.0.1",
-        port,
-        ...options,
-        headers: { ...(token ? { "x-doc-review-token": token } : {}), ...(options.headers || {}) },
-      },
-      (res) => {
-        let raw = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
-        res.on("end", () => resolve({ status: res.statusCode, raw }));
-      }
-    );
-    req.on("error", reject);
-    if (options.timeout) req.setTimeout(options.timeout, () => req.destroy(new Error("timeout")));
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
+const request = requestRaw;
 
-async function alive(server) {
+async function alive(server, deadline) {
+  if (!server?.port || !server.instance_id) return false;
+  const lock = readServerLock();
+  if (lock?.pid !== server.pid || lock?.instance_id !== server.instance_id) return false;
   try {
-    const lock = readServerLock();
-    if (lock?.pid !== server.pid || lock?.instance_id !== server.instance_id) return false;
-    const res = await request(server, { method: "GET", path: "/health", timeout: 1200 });
-    if (res.status !== 200) return false;
-    const health = JSON.parse(res.raw);
-    return (
-      serverProtocolMatches(health.protocol) &&
-      health.pid === server.pid &&
-      health.instance_id === server.instance_id
-    );
-  } catch {
-    return false;
+    deadline?.check();
+    const res = await request(server, {
+      method: "GET", path: "/health", timeout: Math.min(1200, deadline?.remaining() ?? 1200),
+    }, undefined, { time: deadline?.time });
+    deadline?.check();
+    const health = parseServerResponse(res);
+    if (health.pid !== server.pid || health.instance_id !== server.instance_id) {
+      throw new Error("The doc-review server identity does not match its writer lock. End the review and restart the server.");
+    }
+    if (!serverProtocolMatches(health.protocol) || !serverProtocolMatches(server.protocol)) {
+      throw new Error(
+        `Incompatible live doc-review server (protocol ${health.protocol}; this CLI requires ${SERVER_PROTOCOL}). ` +
+        "End active reviews and stop/restart the old doc-review server before retrying. " +
+        "Its live writer lock and queued feedback have not been changed.",
+      );
+    }
+    return true;
+  } catch (err) {
+    if (isRecoverableTransportError(err)) return false;
+    throw err;
   }
 }
 
-async function ensureServer() {
+async function ensureServer(deadline = createDeadline(20)) {
+  deadline.check();
   ensureStateDir();
   for (let launch = 0; launch < 3; launch += 1) {
     const saved = readServerRecord();
-    if (serverProtocolMatches(saved?.protocol) && saved.port && saved.instance_id && (await alive(saved))) return saved;
+    if (await alive(saved, deadline)) return saved;
+    deadline.check();
 
     const child = spawn(process.execPath, [path.join(here, "server-entry.js")], {
       detached: true,
       stdio: "ignore",
     });
+    let launchError;
+    child.on("error", (err) => { launchError = err; });
     child.unref();
 
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      await new Promise((r) => setTimeout(r, 100));
+      await deadline.sleep(100);
+      if (launchError) throw launchError;
       const record = readServerRecord();
-      // Same protocol gate as above: a still-running server from an older
-      // version answers /health too, and must not be adopted here.
-      if (serverProtocolMatches(record?.protocol) && record.port && record.instance_id && (await alive(record))) return record;
+      if (await alive(record, deadline)) return record;
+      if (child.exitCode !== null && child.exitCode !== 0) {
+        throw new Error("The local doc-review server failed to start. Check the state directory permissions and server startup diagnostics before retrying.");
+      }
       if (child.exitCode !== null && !readServerLock()) break;
     }
   }
-  throw new Error("Could not start the local doc-review server.");
+  throw Object.assign(new Error("Could not start the local doc-review server yet."), { code: "SERVER_START_PENDING" });
 }
 
 function openBrowser(url) {
@@ -143,48 +135,6 @@ async function openCommand(input) {
 }
 
 /**
- * One long-poll attempt. Resolves { kind: "data", raw } when the server
- * answers, or { kind: "timeout" } when the caller's deadline passes first.
- */
-function pollOnce(server, target, ackId, timeoutMs) {
-  const query = `target=${encodeURIComponent(target)}${ackId ? `&ack=${encodeURIComponent(ackId)}` : ""}`;
-  return new Promise((resolve, reject) => {
-    let done = false;
-    const settle = (fn, value) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      fn(value);
-    };
-    const req = http.request(
-      {
-        host: "127.0.0.1",
-        port: server.port,
-        method: "GET",
-        path: `/api/poll?${query}`,
-        headers: { "x-doc-review-token": server.token || "" },
-      },
-      (res) => {
-        let raw = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
-        res.on("end", () => settle(resolve, { kind: "data", raw: raw.trim() }));
-      }
-    );
-    const timer = timeoutMs
-      ? setTimeout(() => {
-          settle(resolve, { kind: "timeout" });
-          req.destroy();
-        }, timeoutMs)
-      : null;
-    req.on("error", (err) => settle(reject, err));
-    req.end();
-  });
-}
-
-/**
  * The consumer is an agent reading a pipe. process.exit() does not wait for
  * pending stdout writes, so a large payload could arrive truncated — always
  * wait for the write to hand off before returning.
@@ -193,50 +143,18 @@ function writeStdout(text) {
   return new Promise((resolve) => process.stdout.write(text, resolve));
 }
 
-function printTimeout(waitedSecs) {
-  const payload = {
-    status: "timeout",
-    waited_seconds: waitedSecs,
-    next_step:
-      "No feedback yet. Run the same poll command again to keep waiting, or `doc-review status <target>` to check without blocking.",
-  };
-  return writeStdout(`${JSON.stringify(payload, null, 2)}\n`);
-}
-
-async function pollCommand(input, { ackId = "", timeoutSecs = 0 } = {}) {
+async function pollCommand(input, { ackId = "", timeoutSecs = DEFAULT_POLL_SECONDS } = {}) {
+  const deadline = createDeadline(timeoutSecs);
   const target = canonicalTarget(input).value;
-  let server = await ensureServer();
 
   const label = /^https?:\/\//i.test(target) ? target : path.basename(target);
   process.stderr.write(`Waiting for feedback on ${label} — comment in the browser, then hit Send.\n`);
 
-  const deadline = timeoutSecs ? Date.now() + timeoutSecs * 1000 : null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const remaining = deadline ? deadline - Date.now() : 0;
-    if (deadline && remaining <= 0) return printTimeout(timeoutSecs);
-    let result;
-    try {
-      result = await pollOnce(server, target, ackId && attempt === 0 ? ackId : "", remaining);
-    } catch (err) {
-      process.stderr.write(`Lost the connection (${err.message}); retrying.\n`);
-      server = await ensureServer();
-      continue;
-    }
-    if (result.kind === "timeout") return printTimeout(timeoutSecs);
-    if (!result.raw) {
-      server = await ensureServer();
-      continue;
-    }
-    try {
-      const batch = JSON.parse(result.raw);
-      await writeStdout(`${JSON.stringify(batch, null, 2)}\n`);
-      return;
-    } catch {
-      process.stderr.write("Unexpected response from the doc-review server; retrying.\n");
-    }
-  }
-  process.stderr.write("Gave up waiting for feedback.\n");
-  process.exit(1);
+  const batch = await pollUntilDeadline({
+    target, ackId, deadline, discover: ensureServer,
+    diagnostic: (text) => process.stderr.write(text),
+  });
+  await writeStdout(`${JSON.stringify(batch, null, 2)}\n`);
 }
 
 /**
@@ -297,7 +215,7 @@ process.on("SIGINT", () => {
 });
 
 function parsePollArgs(rest) {
-  const parsed = { file: "", ackId: "", timeoutSecs: 0 };
+  const parsed = { file: "", ackId: "", timeoutSecs: DEFAULT_POLL_SECONDS };
   let sawTimeout = false;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
