@@ -65,7 +65,7 @@ Review a page running on localhost:
 /doc-review (localhost URL)
 ```
 
-Doc Review opens in **View** (`Editing off, comments enabled`) so links, buttons, summaries, tabs, and application controls work normally. The centered mode selector switches to **Edit** (`Direct editing on`) when you want to change content directly. Commenting stays available in both modes.
+Doc Review opens in **Review**, with **View** selected, so you can read, use page controls, and comment. Switch to **Edit** to change content directly. Plain HTML saves edits to the file; scripted HTML, Markdown, and localhost pages send edits to your agent. Commenting stays available in both modes.
 
 Select text, or hover or focus an element, then use the nearby comment icon. `Ctrl+Alt+M` (`Cmd+Option+M` on macOS) opens a comment for the current selection. Press Enter to submit or Shift+Enter for a new line. On desktop the composer stays beside its target, or pins to the effective top or bottom scrolling edge when that target leaves view. **Back to selection** reveals the target without changing the draft. The full-width sheet is used only at the narrow responsive breakpoint.
 
@@ -73,23 +73,42 @@ Select text, or hover or focus an element, then use the nearby comment icon. `Ct
 
 Aligned cards show **Edit**, **Close**, and **More**; drawer cards show **Jump to**, **Edit**, and **More**. Delete lives only in **More** and requires an inline confirmation. Quote hints preserve both the beginning and ending of long selections. Editing has explicit **Save** and **Cancel** controls: Enter saves, Shift+Enter adds a line, Escape cancels, and moving focus never autosaves. A draft follows its comment between aligned and drawer cards and keeps its caret through target movement.
 
-For writable HTML files, Edit saves direct changes automatically. Markdown and localhost remain editable feedback-only surfaces: their rendered HTML is never written over the source, so click Send and let the agent apply those edits.
+### Files and page interactions
 
-File and rendered Markdown reviews run with authored scripts and inline handlers
-blocked, an opaque iframe origin, and no popup or download permission. Their
-per-render message capability is rotated for every load and navigation. It is
-kept out of document URLs, HTML attributes, authored DOM, and global JavaScript
-state; the single-use artifact URL loads a same-origin bootstrap module under a
-nonce-based CSP. Relative assets, including a same-artifact `<base>`, resolve
-beside the reviewed file, while review navigation always stays relative to the
-source file. External bases are ignored.
+Self-contained HTML runs its inline scripts and event handlers automatically.
+There is no approval switch or renewed approval after an agent updates the file.
+Plain HTML, including ordinary JSON data blocks and escaped code examples, keeps
+direct autosave and Revert. Scripted HTML is **feedback-only**: your edits are sent
+to the agent to apply to the original source, rather than writing script-generated
+DOM into the file. The renderer re-evaluates that distinction when the source changes.
+Markdown and localhost also remain feedback-only.
 
-Localhost reviews keep `allow-same-origin`, popup, and download compatibility so
-application behavior still works. Because localhost application scripts are
-trusted in that mode, the render capability provides correlation and stale
-message rejection rather than an authorization boundary. The authenticated
-parent still validates links and never exposes the raw-file save route to a
-localhost review.
+If a scripted page is broken, **More > Reload without scripts** provides a
+temporary recovery mode. **Use page interactions** restores automatic behavior.
+That preference belongs to this page in this review session, not to a saved
+approval record. Disabling scripts does not make a scripted file's preview
+edits writable. A changed preference takes effect when the frame is replaced;
+reload handling preserves comment drafts and reports genuine source conflicts.
+
+The supported interactive-file mode is for self-contained documents. Separate
+script files, application imports, workers, and embedded applications are not
+made compatible by this change. Use the existing localhost review route for
+application workflows. Dependency limitations appear in contextual details,
+not as a permission task or text inserted into the authored document.
+
+Files retain an opaque iframe origin. The parent owns API authentication and
+checks the frame identity for messages and writes. Authored code shares the
+document with the SDK, so frame correlation is not proof of human authorship.
+Relative assets stay scoped to the reviewed file. Localhost reviews retain their
+existing nonopaque artifact origin, popup, and download behavior; they are fetched
+and rewritten by the review server, not guaranteed to reproduce the application's
+original cookies, storage, or origin-sensitive requests.
+
+**Compatibility:** the old per-version `/trust` API is retired and returns 410.
+Existing decision files are left unused. The CLI does not reuse background
+servers with the previous protocol. Writable HTML save and revert requests must
+identify their current served frame and source hash so delayed edits cannot
+overwrite a newer file.
 
 Agent polling returns an immutable `batch_id`. After applying the batch, the
 agent acknowledges that exact receipt and keeps waiting:
@@ -100,6 +119,77 @@ npx -y @erdemtuna/doc-review poll path/to/file.html --ack b_0123456789abcdef --t
 
 A stale or repeated batch ID is harmless: it never clears newer feedback. The
 complete acknowledgement command is included in each response's `next_step`.
+
+### Review and Changes
+
+**Review** keeps the document interactive. **Changes** shows a selected review
+round, with round selection and comparison navigation instead of live-page controls.
+The default comparison is the content captured when feedback was sent against
+the result captured after the agent acknowledged that exact batch. Previous
+rounds retain their own fixed endpoints rather than changing on every reload.
+
+Content comparisons use a continuous aligned before/after reading surface with
+expandable unchanged context. Source comparisons use line-numbered source hunks.
+At narrow widths, a unified view retains each change's before/after attribution.
+Content comparisons cover text, structure, formatting, links, and image
+references. File-backed reviews also retain source for a source comparison.
+Deleted passages remain readable even when there is no current element to jump
+to, and uncertain matches do not pretend to identify an exact current target.
+These are changes observed during a round, not proof of agent authorship or that
+every comment was resolved.
+
+History works in the normal browser for HTML, Markdown, and localhost pages.
+It does not use screenshots, a browser extension, or automatic Git commits.
+Live history captures the reviewed page's available content, not every possible
+application state. Changes to image bytes at an unchanged URL, canvas pixels,
+external stylesheet appearance, and inaccessible embedded content are outside
+the comparison guarantee.
+
+Send waits for edit persistence and writable HTML saves, then makes a short
+best-effort baseline capture. Missing comparison data does not require a second
+decision or prevent feedback from being sent. Available snapshots are retained;
+inactive pages can have incomplete Content coverage. A last-visited live page is
+never described as a fresh Send-time snapshot. Actual save or delivery failures
+are reported without discarding your feedback.
+
+When an active tab has reliable authored tab/panel identifiers, Content capture
+records that visible view. A result on a different tab remains pending and asks
+you to return to the original tab. Returning retries capture without clicking
+through other tabs automatically. Unknown views and older snapshots are labelled
+as visible-content comparisons whose matching view is unverified. This does not
+capture all hidden panels or every application state. File Source comparison
+still covers the whole file independently.
+
+After acknowledgement, file-source results are captured independently of the
+browser. Content results are captured when the appropriate reviewed page is
+ready. These observations can have different timestamps; neither timestamp
+claims that the document was captured at the instant of acknowledgement.
+Background capture does not disable document interaction and retries transient
+failures a bounded number of times. An unchanged file does not need a new reload
+solely to capture an acknowledged result. Available Source remains readable
+while Content is pending. Contextual retry or return-to-view actions handle
+remaining failures; a continuously changing page may still have no stable Content
+snapshot. Permanent finalization is optional in capture details, not a prerequisite
+for reading the comparison. Failed or limited captures are not reported as zero
+changes, and handled feedback remains archived even when history is unavailable.
+
+Snapshots stay in the local Doc Review state directory. The latest five
+completed rounds are retained automatically, while active rounds, pending
+captures, and unsent feedback protect their referenced revisions. History starts
+with this capability; earlier documents cannot be reconstructed from old
+feedback receipts. Review snapshots can contain document content, so treat the
+state directory as private.
+Unreferenced snapshot files are collected at startup and during periodic
+maintenance, with a one-hour grace period protecting interrupted publications.
+Capture and comparison limits fail explicitly rather than publishing truncated
+content as a complete comparison.
+
+Default capture limits are 8 MiB of file source and 4 MiB of normalized content,
+with at most 2,000 semantic blocks and 1,000,000 text characters. A single block
+is limited to 100,000 characters. Comparisons have independent size, token, and
+edit-work limits, including a 1,000,000-character budget and a 250 ms processing
+budget. A stored snapshot can therefore exceed comparison limits; the UI reports
+that limitation rather than claiming there were no changes.
 
 ### Feedback reliability and limits
 
@@ -115,14 +205,14 @@ The agent must not use partial text or HTML as a complete replacement or invent
 the rest. It must obtain the full edit from an authoritative source or ask you
 for it before acknowledging the batch.
 
-External writes to a Markdown source refresh its rendered baseline without
+External writes to an HTML or Markdown source refresh its rendered baseline without
 clearing unsent feedback. That preserves your edits; it does not automatically
 resolve conflicts with the changed source. HTML autosaves keep their existing
 behavior.
 
-### Upgrading from v0.8.0
+### Upgrading from servers using protocol 14 or earlier
 
-The updated CLI requires server protocol 13. An older server that is still
+The updated CLI requires server protocol 15. An older server that is still
 running is not silently reused or forcibly replaced. End active reviews and
 shut down that specific old server (or let it exit when idle) before restarting
 Doc Review. Keep the `.doc-review` state directory: pending batches and their
@@ -159,7 +249,7 @@ Doc Review works well for editing AI-generated plans, updating landing pages, re
 - [`SKILL.md`](src/SKILL.md) teaches Claude Code, Codex, and other agents how to use Doc Review.
 
 Everything runs on your computer. Doc Review doesn’t require an account, cloud service, database, or API key.
-Comment geometry remains local, transient presentation data and is never written to review state or sent to the agent. After the agent acknowledges the exact delivered `batch_id`, the comments carried by that batch disappear; newer comments and corrections remain.
+Comment geometry remains local, transient presentation data and is never written to review state or sent to the agent. After the agent acknowledges the exact delivered `batch_id`, the comments carried by that batch leave the active feedback inventory; their round archive remains, and newer comments and corrections stay active.
 
 ## Upstream project
 

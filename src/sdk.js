@@ -7,17 +7,21 @@
  */
 import { buildContext, findQuote } from "./anchor-text.js";
 import { hashClickAction, navigationHref } from "./click-target.js";
-import { acceptedOpenGeneration, targetMessage } from "./comment-target.js";
+import { acceptedOpenGeneration, createHoverIntent, groupCommentTargets, nextCommentId, normalizeSelectionRange, pointInCommentApproach, sameRange, targetMessage } from "./comment-target.js";
 import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "./editing.js";
 import { frameMessage, initializeChannelFromDocument, matchesFrameMessage } from "./frame-channel.js";
 import { iconMarkup } from "./icons.js";
 import { keepBodyInReviewMode } from "./review-mode.js";
+import { captureSemanticSnapshot } from "./semantic-snapshot.js";
 import { serializeDocument, UI_ATTR, MARK_ATTR } from "./serialize.js";
+import { observeView, sameObservedView } from "./view-identity.js";
 
 initializeChannelFromDocument();
 
 const SAVE_DEBOUNCE_MS = 700;
 const EDIT_FLUSH_MS = 500;
+const CAPTURE_READY_TIMEOUT_MS = 2500;
+const CAPTURE_STABLE_MS = 300;
 const MEDIA = /^(img|svg|canvas|video|picture|iframe|hr|figure)$/i;
 
 // The chrome page lives on the other loopback hostname (a separate origin, so
@@ -50,6 +54,15 @@ let lastTargetRelation = null;
 let geometryWatchTimer = null;
 let watchedGeometrySignature = "";
 let selectionTimer = null;
+let hoverIntent = null;
+let pointerSelecting = false;
+let composing = false;
+let disposed = false;
+let viewObserver = null;
+let viewChangeTimer = null;
+let lastObservedView = null;
+const blockTargets = new Map();
+const blockMarkers = new Map();
 /** True when the page's own scripts rewrote the DOM before any user edit. */
 let dynamic = false;
 
@@ -66,8 +79,21 @@ shadow.innerHTML = `
   <style>
     :host { all: initial; }
     .box { position: fixed; pointer-events: none; z-index: 2147483646; border-radius: 3px; display: none; }
-    .outline { border: 1px solid #c2beb4; }
-    .active { border: 1px solid #1b1a16; }
+    .outline { border: 1px dashed #96938c; animation: outline-in 90ms ease-out; }
+    @keyframes outline-in { from { opacity: .2; } to { opacity: 1; } }
+    .active { border: 2px solid #b46a00; box-shadow: 0 0 0 1px #fff9; }
+    .block-marker { position: fixed; pointer-events: none; z-index: 2147483644;
+      box-sizing: border-box; border-left: 3px solid #a96100; background: #d58b0012; }
+    .block-marker[data-active="true"] { border-left-width: 6px; background: #d58b0026; }
+    .block-marker[data-dark="true"] { border-left-color: #ffcb66; background: #ffcb6617; }
+    .block-marker[data-dark="true"][data-active="true"] { background: #ffcb6630; }
+    .block-badge { position: fixed; z-index: 2147483647; pointer-events: auto;
+      height: 24px; min-width: 32px; box-sizing: border-box; padding: 2px 6px;
+      border: 1px solid #965900; border-radius: 5px; background: #fff3d3; color: #663b00;
+      font: 600 12px/18px system-ui, sans-serif; cursor: pointer; }
+    .block-badge[data-dark="true"] { background: #493517; color: #ffe0a0; border-color: #ffcb66; }
+    .block-badge[aria-pressed="true"] { border-width: 2px; text-decoration: underline; }
+    .block-badge:focus-visible { outline: 3px solid #718cff; outline-offset: 2px; }
     .chips {
       position: fixed; z-index: 2147483647; display: none; gap: 4px;
       pointer-events: auto;
@@ -129,7 +155,7 @@ shadow.innerHTML = `
     .comment-action:hover, .comment-action:focus-visible { background: #34312b; outline: 3px solid rgba(90,99,216,.32); }
     .selection-cues { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; }
     .selection-cue { position: fixed; border-radius: 2px; background: rgba(245,196,0,.2); }
-    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>
   <div class="box outline" id="outline"></div>
   <div class="box active" id="activeBox"></div>
@@ -146,6 +172,7 @@ shadow.innerHTML = `
   <div class="mover" id="mover" title="Drag to move this block">&#10303;</div>
   <div class="dropline" id="dropline"></div>
   <div class="selection-cues" id="selectionCues"></div>
+  <div id="blockAnnotations" role="group" aria-label="Saved block comments"></div>
   <button class="comment-action" id="commentAction" title="Comment on this target" aria-label="Comment on this target">${iconMarkup("messageSquarePlus", { size: 17 })}</button>
 `;
 
@@ -166,7 +193,95 @@ const mountOverlay = () => {
   els.dropline = shadow.getElementById("dropline");
   els.selectionCues = shadow.getElementById("selectionCues");
   els.commentAction = shadow.getElementById("commentAction");
+  els.blockAnnotations = shadow.getElementById("blockAnnotations");
 };
+
+function darkSurface(element) {
+  for (let probe = element; probe; probe = probe.parentElement) {
+    const color = getComputedStyle(probe).backgroundColor.match(/[\d.]+/g)?.map(Number);
+    if (color?.length >= 3 && (color.length < 4 || color[3] >= .5)) {
+      return color[0] * .2126 + color[1] * .7152 + color[2] * .0722 < 128;
+    }
+  }
+  return matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function positionBlockBadge(badge, rect) {
+  const width = badge.offsetWidth || 36;
+  const height = 24;
+  const candidates = [
+    [rect.left - width - 5, rect.top], [rect.right + 5, rect.top],
+    [rect.right - width, rect.top - height - 5], [rect.right - width, rect.bottom + 5],
+    [innerWidth - width - 4, rect.top], [4, rect.top],
+  ];
+  const controls = "a[href], button, input, select, textarea, summary, [role=button], [role=tab], [contenteditable=true]";
+  const occupied = [...blockMarkers.values()].filter((entry) => entry.badge !== badge && entry.badge.style.display !== "none")
+    .map((entry) => entry.badge.getBoundingClientRect());
+  for (const [x, y] of candidates) {
+    if (x < 2 || y < 2 || x + width > innerWidth - 2 || y + height > innerHeight - 2) continue;
+    if (occupied.some((other) => x < other.right && x + width > other.left && y < other.bottom && y + height > other.top)) continue;
+    const blocked = [[x, y], [x + width / 2, y + height / 2], [x + width, y + height], [x, y + height], [x + width, y]]
+      .some(([left, top]) => document.elementsFromPoint(left, top).some((element) =>
+        !isOurs(element) && element !== document.body && element.closest(controls) !== document.body && element.closest(controls)));
+    if (blocked) continue;
+    badge.style.left = `${x}px`;
+    badge.style.top = `${y}px`;
+    badge.style.display = "block";
+    return;
+  }
+  // Never cover an authored control; the drawer remains an accessible fallback.
+  badge.style.display = "none";
+}
+
+function renderBlockAnnotations() {
+  if (!els.blockAnnotations || disposed) return;
+  const groups = groupCommentTargets(blockTargets);
+  for (const [element, entry] of blockMarkers) {
+    if (groups.has(element)) continue;
+    entry.marker.remove();
+    entry.badge.remove();
+    blockMarkers.delete(element);
+  }
+  for (const [element, ids] of groups) {
+    let entry = blockMarkers.get(element);
+    if (!entry) {
+      const marker = document.createElement("div");
+      marker.className = "block-marker";
+      marker.setAttribute("aria-hidden", "true");
+      const badge = document.createElement("button");
+      badge.className = "block-badge";
+      badge.type = "button";
+      badge.addEventListener("pointerdown", (event) => event.stopPropagation());
+      badge.addEventListener("click", (event) => {
+        event.stopPropagation();
+        hoverIntent?.cancel();
+        const currentIds = groupCommentTargets(blockTargets).get(element) || [];
+        const id = nextCommentId(currentIds, activeCommentId);
+        if (id) post("eh:activate", { id });
+      });
+      els.blockAnnotations.append(marker, badge);
+      entry = { marker, badge };
+      blockMarkers.set(element, entry);
+    }
+    const { marker, badge } = entry;
+    const active = ids.includes(activeCommentId);
+    const dark = darkSurface(element);
+    marker.dataset.active = String(active);
+    marker.dataset.dark = badge.dataset.dark = String(dark);
+    badge.setAttribute("aria-pressed", String(active));
+    const label = commentTargetFor(element)?.label || element.tagName.toLowerCase();
+    const name = `${ids.length} block comment${ids.length === 1 ? "" : "s"} on ${label}${ids.length > 1 ? "; activate to open next comment" : ""}`;
+    badge.setAttribute("aria-label", name);
+    badge.title = name;
+    badge.textContent = `◧ ${ids.length}`;
+    const rect = visibleRects([rectData(element.getBoundingClientRect())], { kind: "element", element })[0];
+    marker.style.display = badge.style.display = "none";
+    if (!rect) continue;
+    Object.assign(marker.style, { display: "block", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+    positionBlockBadge(badge, rect);
+  }
+  refreshGeometryWatch();
+}
 
 function showMover(el) {
   if (!el || !el.isConnected) {
@@ -494,7 +609,7 @@ function geometryWatchSignature() {
   let activeState = null;
   if (activeCommentId) {
     const marks = marksFor(activeCommentId);
-    const element = marks[0] || document.querySelector(`[data-eh-el="${CSS.escape(activeCommentId)}"]`);
+    const element = marks[0] || blockTargets.get(activeCommentId);
     if (element) {
       const rects = marks.length
         ? marks.map((mark) => rectData(mark.getBoundingClientRect()))
@@ -523,11 +638,16 @@ function geometryWatchSignature() {
   return JSON.stringify({
     target: normalize(targetState),
     active: normalize(activeState),
+    blocks: [...groupCommentTargets(blockTargets).keys()].map((element) => {
+      const rect = element.getBoundingClientRect();
+      const clip = effectiveClipRect({ kind: "element", element });
+      return [rect.left, rect.top, rect.width, rect.height, clip, darkSurface(element)];
+    }),
   });
 }
 
 function refreshGeometryWatch() {
-  const shouldWatch = !!(pending || retarget || activeCommentId);
+  const shouldWatch = !disposed && !!(pending || retarget || activeCommentId || blockTargets.size);
   if (!shouldWatch) {
     clearInterval(geometryWatchTimer);
     geometryWatchTimer = null;
@@ -537,7 +657,7 @@ function refreshGeometryWatch() {
   if (geometryWatchTimer) return;
   watchedGeometrySignature = geometryWatchSignature();
   geometryWatchTimer = setInterval(() => {
-    if (!(pending || retarget || activeCommentId)) {
+    if (disposed || !(pending || retarget || activeCommentId || blockTargets.size)) {
       refreshGeometryWatch();
       return;
     }
@@ -545,6 +665,7 @@ function refreshGeometryWatch() {
     if (next === watchedGeometrySignature) return;
     watchedGeometrySignature = next;
     scheduleTargetGeometry();
+    renderBlockAnnotations();
     if (activeCommentId) activate(activeCommentId, false);
   }, 100);
 }
@@ -614,17 +735,6 @@ function flatten() {
     node = walker.nextNode();
   }
   return { text, map };
-}
-
-function offsetsFromRange(map, range) {
-  let start = null;
-  let end = null;
-  for (const entry of map) {
-    if (entry.node === range.startContainer) start = entry.start + range.startOffset;
-    if (entry.node === range.endContainer) end = entry.start + range.endOffset;
-  }
-  if (start === null || end === null || end <= start) return null;
-  return { start, end };
 }
 
 /** Wrap a global offset span in <mark> elements, one per text node touched. */
@@ -917,6 +1027,129 @@ function flushSave() {
   emitSave();
 }
 
+let activeCaptureRequest = null;
+
+function watchObservedView() {
+  if (!lastObservedView) lastObservedView = observeView(document);
+  const scheduleViewCheck = () => {
+    clearTimeout(viewChangeTimer);
+    viewChangeTimer = setTimeout(() => {
+      viewChangeTimer = null;
+      if (disposed) return;
+      const view = observeView(document);
+      if (sameObservedView(lastObservedView, view)) return;
+      lastObservedView = view;
+      hoverIntent?.reset();
+      post("eh:viewChanged", { view });
+    }, 200);
+  };
+  viewObserver?.disconnect();
+  viewObserver = new MutationObserver(scheduleViewCheck);
+  viewObserver.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["aria-selected", "hidden", "id", "aria-controls", "role", "aria-hidden"],
+  });
+  scheduleViewCheck();
+}
+
+async function captureSnapshot(msg) {
+  const requestId = typeof msg.requestId === "string" && msg.requestId.length <= 128 ? msg.requestId : null;
+  const fail = (code, message) => post("eh:snapshot", { requestId, error: { code, message } });
+  if (!requestId?.trim() || (msg.requireStable !== undefined && typeof msg.requireStable !== "boolean")) {
+    fail("CAPTURE_INVALID_REQUEST", "A valid capture request ID and stability option are required.");
+    return;
+  }
+  if (activeCaptureRequest) {
+    if (activeCaptureRequest !== requestId) fail("CAPTURE_BUSY", "Another capture is in progress. Retry when it finishes.");
+    return;
+  }
+  activeCaptureRequest = requestId;
+  const started = Date.now();
+  const href = location.href;
+  let signature = null;
+  let unchangedSince = started;
+  let documentReady = false;
+  try {
+    flushSave();
+    for (;;) {
+      if (disposed || location.href !== href) {
+        fail("CAPTURE_NAVIGATED", "The page navigated during capture. Recapture the current page.");
+        return;
+      }
+      documentReady = document.readyState !== "loading" && !!document.body;
+      if (documentReady) {
+        const beforeView = observeView(document);
+        const snapshot = captureSemanticSnapshot(document);
+        const view = observeView(document);
+        if (!sameObservedView(beforeView, view)) {
+          fail("VIEW_CHANGED", "The visible tab changed during capture. Retry after the view settles.");
+          return;
+        }
+        const capturedAt = Date.now();
+        const next = JSON.stringify({ snapshot, view });
+        const now = Date.now();
+        if (next !== signature) {
+          signature = next;
+          unchangedSince = now;
+        }
+        if (msg.requireStable === false || now - unchangedSince >= CAPTURE_STABLE_MS) {
+          // This orders queued edit messages before the snapshot; chrome still
+          // owns the durable edit/autosave acknowledgement.
+          flushSave();
+          post("eh:snapshot", { requestId, snapshot, capturedAt, view });
+          return;
+        }
+      }
+      if (Date.now() - started >= CAPTURE_READY_TIMEOUT_MS) {
+        fail(
+          documentReady ? "CAPTURE_UNSTABLE" : "CAPTURE_NOT_READY",
+          documentReady
+            ? "The page is still changing. Retry, or explicitly capture its current state."
+            : "The document is not ready. Retry after it has loaded."
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  } catch (error) {
+    const semanticError = typeof error?.code === "string" && error.code.startsWith("SEMANTIC_CAPTURE_");
+    fail(
+      semanticError ? error.code : "CAPTURE_FAILED",
+      semanticError ? String(error.message).slice(0, 500) : "The page could not be captured. Retry from the current page."
+    );
+  } finally {
+    activeCaptureRequest = null;
+  }
+}
+
+function jumpToHistoryTarget(msg) {
+  let success = false;
+  try {
+    if (typeof msg.selector === "string" && msg.selector.length > 0 && msg.selector.length <= 4096 &&
+        typeof msg.text === "string" && msg.text.trim() && msg.text.length <= 200000) {
+      const matches = document.querySelectorAll(msg.selector);
+      if (matches.length === 1 && document.body.contains(matches[0]) && !isOurs(matches[0])) {
+        const snapshot = captureSemanticSnapshot(document);
+        const exact = snapshot.blocks.some((block) => {
+          if (block.text !== msg.text) return false;
+          if (typeof block.selector !== "string") return false;
+          const current = document.querySelectorAll(block.selector);
+          return current.length === 1 && current[0] === matches[0];
+        });
+        if (exact) {
+          matches[0].scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+          success = true;
+        }
+      }
+    }
+  } catch {
+    // Stale, ambiguous, hidden, and invalid selectors remain unresolved.
+  }
+  post("eh:historyJumpResult", { success, ...(!success ? { reason: "unresolved" } : {}) });
+}
+
 // ------------------------------------------------------------- edit tracking
 
 /**
@@ -950,6 +1183,7 @@ function queueEdit(payload) {
 // ------------------------------------------------------------- interactions
 
 function clearPending({ keepRetarget = false } = {}) {
+  hoverIntent?.reset();
   commentOpenRequestGeneration = null;
   pending = null;
   if (!keepRetarget) retarget = null;
@@ -1003,17 +1237,32 @@ function settleSelection() {
   if (!quote.trim()) return false;
 
   const { text, map } = flatten();
-  const offsets = offsetsFromRange(map, range);
+  const offsets = normalizeSelectionRange(map, range);
   if (!offsets) return false;
 
   const context = buildContext(text, offsets.start, offsets.end);
+  if (!context.quote.trim()) return false;
+  const existing = [retarget, pending].find((target) =>
+    target?.kind === "selection" && sameRange(target.range, offsets.range) &&
+    target.context.quote === context.quote &&
+    target.context.prefix === context.prefix &&
+    target.context.suffix === context.suffix
+  );
+  if (existing) {
+    if (existing === pending && retarget) {
+      retarget = null;
+      observePendingTarget(pending);
+    }
+    scheduleTargetGeometry();
+    return true;
+  }
   targetGeneration += 1;
   const target = {
     kind: "selection",
     quote,
     anchor: { ...context, selector: cssPath(range.commonAncestorContainer.parentElement || document.body) },
     context,
-    range: range.cloneRange(),
+    range: offsets.range,
     generation: targetGeneration,
   };
   if (composeOpen && pending) retarget = target;
@@ -1053,16 +1302,21 @@ function setElementTarget(container) {
 }
 
 function openPendingCompose() {
-  if (!pending && !retarget) {
+  hoverIntent?.cancel();
+  if (composing || disposed) return false;
+  const selection = document.getSelection();
+  if (selection && !selection.isCollapsed && selection.rangeCount) {
     if (!settleSelection()) return false;
-  }
+  } else if (!pending && !retarget) return false;
   const target = retarget || pending;
+  clearTimeout(selectionTimer);
   commentOpenRequestGeneration = target.generation;
   postTarget("eh:openComment", target);
   return true;
 }
 
 function acceptCommentOpen(msg) {
+  hoverIntent?.cancel();
   const requested = Number(msg.requestedGeneration);
   if (commentOpenRequestGeneration === requested) commentOpenRequestGeneration = null;
   if (!msg.accepted) {
@@ -1115,6 +1369,7 @@ function deactivateComment() {
   activeCommentId = null;
   for (const mark of document.querySelectorAll(`mark[${MARK_ATTR}]`)) mark.classList.remove("eh-active");
   place(els.activeBox, null);
+  renderBlockAnnotations();
   refreshGeometryWatch();
 }
 
@@ -1153,7 +1408,7 @@ function revealTarget(generation) {
 function commitPending(id, generation, { restoreFocus = false } = {}) {
   if (!pending || (generation && generation !== pending.generation)) return;
   if (pending.kind === "element") {
-    if (pending.element && pending.element.isConnected) pending.element.setAttribute("data-eh-el", id);
+    if (pending.element?.isConnected) blockTargets.set(id, pending.element);
   } else {
     const { text, map } = flatten();
     const hit = findQuote(text, pending.context);
@@ -1165,6 +1420,7 @@ function commitPending(id, generation, { restoreFocus = false } = {}) {
     if (sel) sel.removeAllRanges();
   }
   clearPending({ keepRetarget: true });
+  renderBlockAnnotations();
 }
 
 function reanchor(comments) {
@@ -1176,8 +1432,11 @@ function reanchor(comments) {
   }
   for (const id of staleMarks) unwrap(id);
   for (const element of document.querySelectorAll("[data-eh-el]")) {
-    if (!authoritative.has(element.getAttribute("data-eh-el"))) element.removeAttribute("data-eh-el");
+    const id = element.getAttribute("data-eh-el");
+    if (authoritative.has(id) && !blockTargets.has(id)) blockTargets.set(id, element);
+    element.removeAttribute("data-eh-el");
   }
+  for (const id of blockTargets.keys()) if (!authoritative.has(id)) blockTargets.delete(id);
   if (activeCommentId && !authoritative.has(activeCommentId)) {
     const staleId = activeCommentId;
     activeCommentId = null;
@@ -1193,9 +1452,13 @@ function reanchor(comments) {
       continue;
     }
     if (comment.kind === "element") {
-      const el = comment.anchor && comment.anchor.selector ? document.querySelector(comment.anchor.selector) : null;
-      // Re-stamp the marker, or "Jump to" has nothing to find after a reload.
-      if (el) el.setAttribute("data-eh-el", comment.id);
+      let el = blockTargets.get(comment.id);
+      if (!el?.isConnected) {
+        try { el = comment.anchor?.selector ? document.querySelector(comment.anchor.selector) : null; }
+        catch { el = null; }
+      }
+      if (el && !isOurs(el)) blockTargets.set(comment.id, el);
+      else { el = null; blockTargets.delete(comment.id); }
       (el ? resolved : orphaned).push(comment.id);
       continue;
     }
@@ -1209,6 +1472,7 @@ function reanchor(comments) {
     (marks.length ? resolved : orphaned).push(comment.id);
   }
   post("eh:anchorStatus", { resolved, orphaned });
+  renderBlockAnnotations();
 }
 
 function activate(id, scroll) {
@@ -1216,12 +1480,14 @@ function activate(id, scroll) {
   const marks = marksFor(id);
   let target = marks[0] || null;
   if (!target) {
-    const el = document.querySelector(`[data-eh-el="${CSS.escape(id)}"]`);
+    const el = blockTargets.get(id);
     if (el) target = el;
   }
   for (const mark of document.querySelectorAll(`mark[${MARK_ATTR}]`)) mark.classList.remove("eh-active");
   for (const mark of marks) mark.classList.add("eh-active");
   place(els.activeBox, target);
+  els.activeBox.style.borderColor = target && darkSurface(target) ? "#ffcb66" : "#a96100";
+  renderBlockAnnotations();
   const rects = marks.length
     ? marks.map((mark) => rectData(mark.getBoundingClientRect()))
     : target
@@ -1259,8 +1525,8 @@ function activate(id, scroll) {
     }
     // scrollIntoView walks every scrollable ancestor, so targets inside an
     // app's inner scroll container are reached too, not just window-scrolled ones.
-    target.scrollIntoView({ block: "center", behavior: "smooth" });
-    setTimeout(() => activate(id, false), 180);
+    target.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    setTimeout(() => { if (!disposed && activeCommentId === id) activate(id, false); }, 180);
   }
 }
 
@@ -1284,6 +1550,7 @@ function boot() {
   baseline = serialize();
   bootSnapshot = baseline;
   watchSelfRendering();
+  watchObservedView();
 
   const notifyChromeInteraction = (event) => {
     if (isOurs(event.target)) return;
@@ -1297,7 +1564,14 @@ function boot() {
     if (isOurs(event.target) || resizing || Date.now() < suppressUntil) return;
     setTimeout(() => {
       if (settleSelection()) return;
-      if (!composeOpen && pending?.kind === "selection") clearPending();
+      if (!composeOpen && !commentOpenRequestGeneration) {
+        if (pending?.kind === "selection") clearPending();
+        if (!selectionIsActive()) {
+          const target = event.target?.isConnected && commentTargetFor(event.target);
+          if (target) setElementTarget(target);
+          else restoreElementCommentTarget();
+        }
+      }
     }, 0);
   });
 
@@ -1409,8 +1683,27 @@ function boot() {
     post("eh:navigate", { href });
   });
 
-  document.addEventListener("mouseover", (event) => {
-    if (isOurs(event.target) || resizing || moving) return;
+  const inCommentApproach = (event) => pending?.kind === "element" &&
+    pending.element.isConnected &&
+    pointInCommentApproach(
+      { x: event.clientX, y: event.clientY },
+      pending.element.getBoundingClientRect(),
+      els.commentAction.getBoundingClientRect()
+    );
+  const clearHover = () => {
+    hoverTarget = hoverMove = hoverMedia = null;
+    place(els.outline, null);
+    showChip(null);
+    showMover(null);
+    showGrip(null);
+    showHint("");
+    if (!composeOpen && !commentOpenRequestGeneration && pending?.kind === "element" &&
+      !pending.element?.contains(document.activeElement)) clearPending();
+  };
+  hoverIntent = createHoverIntent((event) => {
+    if (disposed || pointerSelecting || composing || composeOpen || selectionIsActive()) return;
+    if (!event) { clearHover(); return; }
+    if (!event.target?.isConnected) { hoverIntent.reset(); clearHover(); return; }
     const target = commentTargetFor(event.target);
     hoverTarget = target ? target.el : null;
     // The move handle works per element, not per labeled container, so each
@@ -1419,7 +1712,7 @@ function boot() {
     hoverMedia = event.target.closest ? event.target.closest("img, video") : null;
     place(els.outline, hoverTarget);
     const selectionActive = selectionIsActive();
-    if (!selectionActive && target && !composeOpen) setElementTarget(target);
+    if (!selectionActive && target && !composeOpen && !commentOpenRequestGeneration) setElementTarget(target);
     if (reviewMode !== "edit" || controlsAreSuppressed()) hideActionControls();
     else {
       showChip(hoverTarget);
@@ -1430,29 +1723,71 @@ function boot() {
     const draggable = hoverMedia && hoverMedia.tagName === "IMG";
     showHint(reviewMode === "edit" && interactive ? "⌘-click to open" : reviewMode === "edit" && draggable ? "Drag to move" : "", event.clientX, event.clientY);
   });
+  const updateHover = (event) => {
+    if (disposed || resizing || moving || pointerSelecting || composing || composeOpen ||
+      commentOpenRequestGeneration || selectionIsActive()) { hoverIntent.cancel(); return; }
+    if (isOurs(event.target)) { hoverIntent.cancel(); return; }
+    // The committed paragraph owns the entire trip to its action, including
+    // intervening whitespace/containers. Leaving the corridor starts new dwell.
+    if (pending?.kind === "element" && !pending.element.contains(event.target) && inCommentApproach(event)) {
+      hoverIntent.cancel();
+      return;
+    }
+    const target = commentTargetFor(event.target);
+    hoverIntent.request(target?.el || null, target ? {
+      target: event.target, clientX: event.clientX, clientY: event.clientY,
+    } : null);
+  };
+  document.addEventListener("mouseover", updateHover);
+  document.addEventListener("mousemove", updateHover);
+
+  document.addEventListener("pointerdown", (event) => {
+    hoverIntent.cancel();
+    if (!isOurs(event.target) && event.button === 0) pointerSelecting = true;
+  }, true);
+  document.addEventListener("pointerup", () => { pointerSelecting = false; }, true);
+  document.addEventListener("pointercancel", () => { pointerSelecting = false; hoverIntent.reset(); }, true);
+  document.addEventListener("compositionstart", () => {
+    composing = true;
+    hoverIntent.reset();
+    place(els.outline, null);
+  }, true);
+  document.addEventListener("compositionend", () => { composing = false; }, true);
 
   document.addEventListener("focusin", (event) => {
-    if (isOurs(event.target) || selectionIsActive() || composeOpen) return;
+    hoverIntent.reset();
+    if (isOurs(event.target) || selectionIsActive() || composeOpen || composing) return;
     const target = commentTargetFor(event.target);
     if (target) setElementTarget(target);
   });
 
   document.addEventListener("mouseleave", () => {
     if (resizing || moving) return;
-    hoverTarget = null;
-    hoverMove = null;
-    hoverMedia = null;
-    place(els.outline, null);
-    showChip(null);
-    showMover(null);
-    showGrip(null);
-    showHint("");
-    if (
-      !composeOpen &&
-      !commentOpenRequestGeneration &&
-      pending?.kind === "element" &&
-      !pending.element?.contains(document.activeElement)
-    ) clearPending();
+    hoverIntent.request(null, null);
+  });
+  const cancelHover = () => {
+    hoverIntent.reset();
+    pointerSelecting = false;
+    clearHover();
+  };
+  window.addEventListener("blur", cancelHover);
+  window.addEventListener("hashchange", cancelHover);
+  window.addEventListener("popstate", cancelHover);
+  window.addEventListener("pagehide", () => {
+    disposed = true;
+    cancelHover();
+    clearTimeout(selectionTimer);
+    clearTimeout(viewChangeTimer);
+    viewObserver?.disconnect();
+    clearTimeout(controlRestoreTimer);
+    clearInterval(geometryWatchTimer);
+    geometryWatchTimer = null;
+    disconnectTargetObservers();
+  });
+  window.addEventListener("pageshow", () => {
+    disposed = false;
+    watchObservedView();
+    renderBlockAnnotations();
   });
 
   els.commentAction.addEventListener("pointerdown", (event) => {
@@ -1565,6 +1900,15 @@ function boot() {
     return !!(sel && !sel.isCollapsed && sel.rangeCount && document.body.contains(sel.getRangeAt(0).commonAncestorContainer));
   };
 
+  const restoreElementCommentTarget = () => {
+    if (composeOpen || composing || pointerSelecting || commentOpenRequestGeneration || selectionIsActive()) return;
+    const focused = document.activeElement;
+    const target = focused && focused !== document.body && focused !== document.documentElement && !isOurs(focused)
+      ? commentTargetFor(focused)
+      : hoverTarget?.isConnected ? commentTargetFor(hoverTarget) : null;
+    if (target) setElementTarget(target);
+  };
+
   const controlsAreSuppressed = () => Date.now() < typingUntil || selectionIsActive();
 
   const hideActionControls = () => {
@@ -1599,16 +1943,20 @@ function boot() {
   );
 
   document.addEventListener("selectionchange", () => {
+    hoverIntent.cancel();
+    if (selectionIsActive()) place(els.outline, null);
     clearTimeout(selectionTimer);
-    if (!composeOpen && selectionIsActive()) clearPending();
-    else els.commentAction.style.display = "none";
+    if (!commentOpenRequestGeneration) els.commentAction.style.display = "none";
     selectionTimer = setTimeout(() => {
       if (selectionIsActive()) {
         hideActionControls();
-        settleSelection();
+        if (!settleSelection() && !composeOpen && !commentOpenRequestGeneration) clearPending();
       } else {
         restoreActionControls();
-        if (!composeOpen && pending?.kind === "selection") clearPending();
+        if (!composeOpen && !commentOpenRequestGeneration) {
+          if (pending?.kind === "selection") clearPending();
+          restoreElementCommentTarget();
+        }
       }
     }, 40);
   });
@@ -2097,7 +2445,9 @@ function boot() {
   });
 
   const reposition = () => {
+    hoverIntent.cancel();
     place(els.outline, hoverTarget);
+    renderBlockAnnotations();
     if (reviewMode === "edit" && !controlsAreSuppressed()) {
       showChip(hoverTarget);
       showMover(moving ? null : hoverMove);
@@ -2184,11 +2534,14 @@ function boot() {
         break;
       case "eh:modeMenuState":
         modeMenuOpen = !!msg.open;
+        hoverIntent.reset();
         break;
       case "eh:remove":
         unwrap(msg.id);
-        document.querySelectorAll(`[data-eh-el="${CSS.escape(msg.id)}"]`).forEach((el) => el.removeAttribute("data-eh-el"));
+        blockTargets.delete(msg.id);
+        if (activeCommentId === msg.id) activeCommentId = null;
         place(els.activeBox, null);
+        renderBlockAnnotations();
         break;
       case "eh:activate":
         activate(msg.id, !!msg.scroll);
@@ -2197,7 +2550,17 @@ function boot() {
         flushSave();
         // Posted after the flushed eh:edit/eh:html messages, so when the
         // chrome sees it, everything pending has already been handed over.
-        post("eh:flushed", {});
+        post("eh:flushed", {
+          ...(typeof msg.requestId === "string" && msg.requestId.length > 0 && msg.requestId.length <= 128
+            ? { requestId: msg.requestId }
+            : {}),
+        });
+        break;
+      case "eh:captureSnapshot":
+        void captureSnapshot(msg);
+        break;
+      case "eh:historyJump":
+        jumpToHistoryTarget(msg);
         break;
       case "eh:abortSave":
         // A revert is in flight: anything queued would re-write the edits.
@@ -2209,6 +2572,7 @@ function boot() {
         if (savePolicy === "writable") checkDynamic(String(msg.html || ""));
         break;
       case "eh:configureReview": {
+        cancelHover();
         reviewMode = msg.mode === "edit" ? "edit" : "view";
         savePolicy = msg.savePolicy === "feedback-only" ? "feedback-only" : "writable";
         modeController.setMode(reviewMode);

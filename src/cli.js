@@ -30,6 +30,10 @@ const HELP = `doc-review ${pkg.version}
   doc-review setup --global         ...for every project, not just this one
 
 Everything runs locally. No account, no cloud, no database.
+Use Review / Changes in the browser for retained content history.
+Plain HTML edits autosave. Self-contained file scripts run automatically with feedback-only edits.
+Use More for optional script-disabled recovery. Comparison capture does not block sending feedback.
+Acknowledgement handles feedback; browser result capture may complete later.
 `;
 
 // --------------------------------------------------------------- server glue

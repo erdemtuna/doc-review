@@ -1,6 +1,6 @@
 {
   "name": "@erdemtuna/doc-review",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Review and edit agent-generated files and localhost pages in the browser, then send the whole batch back to your agent.",
   "author": "Peter Yang",
   "homepage": "https://github.com/erdemtuna/doc-review#readme",
@@ -53,6 +53,8 @@
     "lucide-static": "^1.34.0"
   },
   "dependencies": {
-    "marked": "^18.0.7"
+    "diff": "^9.0.0",
+    "marked": "^18.0.7",
+    "parse5": "^8.0.1"
   }
 }

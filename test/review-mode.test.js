@@ -11,4 +11,6 @@ test("new reviews default to View and source kind composes with save policy", ()
   });
   assert.deepEqual(reviewConfiguration({ kind: "url" }, "edit"), { mode: "edit", savePolicy: "feedback-only" });
   assert.equal(savePolicyForPage({ kind: "file", feedbackOnly: true }), "feedback-only");
+  assert.equal(savePolicyForPage({ kind: "file", savePolicy: "feedback-only" }), "feedback-only");
+  assert.equal(savePolicyForPage({ kind: "file", trustMode: "trusted-file" }), "writable", "retired consent fields cannot determine policy");
 });

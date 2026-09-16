@@ -3,9 +3,58 @@ import assert from "node:assert/strict";
 import {
   acceptedOpenGeneration,
   acceptsTargetGeometry,
+  createHoverIntent,
+  groupCommentTargets,
+  nextCommentId,
   sanitizeClientRects,
   targetMessage,
 } from "../src/comment-target.js";
+
+test("block groups preserve every id, ignore detached targets, and cycle drawer activation", () => {
+  const first = { isConnected: true };
+  const second = { isConnected: true };
+  const groups = groupCommentTargets(new Map([
+    ["one", first], ["two", first], ["three", second], ["gone", { isConnected: false }],
+  ]));
+  assert.deepEqual([...groups.values()], [["one", "two"], ["three"]]);
+  assert.equal(nextCommentId(groups.get(first), null), "one");
+  assert.equal(nextCommentId(groups.get(first), "one"), "two");
+  assert.equal(nextCommentId(groups.get(first), "two"), "one");
+  assert.equal(nextCommentId([], "two"), null);
+});
+
+test("hover intent dwells, preserves candidate clocks, cancels, and activates keyboard immediately", () => {
+  let timer;
+  let delay;
+  const committed = [];
+  const intent = createHoverIntent((value) => committed.push(value), {
+    schedule(callback, ms) { timer = callback; delay = ms; return callback; },
+    unschedule(handle) { if (timer === handle) timer = null; },
+  });
+  intent.request("one", "first");
+  assert.equal(delay, 150);
+  const firstTimer = timer;
+  intent.request("one", "same candidate");
+  assert.equal(timer, firstTimer);
+  assert.deepEqual(committed, []);
+  timer();
+  assert.deepEqual(committed, ["first"]);
+  intent.request("two", "second");
+  assert.equal(delay, 100);
+  intent.cancel();
+  assert.equal(timer, null);
+  intent.request(null, null);
+  assert.equal(delay, 120);
+  intent.request("one", "returned to corridor");
+  assert.equal(timer, null);
+  intent.request("two", "keyboard", true);
+  assert.deepEqual(committed, ["first", "keyboard"]);
+  intent.reset();
+  intent.request("three", "after navigation");
+  assert.equal(delay, 150);
+  intent.reset();
+  assert.equal(timer, null);
+});
 
 test("client rectangles are finite, clipped, bounded, and generation checked", () => {
   const viewport = { width: 100, height: 80 };

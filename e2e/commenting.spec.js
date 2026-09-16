@@ -198,7 +198,8 @@ test("submission restores exact element focus and stays closed through drawer re
 
   await expect(page.locator("#compose")).toBeHidden();
   await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(frame.locator("#target")).toHaveAttribute("data-eh-el");
+  await expect(frame.locator(".block-badge")).toHaveText("◧ 1");
+  await expect(frame.locator("#target")).not.toHaveAttribute("data-eh-el");
   await expect.poll(() => frame.locator("#target").evaluate((element) => document.activeElement === element)).toBe(true);
   await expect(page.locator("#alignedCard")).toBeHidden();
 
@@ -396,6 +397,8 @@ test("draft retarget submits first and a failed submit blocks retargeting", asyn
   await page.unroute("**/api/page/*/comment");
 
   await page.locator("#composeCancel").click();
+  await expect(page.locator("#compose")).toBeHidden();
+  await expect.poll(() => frame.locator("body").evaluate(() => document.getSelection().toString())).toBe("Two target");
   await selectText(frame, "#four");
   await frame.locator("body").dispatchEvent("keydown", { key: "m", ctrlKey: true, altKey: true });
   await expect(page.locator("#composeQuote")).toContainText("Four target");
@@ -654,7 +657,7 @@ test("Back to selection reports unavailable when clipping cannot reveal the targ
   await expect(page.locator("#compose")).toHaveClass(/edge-bottom/);
 });
 
-test("mode selector is centered and light-dismisses across parent and hostile iframe handlers", async ({ page, review }) => {
+test("View/Edit stays in bounds and light-dismisses across parent and hostile iframe handlers", async ({ page, review }) => {
   const file = writeFile(review, "menu-dismiss.html", `<!doctype html><button id="hostile">Interact</button><button id="other">Other</button>
     <script>
       const button = document.querySelector('#hostile');
@@ -671,11 +674,15 @@ test("mode selector is centered and light-dismisses across parent and hostile if
   for (const size of [{ width: 1200, height: 700 }, { width: 680, height: 700 }]) {
     await page.setViewportSize(size);
     const mode = await page.locator("#modeButton").boundingBox();
-    expect(Math.abs((mode.x + mode.width / 2) - size.width / 2)).toBeLessThanOrEqual(2);
+    expect(mode.x).toBeGreaterThanOrEqual(0);
+    expect(mode.x + mode.width).toBeLessThanOrEqual(size.width);
+    expect(mode.width).toBeGreaterThanOrEqual(44);
+    expect(mode.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.locator("#modeButton").click();
   await expect(page.getByRole("menuitemradio", { name: "View Editing off, comments enabled" })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: "Edit Direct editing on" })).toBeVisible();
+  await expect(page.getByRole("menuitemradio", { name: /^Edit/ })).toBeVisible();
   await expect(page.locator("#feedbackButton")).toHaveCount(0);
 
   await expect(page.locator("#modeButton")).toHaveAttribute("aria-expanded", "true");
@@ -1154,4 +1161,345 @@ test("narrow screens use compact toolbar and bottom-sheet composition", async ({
   await expect(page.locator("#toolbarCount")).toBeVisible();
   await expect(page.locator(".toolbar-label").first()).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("comment action keeps its paragraph owner across a real pointer approach", async ({ page, review }) => {
+  const file = writeFile(review, "comment-approach.html", `<!doctype html>
+    <style>body { margin:40px; font:18px/1.5 Arial } main { width:650px; padding:30px }
+      p { width:360px; margin:20px 0 }</style>
+    <main id="container"><p id="copy">Alpha beta gamma paragraph with several words to select.</p>
+      <p>Another paragraph below the first.</p></main>`);
+  await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await page.evaluate(() => {
+    window.commentTargets = [];
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "eh:target") window.commentTargets.push(event.data);
+    });
+  });
+  await frame.locator("#copy").hover({ position: { x: 100, y: 12 } });
+  const action = frame.locator("#commentAction");
+  await expect(action).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.commentTargets.at(-1)?.anchor.selector)).toBe("#copy");
+  const generation = await page.evaluate(() => window.commentTargets.at(-1).targetGeneration);
+  const original = await action.boundingBox();
+  await page.mouse.move(original.x + 15, original.y + 15, { steps: 30 });
+  await expect(action).toBeVisible();
+  expect(await action.boundingBox()).toEqual(original);
+  expect(await page.evaluate(() => window.commentTargets.at(-1).targetGeneration)).toBe(generation);
+  await action.click();
+  await expect(page.locator("#composeKind")).toHaveText("Element");
+  await expect(page.locator("#composeQuote")).toContainText("Alpha beta gamma");
+  await page.keyboard.press("Escape");
+
+  await frame.locator("#copy").hover({ position: { x: 100, y: 12 } });
+  await expect(action).toBeVisible();
+  const container = await frame.locator("#container").boundingBox();
+  const copy = await frame.locator("#copy").boundingBox();
+  await page.mouse.move(copy.x + copy.width + 3, copy.y + 10, { steps: 20 });
+  await page.mouse.move(container.x + container.width - 5, copy.y + 10, { steps: 20 });
+  await expect.poll(() => page.evaluate(() => window.commentTargets.at(-1)?.anchor.selector)).toBe("#container");
+});
+
+test("native word and paragraph selections comment in View and Edit", async ({ page, review }) => {
+  for (const mode of ["view", "edit"]) {
+    const file = writeFile(review, `native-selection-${mode}.html`, `<!doctype html>
+      <style>body { margin:40px; font:18px/1.5 Arial } p { width:360px }</style>
+      <p id="copy">Alpha beta gamma paragraph with several words to select.</p>
+      <p id="next">Next paragraph must not be included.</p>`);
+    await openReview(page, review, file);
+    const frame = mode === "edit" ? await enterEditMode(page) : await waitForSdk(page);
+    await frame.locator("#copy").dblclick({ position: { x: 15, y: 12 } });
+    await expect(frame.locator("#commentAction")).toBeVisible();
+    await frame.locator("#commentAction").click();
+    await expect(page.locator("#composeKind")).toHaveText("Selection");
+    await expect(page.locator("#composeQuote")).toHaveText("Alpha");
+    await page.keyboard.press("Escape");
+
+    await frame.locator("#copy").click({ clickCount: 3, position: { x: 15, y: 12 } });
+    await expect(frame.locator("#commentAction")).toBeVisible();
+    await frame.locator("#copy").press("Control+Alt+m");
+    await expect(page.locator("#composeKind")).toHaveText("Selection");
+    await expect(page.locator("#composeQuote")).toHaveText("Alpha beta gamma paragraph with several words to select.");
+    await page.locator("#composeText").fill(`Native paragraph in ${mode}`);
+    await page.locator("#composeAdd").click();
+    await expect(frame.locator("#copy mark[data-eh-mark]")).toHaveText("Alpha beta gamma paragraph with several words to select.");
+    await expect(frame.locator("#next mark[data-eh-mark]")).toHaveCount(0);
+  }
+});
+
+test("equivalent selection events keep one generation and collapse restores the element action", async ({ page, review }) => {
+  const file = writeFile(review, "selection-generation.html", `<!doctype html>
+    <style>body { margin:40px; font:18px/1.5 Arial } p { width:360px }</style>
+    <p id="copy">Alpha <strong>bold words</strong> and ending.</p><p>Another paragraph.</p>`);
+  await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await page.evaluate(() => {
+    window.selectionGenerations = [];
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "eh:target" && event.data.kind === "selection") {
+        window.selectionGenerations.push(event.data.targetGeneration);
+      }
+    });
+  });
+  await frame.locator("#copy").hover();
+  await frame.locator("#copy").evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await expect(frame.locator("#commentAction")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.selectionGenerations.length)).toBeGreaterThan(0);
+  const generation = await page.evaluate(() => window.selectionGenerations.at(-1));
+  await frame.locator("#copy").evaluate(async (element) => {
+    const selection = document.getSelection();
+    selection.setBaseAndExtent(element.lastChild, element.lastChild.length, element.firstChild, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  });
+  await expect(frame.locator("#commentAction")).toBeVisible();
+  await frame.locator("#commentAction").click();
+  await expect(page.locator("#composeQuote")).toHaveText("Alpha bold words and ending.");
+  expect(await page.evaluate(() => [...new Set(window.selectionGenerations)])).toEqual([generation]);
+  await page.keyboard.press("Escape");
+
+  await frame.locator("#copy").click({ position: { x: 15, y: 12 } });
+  await expect(frame.locator("#commentAction")).toBeVisible();
+  const copy = await frame.locator("#copy").boundingBox();
+  await page.mouse.move(copy.x + 25, copy.y + 12, { steps: 5 });
+  await frame.locator("#commentAction").click();
+  await expect(page.locator("#composeKind")).toHaveText("Element");
+});
+
+test("actual dark spec keeps multiple saved block comments visible and cycles accessible badge activation", async ({ page, review }, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+  const source = fs.readFileSync("spec.html", "utf8");
+  const file = writeFile(review, "dark-spec.html", source);
+  await openReview(page, review, file);
+  let frame = await waitForSdk(page);
+  await expect.poll(() => frame.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor)).toBe("rgb(23, 23, 15)");
+  const originalBody = await frame.locator("body").innerHTML();
+  for (const feedback of ["First block feedback", "Second block feedback"]) {
+    await frame.locator("h1.title").click();
+    await frame.locator("body").press("Control+Alt+m");
+    await expect(page.locator("#composeKind")).toHaveText("Element");
+    await page.locator("#composeText").fill(feedback);
+    await page.locator("#composeAdd").click();
+    await expect(page.locator("#compose")).toBeHidden();
+  }
+  const badge = frame.getByRole("button", { name: /^2 block comments on/ });
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveAttribute("data-dark", "true");
+  await expect(badge).toHaveAttribute("aria-pressed", "false");
+  await expect(frame.locator(".block-marker")).toHaveCount(1);
+  expect(await frame.locator("body").innerHTML()).toBe(originalBody);
+  expect(fs.readFileSync(file, "utf8")).toBe(source);
+  await badge.focus();
+  await badge.press("Enter");
+  await expect(page.locator("#alignedCard")).toContainText("First block feedback");
+  await expect(badge).toHaveAttribute("aria-pressed", "true");
+  await expect(frame.locator(".block-marker")).toHaveAttribute("data-active", "true");
+  await badge.press("Space");
+  await expect(page.locator("#alignedCard")).toContainText("Second block feedback");
+  await page.screenshot({ path: testInfo.outputPath("dark-block-comments.png") });
+  await page.locator("#alignedCard").getByRole("button", { name: "Close comment card" }).click();
+  await expect(badge).toHaveAttribute("aria-pressed", "false");
+  await expect(badge).toBeVisible();
+  await page.reload();
+  frame = await waitForSdk(page);
+  await expect(frame.getByRole("button", { name: /^2 block comments on/ })).toBeVisible();
+  await expect(frame.locator("[data-eh-el]")).toHaveCount(0);
+  await frame.getByRole("button", { name: /^2 block comments on/ }).click();
+  await expect(page.locator("#alignedCard")).toContainText("First block feedback");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(frame.locator(".block-badge")).toHaveAttribute("data-dark", "false");
+  await page.screenshot({ path: testInfo.outputPath("light-block-comments.png") });
+  await page.locator("#alignedCard").getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page.locator("#alignedCard").getByRole("button", { name: "Delete" }).click();
+  await expect(frame.getByRole("button", { name: /^1 block comment on/ })).toBeVisible();
+  await frame.getByRole("button", { name: /^1 block comment on/ }).click();
+  await expect(page.locator("#alignedCard")).toContainText("Second block feedback");
+});
+
+test("block overlays follow geometry without covering authored controls or leaking into edits", async ({ page, review }) => {
+  const file = writeFile(review, "block-controls.html", `<!doctype html>
+    <style>body { margin:60px; font:18px/1.5 Arial } button { width:240px; height:45px }</style>
+    <button id="target">Authored action</button><p id="copy">Editable words</p>`);
+  const session = await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await frame.locator("#target").focus();
+  await frame.locator("#target").press("Control+Alt+m");
+  await page.locator("#composeText").fill("Button feedback");
+  await page.locator("#composeAdd").click();
+  const badge = frame.locator(".block-badge");
+  await expect(badge).toBeVisible();
+  const original = await frame.locator("#target").boundingBox();
+  const badgeBox = await badge.boundingBox();
+  expect(badgeBox.x + badgeBox.width <= original.x || badgeBox.x >= original.x + original.width ||
+    badgeBox.y + badgeBox.height <= original.y || badgeBox.y >= original.y + original.height).toBe(true);
+  await frame.locator("#target").evaluate((button) => {
+    button.addEventListener("click", () => { button.textContent = "Authored action worked"; });
+  });
+  await frame.locator("#target").click();
+  await expect(frame.locator("#target")).toHaveText("Authored action worked");
+  await frame.locator("#target").evaluate((button) => { button.style.marginTop = "80px"; });
+  await expect.poll(async () => (await frame.locator(".block-marker").boundingBox()).y).toBe(original.y + 80);
+  await enterEditMode(page);
+  await frame.locator("#copy").evaluate((element) => {
+    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
+    element.textContent = "Human edit";
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  });
+  await expect.poll(async () => (await reviewApi(review, `/api/page/${session.key}`)).json().edits.length).toBeGreaterThan(0);
+  const persisted = (await reviewApi(review, `/api/page/${session.key}`)).json();
+  expect(JSON.stringify(persisted.edits)).not.toMatch(/block-marker|block-badge|data-eh-el|blockAnnotations/);
+  await frame.locator("#target").evaluate((button) => button.remove());
+  await expect(badge).toHaveCount(0);
+});
+
+test("pointer sweeps wait for dwell while selection, composition, and navigation cancel intent", async ({ page, review }) => {
+  const file = writeFile(review, "hover-intent.html", `<!doctype html>
+    <style>body { margin:40px; font:18px/1.5 Arial } p { width:360px; margin:40px 0 }</style>
+    <p id="one">First candidate paragraph.</p><p id="two">Second candidate paragraph.</p>
+    <button id="keyboard">Immediate keyboard target</button>`);
+  await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await frame.locator("#one").evaluate((element) => {
+    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  });
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await frame.locator("#two").hover();
+  await expect(frame.locator("#commentAction")).toBeVisible();
+  await frame.locator("#commentAction").click();
+  await expect(page.locator("#composeQuote")).toContainText("Second candidate");
+  await page.keyboard.press("Escape");
+  await frame.locator("#one").evaluate((element) => {
+    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  });
+  await page.waitForTimeout(220);
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await frame.locator("#one").evaluate((element) => {
+    element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    location.hash = "cancel-hover";
+  });
+  await page.waitForTimeout(220);
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await frame.locator("#keyboard").focus();
+  await expect(frame.locator("#commentAction")).toBeVisible();
+  await selectText(frame, "#one");
+  await frame.locator("#two").hover();
+  await page.waitForTimeout(220);
+  await frame.locator("#commentAction").click();
+  await expect(page.locator("#composeKind")).toHaveText("Selection");
+  await expect(page.locator("#composeQuote")).toContainText("First candidate");
+});
+
+async function observeSdkMessages(page, frame) {
+  await page.evaluate(() => {
+    window.sdkMessages = [];
+    window.addEventListener("message", (event) => {
+      if (event.source === document.querySelector("#frame").contentWindow) {
+        window.sdkMessages.push({ ...event.data, receivedAt: Date.now() });
+      }
+    });
+  });
+  await frame.locator('[role="tab"]').first().focus();
+  await expect.poll(() => page.evaluate(() => window.sdkMessages.some((msg) => msg.type === "eh:target"))).toBe(true);
+}
+
+async function requestSdkSnapshot(page, requestId, requireStable = false) {
+  await page.evaluate(({ requestId, requireStable }) => {
+    const channel = window.sdkMessages.find((msg) => msg.type === "eh:target");
+    document.querySelector("#frame").contentWindow.postMessage({
+      ...channel, type: "eh:captureSnapshot", requestId, requireStable,
+    }, "*");
+  }, { requestId, requireStable });
+}
+
+test("SDK snapshot carries observed view and debounced identity changes retain frame generation", async ({ page, review }) => {
+  const file = writeFile(review, "view-signals.html", `<!doctype html>
+    <div id="tabs" role="tablist"><button id="a" role="tab" aria-selected="true" aria-controls="pa">Alpha</button>
+      <button id="b" role="tab" aria-selected="false" aria-controls="pb">Beta</button></div>
+    <section id="pa" role="tabpanel"><p id="copy-a">Alpha content.</p></section>
+    <section id="pb" role="tabpanel" hidden><p>Beta content.</p></section>`);
+  await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await observeSdkMessages(page, frame);
+  await requestSdkSnapshot(page, "view-before");
+  await expect.poll(() => page.evaluate(() => window.sdkMessages.find((msg) => msg.requestId === "view-before")?.view?.tabs[0]?.tabId)).toBe("a");
+  await frame.locator("#b").evaluate((tab) => {
+    document.querySelector("#a").setAttribute("aria-selected", "false");
+    document.querySelector("#pa").hidden = true;
+    tab.setAttribute("aria-selected", "true");
+    document.querySelector("#pb").hidden = false;
+  });
+  await expect.poll(() => page.evaluate(() => window.sdkMessages.filter((msg) => msg.type === "eh:viewChanged").length)).toBe(1);
+  const changed = await page.evaluate(() => window.sdkMessages.find((msg) => msg.type === "eh:viewChanged"));
+  expect(changed.view.tabs[0].tabId).toBe("b");
+  const before = await page.evaluate(() => window.sdkMessages.find((msg) => msg.requestId === "view-before"));
+  expect(changed.generation).toBe(before.generation);
+  await frame.locator("#b").evaluate((tab) => {
+    tab.textContent = "Renamed label";
+    document.querySelector("#pb").append(document.createElement("p"));
+  });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.sdkMessages.filter((msg) => msg.type === "eh:viewChanged").length)).toBe(1);
+  await requestSdkSnapshot(page, "view-after");
+  await expect.poll(() => page.evaluate(() => window.sdkMessages.find((msg) => msg.requestId === "view-after")?.view?.tabs[0]?.label)).toBe("Renamed label");
+
+  await frame.locator("#b").evaluate(() => {
+    const original = window.getComputedStyle;
+    let switched = false;
+    window.getComputedStyle = function (element, ...args) {
+      if (!switched && element.id === "copy-a") {
+        switched = true;
+        document.querySelector("#a").setAttribute("aria-selected", "false");
+        document.querySelector("#b").setAttribute("aria-selected", "true");
+        document.querySelector("#pa").hidden = true;
+        document.querySelector("#pb").hidden = false;
+      }
+      return original.call(this, element, ...args);
+    };
+    document.querySelector("#a").setAttribute("aria-selected", "true");
+    document.querySelector("#b").setAttribute("aria-selected", "false");
+    document.querySelector("#pa").hidden = false;
+    document.querySelector("#pb").hidden = true;
+  });
+  await requestSdkSnapshot(page, "view-raced");
+  await expect.poll(() => page.evaluate(() => window.sdkMessages.find((msg) => msg.requestId === "view-raced")?.error?.code)).toBe("VIEW_CHANGED");
+});
+
+test("identical semantic content cannot settle capture while selected tab identity changes", async ({ page, review }) => {
+  const file = writeFile(review, "view-stability.html", `<!doctype html>
+    <div id="tabs" role="tablist"><button id="a" role="tab" aria-selected="true" aria-controls="panel">Same</button>
+      <button id="b" role="tab" aria-selected="false" aria-controls="panel">Same</button></div>
+    <section id="panel" role="tabpanel"><p>Unchanged visible content.</p></section>`);
+  await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await observeSdkMessages(page, frame);
+  await frame.locator("#a").evaluate(() => {
+    let count = 0;
+    window.lastViewSwitch = Date.now();
+    const timer = setInterval(() => {
+      count += 1;
+      document.querySelector("#a").setAttribute("aria-selected", String(count % 2 === 0));
+      document.querySelector("#b").setAttribute("aria-selected", String(count % 2 !== 0));
+      window.lastViewSwitch = Date.now();
+      if (count === 8) clearInterval(timer);
+    }, 100);
+  });
+  await requestSdkSnapshot(page, "view-stable", true);
+  await expect.poll(() => page.evaluate(() => window.sdkMessages.some((msg) => msg.requestId === "view-stable"))).toBe(true);
+  const captured = await page.evaluate(() => window.sdkMessages.find((msg) => msg.requestId === "view-stable"));
+  expect(captured.error).toBeUndefined();
+  const lastSwitch = await frame.locator("#a").evaluate(() => window.lastViewSwitch);
+  expect(captured.capturedAt - lastSwitch).toBeGreaterThanOrEqual(280);
+  expect(captured.view.tabs[0].tabId).toBe("a");
 });

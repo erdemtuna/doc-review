@@ -11,6 +11,9 @@ import { canonicalTarget, ensureStateDir, localUrl, SERVER_PROTOCOL, serverPath,
 import { acquireServerLock, releaseServerLock, removeOwnedServerRecord } from "./server-lock.js";
 import { invocation, shellQuote } from "./setup.js";
 import { limitEditFields } from "./edit-limits.js";
+import { createHistoryController, HistoryRequestError, historyErrorStatus } from "./history-server.js";
+import { documentExecutionPolicy, transformInteractiveHtml } from "./document-execution.js";
+import { interactiveFileCsp } from "./frame-policy.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -50,8 +53,8 @@ const MAX_LOCAL_PAGE_BYTES = 24 * 1024 * 1024;
 
 /**
  * File reviews may contain agent-generated or otherwise untrusted JavaScript.
- * Only the nonce-bearing Doc Review SDK may execute in those artifacts;
- * authored scripts and inline event handlers remain in the source but stay inert.
+ * Static and recovery frames execute only the nonce-bearing Doc Review SDK;
+ * authored scripts and inline event handlers remain inert.
  */
 const fileReviewCsp = (nonce) =>
   `script-src 'nonce-${nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'self'`;
@@ -226,7 +229,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       // Our own autosave must never bounce back as a reload.
       if (lastWritten.get(key) === current) return;
       try {
-        store.setPristine(key, html, { keepEdits: isMarkdown(page.file) });
+        store.setPristine(key, html, { keepEdits: true });
       } catch (err) {
         console.error(`Could not refresh review baseline for ${page.file}: ${err.message}`);
         return;
@@ -290,6 +293,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           kind: e.kind,
           before: e.before,
           after: e.after,
+          ...(e.feedback_only ? { feedback_only: true } : {}),
           ...(e.truncated ? { truncated: true, truncated_fields: e.truncated_fields } : {}),
           ...(e.before_html !== undefined && e.before_html !== e.before ? { before_html: e.before_html } : {}),
           ...(e.after_html !== undefined && e.after_html !== e.after ? { after_html: e.after_html } : {}),
@@ -311,15 +315,17 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       }));
   }
 
-  function sendBatch(sessionId, note) {
+  function sendBatch(sessionId, note, historyInput) {
     const session = sessions.get(sessionId);
     if (!session) return { error: "unknown session" };
 
     const pages = collectPages(session);
     if (!pages.length && !note) return { error: "nothing to send" };
+    const historyContext = history.prepareBaseline(session, pages, historyInput);
 
     const hasMarkdown = pages.some((p) => p.kind === "file" && isMarkdown(p.file));
     const hasUrl = pages.some((p) => p.kind === "url");
+    const hasTrustedEdits = pages.some((p) => p.edits.some((edit) => edit.feedback_only));
     const hasCorrections = pages.some((p) => p.comments.some((c) => c.correction));
     const hasTruncation = pages.some((p) => p.edits.some((e) => e.truncated));
     const id = `b_${crypto.randomBytes(12).toString("hex")}`;
@@ -352,6 +358,11 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
             "When an edit includes `staged_assets`, copy each local image into the app's appropriate asset folder, replace its " +
             "temporary preview URL in `after_html`, and preserve the image at the user's insertion point. "
           : "") +
+        (hasTrustedEdits
+          ? "Edits marked `feedback_only` came from feedback-only documents. Apply that wording or formatting to the original source; " +
+            "it has not been autosaved. Never replace the source with script-generated runtime markup. " +
+            "Copy any `staged_assets` into the document's asset folder and replace their temporary references. "
+          : "") +
         (hasCorrections
           ? "Comments marked `correction` replace their `correction_of` instruction; follow the correction and do not apply the older wording. "
           : "") +
@@ -367,10 +378,18 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         sentAt: Date.now(),
       })),
     };
-    store.setBatch(session.entryKey, record);
+    store.setBatch(session.entryKey, { ...record, ...(historyContext ? { history: historyContext } : {}) });
     deliver(session.entryKey);
     broadcastAgent(session.entryKey);
-    return { ok: true };
+    const round = historyContext
+      ? store.listHistory(session.entryKey).find((item) => item.batchId === id)
+      : null;
+    if (round) history.changed(session.entryKey, round.roundId);
+    return {
+      ok: true,
+      ...(round ? { roundId: round.roundId } : {}),
+      ...(historyContext?.unavailable.length ? { historyUnavailable: historyContext.unavailable } : {}),
+    };
   }
 
   function deleteStagedAsset(file) {
@@ -395,13 +414,15 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
   function ack(entryKey, id) {
     const result = store.acknowledgeBatch(entryKey, id);
     if (!result.acknowledged) return false;
+    if (result.roundId) history.captureSources(entryKey, result.roundId);
+    const acknowledgedRound = result.roundId ? store.getRound(entryKey, result.roundId) : null;
     // The JSON transition is already durable. Files are cleanup only and must
     // never disappear before the receipt and page cleanup commit succeeds.
     for (const file of result.staged) deleteStagedAsset(file);
     for (const session of sessionsForEntry(entryKey)) emit(session, "refresh", {});
     // File targets reload through fs.watch. URL targets have no source file to
     // watch, so acknowledgement is the signal to fetch the rebuilt route.
-    for (const key of result.keys) {
+    for (const key of new Set([...result.keys, ...(acknowledgedRound?.targets.map((target) => target.key) || [])])) {
       if (store.page(key)?.kind === "url") {
         for (const session of sessionsForKey(key)) {
           invalidateSessionRender(session);
@@ -410,6 +431,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       }
     }
     broadcastAgent(entryKey);
+    history.changed(entryKey, result.roundId);
     return true;
   }
 
@@ -526,6 +548,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
     const entry = session ? store.page(session.entryKey) : null;
     const currentTarget = page.kind === "url" ? page.url : page.file;
     const pollTarget = entry ? (entry.kind === "url" ? entry.url : entry.file) : currentTarget;
+    const policy = sourcePolicy(page, undefined, session);
     return {
       key: page.key,
       kind: page.kind === "url" ? "url" : "file",
@@ -533,13 +556,76 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       ...(page.kind === "url" ? { url: page.url } : {}),
       filename: page.kind === "url" ? new URL(page.url).pathname || page.url : path.basename(page.file),
       markdown: page.kind !== "url" && isMarkdown(page.file),
-      feedbackOnly: page.kind === "url",
+      ...policy,
+      ...(page.kind !== "url" && !isMarkdown(page.file)
+        ? { executionPreference: session?.executionPreferences?.get(key) || "auto" } : {}),
       comments: page.comments,
       edits: page.edits,
-      canRevert: page.kind !== "url" && typeof page.pristine === "string" && page.pristine.length > 0,
+      canRevert: policy.savePolicy === "writable" && typeof page.pristine === "string" && page.pristine.length > 0,
       pollCommand: `${cliInvocation} poll ${shellQuote(pollTarget)}`,
+      historySupported: true,
     };
   }
+
+  function sourcePolicy(page, bytes, session) {
+    const markdown = page.kind !== "url" && isMarkdown(page.file);
+    const source = page.kind === "url" || markdown ? undefined : bytes ?? fs.readFileSync(page.file);
+    return documentExecutionPolicy({ ...page, markdown }, source, session?.executionPreferences?.get(page.key) || "auto");
+  }
+
+  function feedbackOnly(key, requestedPolicy, identity) {
+    if (requestedPolicy === "feedback-only" || sourcePolicy(store.page(key)).feedbackOnly) return true;
+    if (identity?.renderId != null) {
+      const render = typeof identity.renderId === "string" ? currentRender(identity.renderId) : null;
+      // Retired frames cannot prove their edits match writable source. Preserve
+      // their feedback and pasted images without retaining retired capabilities.
+      return !render || render.documentState !== "served" || render.pageKey !== key ||
+        render.sessionId !== identity.sessionId || render.generation !== identity.generation ||
+        render.savePolicy !== "writable";
+    }
+    return false;
+  }
+
+  function enforceFileWrite(key, body) {
+    if (!body || typeof body !== "object" || Array.isArray(body) ||
+        typeof body.baseHash !== "string" || !/^[a-f0-9]{40}$/.test(body.baseHash) ||
+        typeof body.sessionId !== "string" || !body.sessionId ||
+        typeof body.renderId !== "string" || !body.renderId ||
+        !Number.isSafeInteger(body.generation) || body.generation < 1) {
+      throw new HistoryRequestError("A source hash and complete frame identity are required.", {
+        status: 400, code: "invalid_file_write",
+      });
+    }
+    const render = currentRender(body.renderId);
+    if (!render || render.pageKey !== key || render.sessionId !== body.sessionId ||
+        render.generation !== body.generation || render.documentState !== "served") {
+      throw new HistoryRequestError("Reload the document before writing; this request has no current frame.", {
+        status: 409, code: "stale_file_write",
+      });
+    }
+    const page = store.page(key);
+    const current = fs.readFileSync(page.file);
+    if (render.savePolicy !== "writable" || sourcePolicy(page, current).savePolicy !== "writable") {
+      throw new HistoryRequestError("This document is feedback-only. Apply edits to the original source through the agent.", {
+        status: 409, code: "file_feedback_only",
+      });
+    }
+    if (hash(stripSdk(current.toString("utf8"))) !== body.baseHash || render.sourceHash !== body.baseHash) {
+      throw new HistoryRequestError("The file changed on disk since this edit began.", { status: 409, code: "stale_file_write" });
+    }
+    return render;
+  }
+
+  async function readFileWriteBody(req) {
+    try {
+      return await readBody(req);
+    } catch {
+      throw new HistoryRequestError("Invalid file write request.", { status: 400, code: "invalid_file_write" });
+    }
+  }
+
+  const history = createHistoryController({ store, sessions, currentRender, readBody, json, emit, pageState });
+  for (const entryKey of Object.keys(store.data.histories || {})) history.captureSources(entryKey);
 
   const server = http.createServer(async (req, res) => {
     touch();
@@ -571,6 +657,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         const ok = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
         if (!ok) return json(res, 401, { error: "missing or invalid token" });
       }
+      if (await history.handle(req, res, url)) return undefined;
 
       // --- static chrome assets
       if (route === "/chrome.css") return serveFile(res, path.join(here, "chrome.css"));
@@ -587,6 +674,48 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (route === "/click-target.js") return serveFile(res, path.join(here, "click-target.js"), opaqueModuleCors(req));
       if (route === "/serialize.js") return serveFile(res, path.join(here, "serialize.js"), opaqueModuleCors(req));
       if (route === "/frame-channel.js") return serveFile(res, path.join(here, "frame-channel.js"), opaqueModuleCors(req));
+      if (route === "/semantic-snapshot.js") return serveFile(res, path.join(here, "semantic-snapshot.js"), opaqueModuleCors(req));
+      if (route === "/revision-schema.js") return serveFile(res, path.join(here, "revision-schema.js"), opaqueModuleCors(req));
+      if (route === "/history-client.js") return serveFile(res, path.join(here, "history-client.js"));
+      if (route === "/view-identity.js") return serveFile(res, path.join(here, "view-identity.js"), opaqueModuleCors(req));
+      if (route === "/comparison-view.js") return serveFile(res, path.join(here, "comparison-view.js"));
+      if (route === "/history-coordinator.js") return serveFile(res, path.join(here, "history-coordinator.js"));
+      if (route === "/execution-client.js") return serveFile(res, path.join(here, "execution-client.js"));
+
+      const trustMatch = route.match(/^\/api\/session\/([^/]+)\/trust$/);
+      if (trustMatch) {
+        return json(res, 410, { error: "Version approvals are no longer used.", code: "trust_workflow_removed" });
+      }
+
+      const executionMatch = route.match(/^\/api\/session\/([^/]+)\/execution$/);
+      if (executionMatch) {
+        if (req.method !== "POST") return json(res, 405, { error: "Method not allowed.", code: "method_not_allowed" });
+        const session = sessions.get(executionMatch[1]);
+        if (!session) return json(res, 404, { error: "Unknown session.", code: "execution_target_missing" });
+        let body;
+        try { body = await readBody(req); } catch {
+          return json(res, 400, { error: "Invalid execution request.", code: "invalid_execution_request" });
+        }
+        if (!body || typeof body !== "object" || Array.isArray(body) ||
+            typeof body.key !== "string" || !body.key || !["auto", "static"].includes(body.preference)) {
+          return json(res, 400, { error: "Expected an HTML page key and auto or static preference.", code: "invalid_execution_request" });
+        }
+        if (!store.page(body.key)) return json(res, 404, { error: "Unknown page.", code: "execution_target_missing" });
+        if (body.key !== session.activeKey) return json(res, 409, { error: "The reviewed target changed.", code: "execution_target_changed" });
+        const page = store.page(session.activeKey);
+        if (!page || page.kind === "url" || isMarkdown(page.file)) {
+          return json(res, 400, { error: "Execution preferences apply only to local HTML.", code: "invalid_execution_request" });
+        }
+        sourcePolicy(page);
+        seen(session);
+        const reloadRequired = (session.executionPreferences.get(page.key) || "auto") !== body.preference;
+        session.executionPreferences.set(page.key, body.preference);
+        if (reloadRequired) {
+          invalidateSessionRender(session);
+          emit(session, "reload", { key: page.key, reason: "execution-preference-changed" });
+        }
+        return json(res, 200, { ok: true, page: pageState(page.key, session), reloadRequired });
+      }
 
       // --- open a browser session for a file or localhost URL
       if (route === "/api/session" && req.method === "POST") {
@@ -611,6 +740,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           activeKey: page.key,
           generation: 0,
           renderId: null,
+          executionPreferences: new Map(),
           visited: new Set([page.key]),
           clients: new Set(),
           lastSeen: Date.now(),
@@ -687,8 +817,17 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         ) {
           return json(res, 403, { error: "invalid render capability" });
         }
+        if (render.documentState !== "served") return json(res, 409, { error: "render has not been served" });
         render.capability = null;
-        return json(res, 200, { ok: true });
+        return json(res, 200, {
+          ok: true,
+          sourceHash: render.sourceHash ?? null,
+          sourceCapturedAt: render.sourceCapturedAt ?? null,
+          executionMode: render.executionMode,
+          savePolicy: render.savePolicy,
+          feedbackOnly: render.savePolicy === "feedback-only",
+          executionNotice: render.executionNotice || null,
+        });
       }
 
       // --- the reviewed page itself, plus sibling assets for its render
@@ -713,6 +852,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           let sdkOptions = {};
           let extraHeaders = {};
           if (page.kind === "url") {
+            Object.assign(render, sourcePolicy(page));
             try {
               const fetched = await fetchLocalPage(page.url);
               html = fetched.html;
@@ -733,17 +873,22 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
               return res.end(`Could not load ${page.url}: ${err.message}`);
             }
           } else {
+            let originalBytes;
             try {
-              html = fs.readFileSync(page.file, "utf8");
-            } catch {
+              originalBytes = fs.readFileSync(page.file);
+              html = originalBytes.toString("utf8");
+            } catch (error) {
               render.documentState = "registered";
-              res.writeHead(404, {
+              res.writeHead(error.code === "ENOENT" ? 404 : 500, {
                 "content-type": "text/plain",
                 "cache-control": "no-store",
                 "referrer-policy": "no-referrer",
               });
-              return res.end("File is gone");
+              return res.end(`Could not read document: ${error.message}`);
             }
+            render.sourceHash = hash(stripSdk(html));
+            render.sourceCapturedAt = new Date().toISOString();
+            Object.assign(render, sourcePolicy(page, originalBytes, sessions.get(render.sessionId)));
             // Markdown reviews render on the fly; the source file stays untouched.
             if (isMarkdown(page.file)) html = renderMarkdownPage(html, page.file);
             sdkOptions = {
@@ -752,7 +897,15 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
               pageKey: render.pageKey,
               src: `http://${host}/sdk.js`,
             };
-            extraHeaders = { "content-security-policy": fileReviewCsp(render.capability) };
+            if (!isMarkdown(page.file) && render.savePolicy === "feedback-only") {
+              const transformed = transformInteractiveHtml(html);
+              html = transformed.html;
+              render.executionNotice = render.executionMode === "static"
+                ? transformed.notice.replace("Inline page interactions run automatically.", "Page interactions are disabled for this review.")
+                : transformed.notice;
+              extraHeaders = { "content-security-policy": render.executionMode === "static"
+                ? fileReviewCsp(render.capability) : interactiveFileCsp(`http://${host}`) };
+            } else extraHeaders = { "content-security-policy": fileReviewCsp(render.capability) };
           }
           res.writeHead(200, {
             "content-type": MIME[".html"],
@@ -763,18 +916,15 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           render.documentState = "served";
           return res.end(injectSdk(html, renderId, sdkOptions));
         }
-        if (page.kind === "url") {
-          const stagedPrefix = "__doc_review_paste__/";
-          if (asset.startsWith(stagedPrefix)) {
+        const stagedPrefix = "__doc_review_paste__/";
+        if (asset.startsWith(stagedPrefix)) {
             const name = asset.slice(stagedPrefix.length);
-            if (!name || path.basename(name) !== name) {
+            if (!name || !/^[\w-]+\.(png|jpg|gif|webp)$/.test(name) || path.basename(name) !== name) {
               res.writeHead(403, { "content-type": "text/plain" });
               return res.end("Forbidden");
-            }
-            return serveFile(res, path.join(stateDir(), "pasted", render.pageKey, name));
-          }
-          res.writeHead(404, { "content-type": "text/plain" });
-          return res.end("Localhost assets load from the reviewed development server.");
+        }
+          // Keep staged previews reachable across source-policy changes.
+          return serveFile(res, path.join(stateDir(), "pasted", render.pageKey, name));
         }
         const target = resolveAsset(page.file, asset.split("?")[0]);
         if (!target) {
@@ -914,9 +1064,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
             truncated_fields: limited.truncated_fields,
             ...(kind === "moved" ? { moved_after: fields.moved_after || "", moved_before: fields.moved_before || "" } : {}),
             ...(stagedAssets.length ? { staged_assets: stagedAssets } : {}),
+            ...(feedbackOnly(key, body.savePolicy, body) ? { feedback_only: true } : {}),
           };
           store.addEdit(key, label, kind, fields.before, fields.after, fields.before_html, fields.after_html, extra);
-          return json(res, 200, { page: pageState(key) });
+          return json(res, 200, { page: pageState(key, sessions.get(body.sessionId)) });
         }
 
         // File reviews keep pasted images beside the document. Localhost
@@ -928,7 +1079,11 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           if (!ext) return json(res, 400, { error: `unsupported image type: ${type || "unknown"}` });
           const bytes = await readRawBody(req);
           if (!bytes.length) return json(res, 400, { error: "empty image" });
-          const staged = page.kind === "url";
+          const staged = feedbackOnly(key, url.searchParams.get("savePolicy"), {
+            sessionId: url.searchParams.get("sessionId"),
+            renderId: url.searchParams.get("renderId"),
+            generation: Number(url.searchParams.get("generation")),
+          });
           const dir = staged ? path.join(stateDir(), "pasted", key) : path.join(path.dirname(page.file), "assets");
           fs.mkdirSync(dir, { recursive: true });
           const base = staged
@@ -956,26 +1111,22 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           if (page.kind === "url" || isMarkdown(page.file)) {
             return json(res, 400, { error: page.kind === "url" ? "localhost edits must be applied to app source" : "markdown pages are feedback-only" });
           }
-          const body = await readBody(req);
-          if (typeof body.html !== "string" || !body.html.trim()) {
+          const body = await readFileWriteBody(req);
+          if (typeof body?.html !== "string" || !body.html.trim()) {
             return json(res, 400, { error: "empty html" });
           }
-          // A save based on an older version of the file must lose, not win:
-          // otherwise a debounced autosave that lands just after an agent
-          // rewrite silently overwrites the agent's work.
-          if (typeof body.baseHash === "string") {
-            let current = "";
-            try {
-              current = fs.readFileSync(page.file, "utf8");
-            } catch {
-              return json(res, 404, { error: "file is gone" });
-            }
-            if (hash(stripSdk(current)) !== body.baseHash) {
-              return json(res, 409, { error: "the file changed on disk since this edit began" });
-            }
-          }
+          const savingRender = enforceFileWrite(key, body);
+          const editedPolicy = sourcePolicy(page, stripSdk(body.html));
           try {
             const clean = writePage(key, body.html);
+            savingRender.sourceHash = hash(clean);
+            savingRender.sourceCapturedAt = new Date().toISOString();
+            if (editedPolicy.savePolicy === "feedback-only") {
+              for (const session of sessionsForKey(key)) {
+                invalidateSessionRender(session);
+                emit(session, "reload", { key, reason: "source-execution-changed" });
+              }
+            }
             return json(res, 200, { savedAt: Date.now(), hash: hash(clean) });
           } catch (err) {
             return json(res, 500, { error: String(err.message || err) });
@@ -984,22 +1135,25 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
 
         if (action === "revert" && req.method === "POST") {
           const page = store.page(key);
-          if (page.kind === "url") return json(res, 400, { error: "localhost pages have no directly writable file to revert" });
+          if (page.kind === "url" || isMarkdown(page.file)) return json(res, 400, { error: "feedback-only pages have no directly writable HTML to revert" });
+          const body = await readFileWriteBody(req);
+          enforceFileWrite(key, body);
           if (!page.pristine) return json(res, 400, { error: "nothing to revert to" });
+          sourcePolicy(page, stripSdk(page.pristine));
           writePage(key, page.pristine);
           store.clearEdits(key);
           for (const session of sessionsForKey(key)) {
             invalidateSessionRender(session);
             emit(session, "reload", { key });
           }
-          return json(res, 200, { page: pageState(key) });
+          return json(res, 200, { page: pageState(key, sessions.get(body.sessionId)) });
         }
 
         if (action === "send" && req.method === "POST") {
           const body = await readBody(req);
-          const result = sendBatch(body.sessionId, body.note);
+          const result = sendBatch(body.sessionId, body.note, body.history);
           if (result.error) return json(res, 400, result);
-          return json(res, 200, { ok: true, page: pageState(key) });
+          return json(res, 200, { ...result, page: pageState(key, sessions.get(body.sessionId)) });
         }
       }
 
@@ -1058,7 +1212,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           invalidateSessionRender(session);
           session.activeKey = page.key;
           session.visited.add(page.key);
-          return json(res, 200, { key: page.key, page: pageState(page.key) });
+          return json(res, 200, { key: page.key, page: pageState(page.key, session) });
         }
         const targetFile = resolveAsset(from.file, String(body.href || "").split(/[?#]/)[0]);
         if (!targetFile || !fs.existsSync(targetFile) || !/\.(x?html?|md|markdown)$/i.test(targetFile)) {
@@ -1071,7 +1225,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         invalidateSessionRender(session);
         session.activeKey = page.key;
         session.visited.add(page.key);
-        return json(res, 200, { key: page.key, page: pageState(page.key) });
+        return json(res, 200, { key: page.key, page: pageState(page.key, session) });
       }
 
       // --- server-sent events for one window
@@ -1136,7 +1290,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       res.writeHead(404, { "content-type": "text/plain" });
       return res.end("Not found");
     } catch (err) {
-      return json(res, 500, { error: String(err.message || err) });
+      if (err instanceof HistoryRequestError) {
+        return json(res, err.status, { error: err.message, code: err.code, targets: err.targets });
+      }
+      return json(res, historyErrorStatus(err), { error: String(err.message || err), ...(err.code ? { code: err.code } : {}) });
     }
   });
   server.on("connection", (socket) => {
@@ -1151,8 +1308,19 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
     serverClosed = true;
   });
 
+  function collectHistoryGarbage() {
+    try {
+      const removed = store.collectHistoryGarbage();
+      if (removed.revisions || removed.blobs) console.info("[doc-review]", { event: "history-pruned", ...removed });
+    } catch (error) {
+      console.error("[doc-review]", { event: "history-prune-failed", code: error.code || "history_storage_failed" });
+    }
+  }
+  collectHistoryGarbage();
+
   const sweep = setInterval(() => {
     const now = Date.now();
+    collectHistoryGarbage();
 
     // A window with no SSE client for a while is closed; forget its session.
     for (const [id, session] of sessions) {

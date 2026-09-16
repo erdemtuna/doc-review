@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const root = path.join(process.cwd(), `.doc-review-render-test-${process.pid}`);
 fs.rmSync(root, { recursive: true, force: true });
@@ -99,6 +100,11 @@ test("render registrations are current, single-use, capability-bound, and expiri
   });
   assert.equal(ready.status, 200);
   assert.equal(
+    JSON.parse(ready.raw).sourceHash,
+    createHash("sha1").update(fs.readFileSync(file, "utf8")).digest("hex"),
+    "ready identifies the source bytes that were served, not a later source read"
+  );
+  assert.equal(
     (
       await request(review.port, review.token, {
         method: "POST",
@@ -160,6 +166,17 @@ test("a transient artifact fetch failure does not consume the render", async (t)
   const retried = await request(review.port, "", { route: render.path });
   assert.equal(retried.status, 200);
   assert.match(retried.raw, /<p>ready<\/p>/);
+});
+
+test("parent execution and capture modules are explicitly served", async (t) => {
+  const review = await start();
+  t.after(() => review.dispose());
+  for (const name of ["execution-client.js", "history-coordinator.js"]) {
+    const response = await request(review.port, "", { route: `/${name}` });
+    assert.equal(response.status, 200, name);
+    assert.match(response.headers["content-type"], /text\/javascript/);
+    assert.equal(response.raw, fs.readFileSync(path.join(process.cwd(), "src", name), "utf8"));
+  }
 });
 
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
