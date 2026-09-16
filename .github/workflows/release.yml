@@ -187,6 +187,32 @@ jobs:
           node --version
           npm --version
 
+      - name: Verify the release version is unused
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          METADATA="$RUNNER_TEMP/npm-package.json"
+          STATUS="$(curl --silent --show-error --retry 3 --max-time 30 \
+            --output "$METADATA" --write-out '%{http_code}' \
+            "https://registry.npmjs.org/$PKG_NAME")"
+          case "$STATUS" in
+            404) echo "Package is not published yet; preparing its first release." ;;
+            200)
+              jq -e --arg name "$PKG_NAME" \
+                '.name == $name and (.versions | type == "object")' "$METADATA" > /dev/null \
+                || fail "Registry returned malformed package metadata."
+              jq -e --arg version "$VERSION" '.versions | has($version) | not' "$METADATA" > /dev/null \
+                || fail "$PKG_NAME@$VERSION is already published; choose a new version."
+              LATEST="$(jq -er '."dist-tags".latest' "$METADATA")"
+              echo "$LATEST" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+                || fail "Registry latest is not a plain release version."
+              [ "$LATEST" != "$VERSION" ] && \
+                [ "$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -n 1)" = "$VERSION" ] \
+                || fail "Candidate must be newer than npm latest ($LATEST)."
+              ;;
+            *) fail "Cannot verify npm availability (HTTP $STATUS); nothing will be prepared." ;;
+          esac
+
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
@@ -301,9 +327,22 @@ jobs:
 
           cd "$SMOKE/project"
           HOME="$SMOKE/home" "$CLI" setup --global
-          SKILL="$SMOKE/home/.claude/skills/$BIN/SKILL.md"
-          test -f "$SKILL" || fail "setup --global did not create $SKILL."
-          if grep -qi 'human-review' "$SKILL"; then fail "Installed skill still mentions the pre-fork command."; fi
+          for ROOT in .claude .codex .agents; do
+            SKILL="$SMOKE/home/$ROOT/skills/$BIN/SKILL.md"
+            test -f "$SKILL" || fail "setup --global did not create $SKILL."
+            if grep -qi 'human-review' "$SKILL"; then fail "Installed skill still mentions the pre-fork command."; fi
+            grep -Fq 'Use only when the user explicitly invokes /doc-review' "$SKILL" || fail "Installed skill is not opt-in."
+            grep -Fq 'truncated_fields' "$SKILL" || fail "Installed skill omits truncation guidance."
+            grep -Fq '12 hours' "$SKILL" || fail "Installed skill omits the default poll deadline."
+            grep -Fq -- '--ack b_0123456789abcdef' "$SKILL" || fail "Installed skill omits exact receipt acknowledgement."
+          done
+          HOME="$SMOKE/home" "$CLI" setup
+          grep -Fxq '<!-- BEGIN doc-review -->' AGENTS.md || fail "Project guidance has no ownership marker."
+          grep -Fq 'Start only when the user explicitly invokes /doc-review' AGENTS.md || fail "Project guidance is not opt-in."
+          grep -Fq 'truncated_fields' AGENTS.md || fail "Project guidance omits truncation handling."
+          cp AGENTS.md "$SMOKE/agents-first.md"
+          HOME="$SMOKE/home" "$CLI" setup
+          cmp -s AGENTS.md "$SMOKE/agents-first.md" || fail "Repeated project setup is not idempotent."
 
       - name: Build release metadata
         run: |

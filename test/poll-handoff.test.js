@@ -1,44 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
-import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
+import { requestRaw } from "../src/poll-transport.js";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-poll-"));
-process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const tmp = fs.mkdtempSync(path.join(project, ".doc-review-poll-"));
+process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-function request(server, method, route, body) {
-  const { port, token } = typeof server === "number" ? { port: server, token: "" } : server;
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host: "127.0.0.1",
-        port,
-        method,
-        path: route,
-        headers: {
-          ...(token ? { "x-doc-review-token": token } : {}),
-          ...(body ? { "content-type": "application/json" } : {}),
-        },
-      },
-      (res) => {
-        let raw = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
-        res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
-      }
-    );
-    req.on("error", reject);
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
+async function request(server, method, route, body) {
+  const response = await requestRaw(server, {
+    method, path: route, timeout: 2000,
+    headers: body ? { "content-type": "application/json" } : {},
+  }, body);
+  return { status: response.status, body: JSON.parse(response.raw) };
 }
 
 function collect(child) {
@@ -52,7 +30,7 @@ function collect(child) {
       stderr += chunk;
     });
     child.on("error", reject);
-    child.on("exit", (code) => resolve({ code, stdout, stderr }));
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
 }
 
@@ -71,7 +49,7 @@ async function waitForServer() {
   throw new Error("review server did not start");
 }
 
-test("poll exits with the feedback batch when the user sends", async (t) => {
+test("poll exits with the feedback batch when the user sends", { timeout: 15000 }, async (t) => {
   const file = path.join(tmp, "review.html");
   fs.writeFileSync(file, "<p>Original</p>");
 
@@ -81,10 +59,14 @@ test("poll exits with the feedback batch when the user sends", async (t) => {
     stdio: "ignore",
   });
 
+  let child;
   t.after(async () => {
-    if (reviewServer.exitCode === null) {
-      reviewServer.kill();
-      await once(reviewServer, "exit");
+    for (const process of [child, reviewServer]) {
+      if (process && process.exitCode === null && process.signalCode === null) {
+        const closed = once(process, "close");
+        process.kill();
+        await closed;
+      }
     }
     fs.rmSync(tmp, { recursive: true, force: true });
   });
@@ -100,7 +82,7 @@ test("poll exits with the feedback batch when the user sends", async (t) => {
   });
   assert.equal(commented.status, 200);
 
-  const child = spawn(process.execPath, ["src/cli.js", "poll", file], {
+  child = spawn(process.execPath, ["src/cli.js", "poll", file], {
     cwd: project,
     env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
     stdio: ["ignore", "pipe", "pipe"],

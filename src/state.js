@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { normalizeCommentAnchor } from "./comment-anchor.js";
 import { canonicalTarget, ensureStateDir, pageKey, realFile, statePath, targetKey } from "./paths.js";
+export { atomicWrite } from "./atomic-write.js";
+import { atomicWrite } from "./atomic-write.js";
 
 /** Anything untouched this long is review debris, not work in progress. */
 const PRUNE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -90,24 +92,6 @@ function normalizeState(parsed, makeBatchId) {
     }
   }
   return { data, changed };
-}
-
-/**
- * Atomic write via a unique sibling tmp file. The name is unguessable and the
- * create is exclusive, so a pre-planted symlink can never redirect the write,
- * and a failed rename never leaves a predictable orphan behind.
- */
-export function atomicWrite(file, data) {
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.doc-review.tmp`;
-  fs.writeFileSync(tmp, data, { flag: "wx" });
-  try {
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {}
-    throw err;
-  }
 }
 
 /**
@@ -343,6 +327,19 @@ export class Store {
         if (afterHtml !== undefined) row.after_html = afterHtml;
         // A re-move of the same block replaces its landing spot.
         if (extra) {
+          if (Array.isArray(extra.truncated_fields)) {
+            const replaced = new Set([
+              ...(after !== undefined ? ["after"] : []),
+              ...(afterHtml !== undefined ? ["after_html"] : []),
+              ...["moved_after", "moved_before"].filter((field) => extra[field] !== undefined),
+            ]);
+            // Original before text is retained across edits, including its truncation.
+            const truncatedFields = [...new Set([
+              ...(row.truncated_fields || []).filter((field) => !replaced.has(field)),
+              ...extra.truncated_fields.filter((field) => replaced.has(field)),
+            ])];
+            extra = { ...extra, truncated: truncatedFields.length > 0, truncated_fields: truncatedFields };
+          }
           if (extra.staged_assets) {
             const assets = [...(row.staged_assets || []), ...extra.staged_assets];
             extra = { ...extra, staged_assets: [...new Map(assets.map((asset) => [asset.path, asset])).values()] };
@@ -363,10 +360,10 @@ export class Store {
   }
 
   /** After the agent writes, its version becomes the new revert target. */
-  setPristine(key, html) {
+  setPristine(key, html, { keepEdits = false } = {}) {
     return this.update(key, (page) => {
       page.pristine = html;
-      page.edits = [];
+      if (!keepEdits) page.edits = [];
     });
   }
 

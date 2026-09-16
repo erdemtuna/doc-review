@@ -52,9 +52,11 @@ test("state discovery uses only the doc-review namespace", () => {
   }
 });
 
-test("the contextual review contract does not reuse the v0.7 protocol", () => {
-  assert.equal(SERVER_PROTOCOL, 12);
-  assert.equal(serverProtocolMatches(12), true);
+test("the reliability contract rejects pre-upgrade background servers", () => {
+  assert.equal(SERVER_PROTOCOL, 13);
+  assert.equal(serverProtocolMatches(13), true);
+  assert.equal(serverProtocolMatches(12), false);
+  assert.equal(serverProtocolMatches("12"), false);
   assert.equal(serverProtocolMatches(11), false);
   assert.equal(serverProtocolMatches("11"), false);
 });

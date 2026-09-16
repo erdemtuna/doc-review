@@ -37,6 +37,20 @@ no longer need them.
 
 ## How to use /doc-review
 
+Review is opt-in: explicitly invoke `/doc-review` or ask to open an interactive
+browser review. Writing, updating, or asking for a general review of content does
+not automatically open the browser or start polling. An explicitly started review
+continues until you end it or switch tasks.
+
+After updating installed skill instructions, start a fresh agent session or reload
+skills (in Copilot CLI, `/skills reload`). Setup copies the executing package's
+skill template; rerunning setup from an older package can restore older behavior.
+Setup updates its own `AGENTS.md` guidance inside `<!-- BEGIN doc-review -->` and
+`<!-- END doc-review -->` markers. Exact, known older generated blocks are migrated.
+Custom guidance is preserved with a migration message rather than overwritten;
+update it yourself if it requests automatic review. Invalid or duplicate markers
+must be corrected before setup can proceed.
+
 ![Doc Review visual editor](assets/doc-review.png)
 
 Open an HTML or Markdown file:
@@ -86,6 +100,38 @@ npx -y @erdemtuna/doc-review poll path/to/file.html --ack b_0123456789abcdef --t
 
 A stale or repeated batch ID is harmless: it never clears newer feedback. The
 complete acknowledgement command is included in each response's `next_step`.
+
+### Feedback reliability and limits
+
+`poll` without `--timeout` waits for at most 12 hours. Explicit timeouts include
+server discovery, reconnection, and retry backoff, not just time spent connected.
+Recoverable connection drops are retried; invalid responses, authorization errors,
+and incompatible servers fail visibly. A timeout does not discard feedback: use
+`status` to check it, then start another poll if the review is still wanted.
+
+Each edit text or HTML field is limited to 200,000 Unicode code points. Oversized
+edits carry `truncated: true` and `truncated_fields` naming incomplete fields.
+The agent must not use partial text or HTML as a complete replacement or invent
+the rest. It must obtain the full edit from an authoritative source or ask you
+for it before acknowledging the batch.
+
+External writes to a Markdown source refresh its rendered baseline without
+clearing unsent feedback. That preserves your edits; it does not automatically
+resolve conflicts with the changed source. HTML autosaves keep their existing
+behavior.
+
+### Upgrading from v0.8.0
+
+The updated CLI requires server protocol 13. An older server that is still
+running is not silently reused or forcibly replaced. End active reviews and
+shut down that specific old server (or let it exit when idle) before restarting
+Doc Review. Keep the `.doc-review` state directory: pending batches and their
+exact receipt IDs survive a controlled restart.
+
+After installing the updated package, rerun `doc-review setup --global` for
+personal skills and `doc-review setup` in projects with generated guidance.
+Reload skills or start a fresh agent session afterward. A newer CLI paired with
+older instructions is not a complete upgrade.
 
 ## What this skill lets you do
 

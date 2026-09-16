@@ -14,6 +14,34 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.8.1 release checklist
+
+This release combines opt-in skill activation with Markdown feedback preservation,
+explicit long-edit truncation reporting, transient atomic-write retries, bounded
+polling recovery, and managed setup guidance. It retains Doc Review's View-first
+UX and exact batch-ID acknowledgement contract.
+
+- Land the changes and version update on `main` after review and required CI.
+  Use `npm version 0.8.1 --no-git-tag-version` for the manifest and lockfile;
+  the prepare workflow must confirm that the version is unused on npm and newer
+  than `latest` before building a publishable candidate. A proposed local version
+  is not proof of availability. Do not bypass TLS or registry failures.
+- Use `version=0.8.1` and `previous_tag=v0.8.0` for both workflow phases below.
+  Use the exact successful prepare run ID for release. The historical v0.7.0
+  examples and bootstrap section below are not instructions to recreate the
+  package or provision a new token for this release.
+- Release notes must call out explicit review activation, the 12-hour default
+  polling cutoff, the 200,000-code-point edit limit and truncation flags, and the
+  protocol-13 restart requirement. The payload and concurrent-poller receipt
+  semantics remain unchanged apart from additive truncation metadata.
+- Confirm the packed smoke test installs opt-in skill guidance in all three
+  supported global locations and maintains a marker-owned project AGENTS block.
+- Keep OIDC as the default; approval still happens in `npm-release`. Publication
+  is not authorized by a passing local test run or by creating a draft PR.
+- Verify `@erdemtuna/doc-review@0.8.1`, its integrity, the `v0.8.1` tag, release
+  assets and notes. Follow the README upgrade steps without deleting pending
+  review state or automatically overwriting users' global installations.
+
 ## Prerequisites
 
 - The `npm-release` GitHub environment exists, requires Erdem's approval and is

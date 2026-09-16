@@ -1,9 +1,22 @@
 ---
 name: doc-review
-description: Open an HTML file, Markdown file, or localhost page in a View-first browser review so the user can optionally edit, leave contextual comments, and send all feedback back to you. Use after writing or updating something the user will read — specs, plans, reports, newsletter drafts, landing pages, slide decks, and locally running web pages.
+description: Open an HTML file, Markdown file, or localhost page for View-first interactive browser feedback. Use only when the user explicitly invokes /doc-review or requests an interactive browser review. Do not invoke merely because you write, update, discuss, or review a document or web page.
 ---
 
 # doc-review
+
+## Activation
+
+Start only when the user explicitly invokes `/doc-review` or asks to open an
+interactive browser review. A generic request to review, proofread, analyze, write,
+or update content is not permission to open this workflow. Another skill's
+automatic review step is not user permission.
+
+Without that request, respond normally without opening a review or polling for
+feedback. Once the user starts a review, continue its feedback loop until they
+end it; stop if they cancel or switch to a different task.
+
+## Review behavior
 
 The user reviews your HTML, Markdown, or localhost page in a real browser. It starts in View,
 where normal page controls work. They can switch to Edit, comment explicitly in either mode,
@@ -36,7 +49,8 @@ carried; newer comments and corrections survive.
 
 ## The loop
 
-1. Write or update the HTML or Markdown file, or start the local page being reviewed.
+1. After the explicit review request, use the requested file or localhost route.
+   Create or update content, or start a local page, only as needed for that request.
 2. Open it for the user:
 
    ```sh
@@ -55,6 +69,12 @@ carried; newer comments and corrections survive.
    ```sh
    npx -y @erdemtuna/doc-review poll path/to/file.html --timeout 600
    ```
+
+   Without `--timeout`, the CLI stops after 12 hours. An explicit timeout covers
+   the entire operation, including server discovery, reconnects, and backoff.
+   Recoverable connection drops retry within that deadline; terminal errors
+   require action rather than another automatic poll. The 600-second command
+   above deliberately uses a shorter deadline.
 
    Keep this command in the foreground. Do not end your turn while it is waiting.
    If your shell returns a process or session handle, keep waiting on that handle
@@ -119,8 +139,13 @@ One batch covers every page the user visited, grouped by file or localhost URL.
 
 ## Rules
 
+- Edits marked **`truncated`** contain incomplete fields listed in
+  `truncated_fields`. Each text/HTML field is limited to 200,000 Unicode code
+  points. Never apply a truncated field as a complete replacement or guess the
+  missing content. Obtain the complete edit from an authoritative source, or ask
+  the user for it. Do not acknowledge the batch until all feedback is handled.
 - **`edits` are changes the user already made.** `after` is their exact wording —
-  carry it across verbatim and never revert it. If the HTML was generated from
+  unless marked truncated, carry it across verbatim and never revert it. If the HTML was generated from
   something else (MDX, Markdown, a template), apply `after` to the **source** too,
   or their fix disappears on the next build.
 - When `before_html`/`after_html` are present, the user changed formatting, not
