@@ -70,6 +70,12 @@ carried; newer comments and corrections survive.
    npx -y @erdemtuna/doc-review poll path/to/file.html --timeout 600
    ```
 
+   Without `--timeout`, the CLI stops after 12 hours. An explicit timeout covers
+   the entire operation, including server discovery, reconnects, and backoff.
+   Recoverable connection drops retry within that deadline; terminal errors
+   require action rather than another automatic poll. The 600-second command
+   above deliberately uses a shorter deadline.
+
    Keep this command in the foreground. Do not end your turn while it is waiting.
    If your shell returns a process or session handle, keep waiting on that handle
    until the command exits. If it prints `{"status":"timeout"}`, no feedback has
