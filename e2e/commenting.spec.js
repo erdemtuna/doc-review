@@ -397,6 +397,8 @@ test("draft retarget submits first and a failed submit blocks retargeting", asyn
   await page.unroute("**/api/page/*/comment");
 
   await page.locator("#composeCancel").click();
+  await expect(page.locator("#compose")).toBeHidden();
+  await expect.poll(() => frame.locator("body").evaluate(() => document.getSelection().toString())).toBe("Two target");
   await selectText(frame, "#four");
   await frame.locator("body").dispatchEvent("keydown", { key: "m", ctrlKey: true, altKey: true });
   await expect(page.locator("#composeQuote")).toContainText("Four target");
