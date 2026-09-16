@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { updateGuidance } from "./setup-guidance.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const PACKAGE_NAME = "@erdemtuna/doc-review";
@@ -62,8 +63,14 @@ it as a static file. Then block on
 \`${NPX_COMMAND} poll <target> --timeout 600\` until they send feedback.
 If it prints \`{"status":"timeout"}\`, no feedback arrived yet — run the same
 poll command again to keep waiting. When a \`{"status":"feedback"}\` batch
-arrives, apply it, then run the exact acknowledgement command in its
-\`next_step\`, which uses \`--ack <batch_id>\`.
+arrives, handle every item, then run the exact acknowledgement command in its
+\`next_step\`, which uses \`--ack <batch_id>\`. Keep that exact batch ID on retries;
+never acknowledge an unhandled batch.
+
+Without \`--timeout\`, the CLI defaults to a 12-hour cutoff. An explicit
+\`--timeout\` is one end-to-end deadline, including server discovery and reconnect
+attempts. Keep using the bounded foreground \`--timeout 600\` loop above;
+those polls do not wait 12 hours.
 
 Keep the poll command in the foreground and do not end the turn while it waits.
 If the shell returns a process or session handle, keep waiting on that handle until
@@ -71,9 +78,19 @@ the command exits. \`${NPX_COMMAND} status <target>\` reports instantly
 whether feedback is already waiting, without blocking.
 
 The batch groups feedback by page under \`pages\`, so fix every page listed. Items
-under \`edits\` are changes the user already made: \`after\` is their exact wording,
-so carry it across verbatim and never revert it — and if the HTML was generated
-from MDX or Markdown, apply it to the source too. Markdown files open rendered
+under \`edits\` are changes the user already made. For non-truncated edits,
+\`after\` is their exact wording: carry it across verbatim and never revert it.
+If the HTML was generated from MDX or Markdown, apply complete edits to the
+source too.
+
+Edit fields are limited to 200,000 Unicode code points each. An edit with
+\`truncated: true\` identifies clipped fields in the \`truncated_fields\` array.
+Never apply incomplete text or HTML as a complete replacement or invent missing
+text. Recover the full edit only from an authoritative source; otherwise ask the
+user for the complete edit. Do not acknowledge the batch until every item,
+including truncated edits, has been handled.
+
+Markdown files open rendered
 and are never written by doc-review: apply their comments and edits to the
 Markdown source, keeping its syntax. There is no reply channel; the user sees
 your work when the page reloads. For a localhost page, direct edits and deletions
@@ -84,6 +101,17 @@ component source. Never write the rendered HTTP response over project source.
 export function installSkills(cwd, { global: isGlobal = false, home = os.homedir(), command } = {}) {
   const done = [];
   const cmd = command || invocation();
+  const agents = path.join(cwd, "AGENTS.md");
+  let guidance;
+  let existing;
+  if (!isGlobal) {
+    const bytes = fs.existsSync(agents) ? fs.readFileSync(agents) : Buffer.alloc(0);
+    existing = bytes.toString("utf8");
+    if (!Buffer.from(existing, "utf8").equals(bytes)) {
+      throw new Error("AGENTS.md is not valid UTF-8; convert it before re-running setup. No setup files were changed.");
+    }
+    guidance = updateGuidance(existing, CODEX_BLOCK.replaceAll(NPX_COMMAND, cmd));
+  }
 
   const skillRoots = isGlobal
     ? [
@@ -101,15 +129,8 @@ export function installSkills(cwd, { global: isGlobal = false, home = os.homedir
   }
 
   if (!isGlobal) {
-    const agents = path.join(cwd, "AGENTS.md");
-    const existing = fs.existsSync(agents) ? fs.readFileSync(agents, "utf8") : "";
-    if (existing.includes("doc-review")) {
-      done.push("AGENTS.md already mentions doc-review — left it alone");
-    } else {
-      const block = CODEX_BLOCK.replaceAll(NPX_COMMAND, cmd);
-      fs.writeFileSync(agents, existing ? `${existing.trimEnd()}\n${block}` : block.trimStart());
-      done.push(`${existing ? "Updated" : "Created"} AGENTS.md   (Codex)`);
-    }
+    if (guidance.contents !== existing) fs.writeFileSync(agents, guidance.contents);
+    done.push(guidance.message);
   }
 
   done.push("", `Agents will be told to run: ${cmd}`);
