@@ -171,6 +171,11 @@ export async function pollOnce(server, target, ackId, deadline) {
     time: deadline.time,
     timeoutCode: "POLL_DEADLINE",
   });
+  // Graceful server disposal ends the space heartbeats without a JSON payload.
+  // HTTP is complete, but this poll was interrupted just like a dropped socket.
+  if (response.status === 200 && /^ +$/.test(response.raw)) {
+    throw codedError("The server ended the poll before sending feedback.", "ERR_STREAM_PREMATURE_CLOSE");
+  }
   const batch = parseServerResponse(response);
   if (!["feedback", "closed", "timeout"].includes(batch.status) ||
       (batch.status === "feedback" && (typeof batch.batch_id !== "string" || !batch.batch_id || !Array.isArray(batch.pages)))) {

@@ -143,6 +143,25 @@ test("CLI rediscovery adopts a matching replacement identity after a mid-wait di
   assert.deepEqual(JSON.parse(result.stdout), batch);
 });
 
+test("a gracefully ended heartbeat-only poll reconnects with the same acknowledgement", { timeout: 5000 }, async (t) => {
+  const acknowledgements = [];
+  const batch = { status: "feedback", batch_id: "b_after_shutdown", pages: [] };
+  const review = await fixture(t, (req, res) => {
+    acknowledgements.push(new URL(req.url, "http://127.0.0.1").searchParams.get("ack"));
+    if (acknowledgements.length === 1) {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.write(" ");
+      return res.end();
+    }
+    res.end(JSON.stringify(batch));
+  });
+  const result = await review.cli("poll", review.file, "--ack", "b_explicit", "--timeout", "2");
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), batch);
+  assert.deepEqual(acknowledgements, ["b_explicit", "b_explicit"]);
+  assert.match(result.stderr, /retrying/);
+});
+
 test("an older live protocol fails actionably without changing its matching lock or record", { timeout: 5000 }, async (t) => {
   let polls = 0;
   const review = await fixture(t, () => { polls++; }, { protocol: SERVER_PROTOCOL - 1 });
