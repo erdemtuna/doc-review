@@ -2,11 +2,11 @@ import { test, expect } from "@playwright/test";
 import http from "node:http";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { transformTrustedHtml } from "../src/document-trust.js";
-import { trustedFileCsp, framePolicy, TRUSTED_SDK_MODULE_PATHS } from "../src/frame-policy.js";
+import { transformInteractiveHtml } from "../src/document-execution.js";
+import { interactiveFileCsp, framePolicy, TRUSTED_SDK_MODULE_PATHS } from "../src/frame-policy.js";
 import { injectSdk } from "../src/html-transform.js";
 
-test("trusted self-contained scripts and handlers run with real SDK but arbitrary dependencies remain blocked", async ({ page }) => {
+test("automatic self-contained scripts and handlers run with real SDK but arbitrary dependencies remain blocked", async ({ page }) => {
   const requests = [];
   let origin;
   const source = `<!doctype html><html><head>
@@ -36,12 +36,12 @@ test("trusted self-contained scripts and handlers run with real SDK but arbitrar
     requests.push(req.url);
     if (req.url === "/" || req.url === "/safe-root") {
       res.setHeader("content-type", "text/html");
-      res.end(`<script>window.parentApiToken="parent-secret-only"</script><iframe id=frame sandbox="${framePolicy({ kind: "file", trustMode: "trusted-file" }, origin).sandbox}" src="${req.url === "/" ? "/trusted" : "/safe"}"></iframe>`);
-    } else if (req.url === "/trusted" || req.url === "/safe") {
-      const trusted = req.url === "/trusted";
-      const csp = trusted ? trustedFileCsp(origin) : "script-src 'nonce-frame-correlation-only' 'strict-dynamic'; object-src 'none'; base-uri 'self'";
+      res.end(`<script>window.parentApiToken="parent-secret-only"</script><iframe id=frame sandbox="${framePolicy({ kind: "file", executionMode: "interactive" }, origin).sandbox}" src="${req.url === "/" ? "/interactive" : "/safe"}"></iframe>`);
+    } else if (req.url === "/interactive" || req.url === "/safe") {
+      const interactive = req.url === "/interactive";
+      const csp = interactive ? interactiveFileCsp(origin) : "script-src 'nonce-frame-correlation-only' 'strict-dynamic'; object-src 'none'; base-uri 'self'";
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": csp });
-      res.end(injectSdk(trusted ? transformTrustedHtml(source).html : source, "test-key", { src: `${origin}/sdk.js`, nonce: "frame-correlation-only", generation: 1 }));
+      res.end(injectSdk(interactive ? transformInteractiveHtml(source).html : source, "test-key", { src: `${origin}/sdk.js`, nonce: "frame-correlation-only", generation: 1 }));
     } else if (TRUSTED_SDK_MODULE_PATHS.includes(req.url)) {
       res.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" });
       res.end(fs.readFileSync(fileURLToPath(new URL(`../src${req.url}`, import.meta.url))));

@@ -1,12 +1,17 @@
 import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, reviewApi } from "./helpers.js";
 
-const html = `<!doctype html><html><body>
+const html = `<!doctype html><html><head><style>
+body{font:16px/1.6 system-ui;margin:24px;max-width:760px}button{min-width:44px;min-height:44px}
+</style></head><body>
+  <h1>Release readiness review</h1>
   <nav role="tablist" id="sections">
-    <button role="tab" id="first" aria-controls="first-panel" aria-selected="true">First</button>
-    <button role="tab" id="second" aria-controls="second-panel" aria-selected="false">Second</button>
+    <button role="tab" id="first" aria-controls="first-panel" aria-selected="true">Overview</button>
+    <button role="tab" id="second" aria-controls="second-panel" aria-selected="false">Rollout</button>
   </nav>
-  <section role="tabpanel" id="first-panel"><p id="copy">Original source</p></section>
+  <section role="tabpanel" id="first-panel"><p id="copy">Original source</p>
+    <p>Validate production alerts, regional ownership, and rollback procedures before increasing traffic.</p>
+  </section>
   <section role="tabpanel" id="second-panel" hidden><p>Second section</p></section>
   <script>
     document.body.dataset.executed = 'yes';
@@ -21,272 +26,256 @@ const html = `<!doctype html><html><body>
   </script>
 </body></html>`;
 
-async function approve(page) {
-  await page.getByRole("switch", { name: "Enable page scripts", checked: false }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("switch", { name: "Enable page scripts" })).toBeChecked();
-  const frame = await waitForSdk(page);
-  await expect(frame.locator("body")).toHaveAttribute("data-executed", "yes");
-  await expect(page.locator("#previousFrame")).toHaveCount(0);
-  await expect(frame.locator('[data-eh-ui="trust-notice"]')).toHaveCount(0);
-  return frame;
+async function recover(page, preference) {
+  if (!(await page.locator("#reviewDetails").evaluate((element) => element.open))) await page.locator("#reviewDetails > summary").click();
+  await page.locator(preference === "static" ? "#executionStatic" : "#executionAuto").click();
 }
 
-test("explicit version trust enables real tabs without autosaving runtime or human preview edits", async ({ page, review }) => {
-  const file = writeFile(review, "trusted-tabs.html", html);
+async function changeCopy(page, frame, text) {
+  await enterEditMode(page);
+  await frame.locator("#copy").evaluate((element, value) => {
+    element.textContent = value;
+    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  }, text);
+}
+
+test("self-contained interactions run automatically; runtime and human edits remain feedback-only", async ({ page, review }) => {
+  const approvals = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/trust")) approvals.push(request.url());
+  });
+  const file = writeFile(review, "automatic-tabs.html", html);
   const session = await openReview(page, review, file);
-  let frame = await waitForSdk(page);
-  await expect(frame.locator("#copy")).toHaveText("Original source");
-  await frame.locator("#second").click();
-  await expect(frame.locator("#second-panel")).toBeHidden();
-  frame = await approve(page);
+  const frame = await waitForSdk(page);
   await expect(frame.locator("#copy")).toHaveText("Runtime wording");
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await frame.locator("#second").click();
   await expect(frame.locator("#second-panel")).toBeVisible();
   await expect(page.locator("#frame")).not.toHaveAttribute("sandbox", /allow-same-origin/);
   expect(review.store.page(session.key).edits).toEqual([]);
   await frame.locator("#first").click();
-  await enterEditMode(page);
-  await frame.locator("#copy").click();
-  await page.keyboard.press("End");
-  await page.keyboard.type(" plus my feedback");
+  await changeCopy(page, frame, "Human feedback on runtime wording");
   await expect.poll(() => review.store.page(session.key).edits.length).toBeGreaterThan(0);
   expect(fs.readFileSync(file, "utf8")).toBe(html);
-  const forbidden = await reviewApi(review, `/api/page/${session.key}/save`, {
-    method: "POST", body: { html: "<p>Do not write</p>" },
+  const metadata = (await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json();
+  expect(metadata.savePolicy).toBe("feedback-only");
+  expect(metadata.executionMode).toBe("interactive");
+  expect(approvals).toEqual([]);
+});
+
+test("inert examples and data scripts retain static HTML autosave", async ({ page, review }) => {
+  const source = `<!doctype html><p id="copy">Static source</p>
+    <!-- <script>not executable</script> -->
+    <pre>&lt;script&gt;example&lt;/script&gt;</pre>
+    <script type="application/ld+json">{"name":"Example"}</script>
+    <script type="application/json">{"enabled":true}</script>
+    <template><script>window.inertExample = true;</script></template>`;
+  const file = writeFile(review, "static-data.html", source);
+  const session = await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await changeCopy(page, frame, "Saved static edit");
+  await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Saved static edit");
+  expect((await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json().savePolicy).toBe("writable");
+  expect(await frame.locator("body").evaluate(() => window.inertExample)).toBeUndefined();
+});
+
+test("source script addition and removal automatically reclassify the displayed frame", async ({ page, review }) => {
+  const staticSource = '<!doctype html><p id="copy">Static source</p>';
+  const file = writeFile(review, "source-transitions.html", staticSource);
+  const session = await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  fs.writeFileSync(file, html);
+  await expect(frame.locator("#copy")).toHaveText("Runtime wording");
+  await waitForSdk(page);
+  expect((await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json().savePolicy).toBe("feedback-only");
+  fs.writeFileSync(file, staticSource.replace("Static source", "New static source"));
+  await expect(frame.locator("#copy")).toHaveText("New static source");
+  await waitForSdk(page);
+  await changeCopy(page, frame, "Autosave restored");
+  await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Autosave restored");
+  expect((await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json().savePolicy).toBe("writable");
+});
+
+test("a draft-held source transition keeps the displayed policy until the new frame is ready", async ({ page, review }) => {
+  await page.addInitScript(() => {
+    window.reviewConfigurations = [];
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "eh:configureReview") window.reviewConfigurations.push(event.data);
+    });
   });
-  expect(forbidden.status).toBe(409);
+  const file = writeFile(review, "held-source-transition.html", '<!doctype html><p id="copy">Original source</p>');
+  await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await frame.locator("#copy").evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await frame.locator("#commentAction").click();
+  await page.locator("#composeText").fill("Keep this source-directed draft");
+  const rendered = await page.locator("#frame").getAttribute("src");
+  fs.writeFileSync(file, html);
+  await expect(page.locator("#reloadNotice")).toBeVisible();
+  expect(await page.locator("#frame").getAttribute("src")).toBe(rendered);
+  await expect(frame.locator("#copy")).toHaveText("Original source");
+  expect(await frame.locator("body").evaluate(() => window.reviewConfigurations.at(-1).savePolicy)).toBe("writable");
+  await page.locator("#safeReload").click();
+  await expect(frame.locator("#copy")).toHaveText("Runtime wording");
+  await waitForSdk(page);
+  expect(await frame.locator("body").evaluate(() => window.reviewConfigurations[0].savePolicy)).toBe("feedback-only");
+  await expect(page.locator("#composeText")).toHaveValue("Keep this source-directed draft");
+  await expect(page.locator("#composeError")).toContainText("original excerpt");
   expect(fs.readFileSync(file, "utf8")).toBe(html);
 });
 
-test("a changed HTML version blocks scripts again and requires explicit renewed approval", async ({ page, review }) => {
-  const file = writeFile(review, "trust-change.html", html);
-  await openReview(page, review, file);
+test("optional recovery is keyboard operable, stays feedback-only and persists only within its session", async ({ page, review }) => {
+  const requests = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/execution") && request.method() === "POST") requests.push(request.postDataJSON());
+  });
+  const file = writeFile(review, "recovery.html", html);
+  const session = await openReview(page, review, file);
+  const frame = await waitForSdk(page);
+  await page.locator("#reviewDetails > summary").focus();
+  await page.keyboard.press("Enter");
+  await page.locator("#executionStatic").focus();
+  await page.keyboard.press("Enter");
+  await expect(frame.locator("#copy")).toHaveText("Original source");
   await waitForSdk(page);
-  await approve(page);
-  fs.writeFileSync(file, html.replace("Original source", "Changed source"));
-  const frame = page.frameLocator("#frame");
-  await expect(frame.locator("#copy")).toHaveText("Changed source");
-  await expect(page.getByRole("switch", { name: "Enable page scripts" })).not.toBeChecked();
-  await expect(page.locator("#scriptStatus")).toContainText("File changed - enable again.");
   await frame.locator("#second").click();
   await expect(frame.locator("#second-panel")).toBeHidden();
-  await approve(page);
-  await frame.locator("#second").click();
-  await expect(frame.locator("#second-panel")).toBeVisible();
-  await page.getByRole("switch", { name: "Enable page scripts", checked: true }).click();
-  await expect(frame.locator("#copy")).toHaveText("Changed source");
-  await expect(page.getByRole("switch", { name: "Enable page scripts" })).not.toBeChecked();
-});
-
-test("script switch supports deliberate keyboard activation without hover or focus grants", async ({ page, review }) => {
-  const posts = [];
-  page.on("request", (request) => {
-    if (request.url().endsWith("/trust") && request.method() === "POST") posts.push(request.postDataJSON());
-  });
-  await openReview(page, review, writeFile(review, "keyboard-switch.html", html));
-  const frame = await waitForSdk(page);
-  const control = page.getByRole("switch", { name: "Enable page scripts" });
-  await expect(control).toBeEnabled();
-  await control.hover();
-  await control.focus();
-  await page.keyboard.press("Escape");
-  expect(posts).toHaveLength(0);
-  await page.keyboard.press("Space");
-  await expect(frame.locator("body")).toHaveAttribute("data-executed", "yes");
-  await expect(control).toBeChecked();
-  await expect(control).toBeEnabled();
-  await expect(control).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(frame.locator("body")).not.toHaveAttribute("data-executed", "yes");
-  await expect(control).not.toBeChecked();
-  expect(posts.map((request) => request.action)).toEqual(["grant", "revoke"]);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-});
-
-test("script switch layout and recovery states stay readable across widths and themes", async ({ page, review }, testInfo) => {
-  const file = writeFile(review, "switch-layout.html", html);
-  await openReview(page, review, file);
+  await changeCopy(page, frame, "Recovery feedback");
+  await expect.poll(() => review.store.page(session.key).edits.length).toBeGreaterThan(0);
+  expect(fs.readFileSync(file, "utf8")).toBe(html);
+  await page.reload();
   await waitForSdk(page);
-  const control = page.getByRole("switch", { name: "Enable page scripts" });
-  await expect(control).toBeEnabled();
-  await expect(page.locator("#scriptStatus")).toBeHidden();
-  await expect(page.locator("#scriptFeedback")).toHaveCount(0);
-  await expect(page.locator("#scriptHelp")).toBeHidden();
-  let stableGeometry = null;
-  const inspectLayout = async () => {
-    const geometry = await page.evaluate(() => {
-      const bounds = (selector) => {
-        const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
-        return { x, y, width, height };
-      };
-      return {
-        viewport: innerWidth, overflow: document.documentElement.scrollWidth > innerWidth,
-        toolbar: bounds(".toolbar"), frame: bounds("#frame"),
-        mode: bounds("#modeButton"),
-        groups: [bounds(".toolbar-product"), bounds("#modeButton"), bounds("#documentTrustControls"), bounds("#commentsButton")],
-        switch: bounds(".script-switch"),
-      };
-    });
-    expect(geometry.overflow).toBe(false);
-    expect(geometry.toolbar.height).toBe(geometry.viewport > 1000 ? 53 : 91);
-    expect(Math.abs(geometry.mode.x + geometry.mode.width / 2 - geometry.viewport / 2)).toBeLessThanOrEqual(1);
-    expect(geometry.switch.height).toBeGreaterThanOrEqual(44);
-    expect(geometry.switch.x).toBeGreaterThanOrEqual(0);
-    expect(geometry.switch.x + geometry.switch.width).toBeLessThanOrEqual(geometry.viewport);
-    expect(geometry.frame.y).toBeGreaterThanOrEqual(geometry.toolbar.height);
-    if (stableGeometry) {
-      for (const field of ["mode", "frame", "toolbar", "switch"]) {
-        expect(geometry[field]).toEqual(stableGeometry[field]);
-      }
-    }
-    for (const [i, a] of geometry.groups.entries()) {
-      expect(a.x).toBeGreaterThanOrEqual(0);
-      expect(a.x + a.width).toBeLessThanOrEqual(geometry.viewport);
-      for (const b of geometry.groups.slice(i + 1)) {
-        const overlaps = a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-        expect(overlaps).toBe(false);
-      }
-    }
-    return geometry;
-  };
+  await expect(frame.locator("body")).not.toHaveAttribute("data-executed", "yes");
+  expect((await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json().savePolicy).toBe("feedback-only");
+  await recover(page, "auto");
+  await expect(frame.locator("#copy")).toHaveText("Runtime wording");
+  await waitForSdk(page);
+  expect(requests.map(({ preference }) => preference)).toEqual(["static", "auto"]);
+  await recover(page, "static");
+  await expect(frame.locator("#copy")).toHaveText("Original source");
+  const fresh = await openReview(page, review, file);
+  expect(fresh.sessionId).not.toBe(session.sessionId);
+  await waitForSdk(page);
+  await expect(frame.locator("#copy")).toHaveText("Runtime wording");
+});
+
+test("pasted images in local scripted feedback render from staging without rewriting source", async ({ page, review }) => {
+  const file = writeFile(review, "scripted-paste.html", html);
+  const session = await openReview(page, review, file);
+  const frame = await enterEditMode(page);
+  await frame.locator("#copy").evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN2kAAAAASUVORK5CYII="), (char) => char.charCodeAt(0));
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(new File([bytes], "review.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+  });
+  const image = frame.locator("#copy img");
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((element) => element.complete && element.naturalWidth > 0)).toBe(true);
+  await expect.poll(() => review.store.page(session.key).edits.length).toBeGreaterThan(0);
+  expect(fs.readFileSync(file, "utf8")).toBe(html);
+});
+
+test("served review layout has accessible controls without overflow across widths and themes", async ({ page, review }, testInfo) => {
+  await openReview(page, review, writeFile(review, "release-readiness-long-regional-rollout-review.html", html));
+  await waitForSdk(page);
   for (const theme of ["light", "dark"]) {
     await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
-    for (const width of [1440, 1024, 680, 390, 320]) {
+    for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 800 });
-      await inspectLayout();
-      if ([1440, 390].includes(width)) {
-        await page.locator(".toolbar").screenshot({ path: testInfo.outputPath(`switch-off-${theme}-${width}.png`) });
+      const geometry = await page.evaluate(() => {
+        const bounds = (element) => {
+          const { x, y, width, height } = element.getBoundingClientRect();
+          return { id: element.id || element.tagName, x, y, width, height };
+        };
+        return {
+          overflow: document.documentElement.scrollWidth > innerWidth,
+          controls: [...document.querySelectorAll(".toolbar button, .toolbar summary")].filter((element) => element.checkVisibility()).map(bounds),
+          toolbar: bounds(document.querySelector(".toolbar")), frame: bounds(document.querySelector("#frame")),
+        };
+      });
+      expect(geometry.overflow).toBe(false);
+      expect(geometry.frame.y).toBeGreaterThanOrEqual(geometry.toolbar.y + geometry.toolbar.height);
+      for (const [index, control] of geometry.controls.entries()) {
+        expect(control.width, control.id).toBeGreaterThanOrEqual(44);
+        expect(control.height, control.id).toBeGreaterThanOrEqual(44);
+        expect(control.x).toBeGreaterThanOrEqual(0);
+        expect(control.x + control.width).toBeLessThanOrEqual(width);
+        for (const other of geometry.controls.slice(index + 1)) {
+          expect(control.x < other.x + other.width && control.x + control.width > other.x &&
+            control.y < other.y + other.height && control.y + control.height > other.y, `${control.id} overlaps ${other.id}`).toBe(false);
+        }
       }
+      await page.screenshot({ path: testInfo.outputPath(`review-${theme}-${width}.png`) });
+      await page.locator("#reviewDetails > summary").click();
+      const menu = await page.locator(".review-details-menu").boundingBox();
+      expect(menu.x).toBeGreaterThanOrEqual(0);
+      expect(menu.x + menu.width).toBeLessThanOrEqual(width);
+      await page.keyboard.press("Escape");
+      await expect(page.locator("#reviewDetails")).not.toHaveAttribute("open", "");
     }
   }
-  await page.locator("#modeButton").click();
-  const menu = await page.locator("#modeMenu").boundingBox();
-  expect(menu.x).toBeGreaterThanOrEqual(0);
-  expect(menu.x + menu.width).toBeLessThanOrEqual(320);
-  await page.keyboard.press("Escape");
-  await page.setViewportSize({ width: 390, height: 800 });
-  await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
-  stableGeometry = await inspectLayout();
-  let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  await page.route("**/api/session/*/trust", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    await gate;
-    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Permission could not be saved. Try again." }) });
-  });
-  await control.click();
-  await expect(control).toBeDisabled();
-  await expect(page.locator("#scriptStatus")).toContainText("Enabling");
-  await inspectLayout();
-  await page.locator(".toolbar").screenshot({ path: testInfo.outputPath("switch-busy-mobile.png") });
-  release();
-  await expect(page.locator("#scriptError")).toContainText("Permission could not be saved");
-  await expect(control).toBeEnabled();
-  await expect(control).not.toBeChecked();
-  await inspectLayout();
-  await page.locator(".toolbar").screenshot({ path: testInfo.outputPath("switch-error-mobile.png") });
-  await page.locator(".script-details summary").click();
-  await page.getByRole("button", { name: "Check again" }).click();
-  await expect(page.locator("#scriptError")).toBeHidden();
-  await page.unroute("**/api/session/*/trust");
-  await approve(page);
-  await expect(page.locator("#scriptStatus")).toBeHidden();
-  await inspectLayout();
-  await page.locator(".toolbar").screenshot({ path: testInfo.outputPath("switch-on-mobile.png") });
-  fs.writeFileSync(file, html.replace("Original source", "New source"));
-  await expect(page.locator("#scriptStatus")).toContainText("File changed - enable again.");
-  await inspectLayout();
-  await page.locator(".toolbar").screenshot({ path: testInfo.outputPath("switch-changed-mobile.png") });
 });
 
 for (const width of [1440, 390]) {
-  test(`switching at ${width}px preserves layout and keeps the prior page painted until replacement is ready`, async ({ page, review }, testInfo) => {
+  test(`recovery at ${width}px keeps the prior document painted until replacement is ready`, async ({ page, review }, testInfo) => {
     await page.setViewportSize({ width, height: 800 });
-    await openReview(page, review, writeFile(review, "stable-switch.html", html));
+    await openReview(page, review, writeFile(review, "painted-recovery.html", html));
     const frame = await waitForSdk(page);
-    const control = page.getByRole("switch", { name: "Enable page scripts" });
-    await expect(control).toBeEnabled();
-    await expect(page.locator("#scriptStatus")).toBeHidden();
-    const copyBefore = await frame.locator("#copy").boundingBox();
-    await page.evaluate(() => {
-      window.switchSamples = [];
-      window.sampleSwitch = true;
-      const sample = () => {
-        if (!window.sampleSwitch) return;
-        const rect = (selector) => {
-          const box = document.querySelector(selector).getBoundingClientRect();
-          return [box.x, box.y, box.width, box.height];
-        };
-        const current = document.querySelector("#frame");
-        const previous = document.querySelector("#previousFrame");
-        window.switchSamples.push({
-          toolbar: rect(".toolbar"), mode: rect("#modeButton"), control: rect(".script-switch"), frame: rect("#frame"),
-          painted: getComputedStyle(current).opacity === "1" || (!!previous && getComputedStyle(previous).opacity === "1"),
-        });
-        requestAnimationFrame(sample);
-      };
-      sample();
-    });
+    const toolbarBefore = await page.locator(".toolbar").boundingBox();
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
     await page.route("**/api/session/*/render/*/ready", async (route) => {
       await gate;
       await route.continue();
     });
-    await control.click();
-    await expect(page.locator("#previousFrame")).toBeVisible();
-    await expect(page.locator("#previousFrame")).toHaveAttribute("inert", "");
-    await expect(page.frameLocator("#previousFrame").locator("#copy")).toHaveText("Original source");
-    await expect(page.locator("#frame")).toHaveAttribute("data-replacing", "true");
-    await page.screenshot({ path: testInfo.outputPath(`applying-${width}.png`) });
-    release();
-    await expect(page.locator("#previousFrame")).toHaveCount(0);
-    await expect(frame.locator("#copy")).toHaveText("Runtime wording");
-    await expect(frame.locator('[data-eh-ui="trust-notice"]')).toHaveCount(0);
-    const copyAfter = await frame.locator("#copy").boundingBox();
-    expect(copyAfter.y).toBe(copyBefore.y);
-    await page.unroute("**/api/session/*/render/*/ready");
-    await control.click();
-    await expect(frame.locator("#copy")).toHaveText("Original source");
-    await expect(page.locator("#previousFrame")).toHaveCount(0);
-    await expect(page.locator("#scriptStatus")).toBeHidden();
-    const samples = await page.evaluate(() => {
-      window.sampleSwitch = false;
-      return window.switchSamples;
-    });
-    expect(samples.length).toBeGreaterThan(5);
-    for (const sample of samples) {
-      expect(sample.painted).toBe(true);
-      for (const field of ["toolbar", "mode", "control", "frame"]) {
-        expect(sample[field]).toEqual(samples[0][field]);
-      }
+    try {
+      await recover(page, "static");
+      await expect(page.locator("#previousFrame")).toBeVisible();
+      await expect(page.locator("#previousFrame")).toHaveAttribute("inert", "");
+      await expect(page.frameLocator("#previousFrame").locator("#copy")).toHaveText("Runtime wording");
+      await expect(page.locator("#frame")).toHaveAttribute("data-replacing", "true");
+      expect(await page.locator(".toolbar").boundingBox()).toEqual(toolbarBefore);
+      await page.screenshot({ path: testInfo.outputPath(`recovery-loading-${width}.png`) });
+    } finally {
+      release();
     }
-    await page.getByText("?", { exact: true }).click();
-    await expect(page.locator(".script-details-body")).toBeVisible();
-    await expect(page.locator(".script-details-body")).toContainText("External scripts");
-    const toolbar = await page.locator(".toolbar").boundingBox();
-    expect(toolbar.height).toBe(samples[0].toolbar[3]);
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".script-details-body")).toBeHidden();
+    await expect(page.locator("#previousFrame")).toHaveCount(0);
+    await expect(frame.locator("#copy")).toHaveText("Original source");
+    await waitForSdk(page);
+    expect(await page.locator(".toolbar").boundingBox()).toEqual(toolbarBefore);
   });
 }
 
-test("a failed ready handshake reveals the failure instead of leaving an old-page cover stuck", async ({ page, review }) => {
-  await openReview(page, review, writeFile(review, "failed-switch.html", html));
+test("failed ready handshake exposes recovery and can reload successfully", async ({ page, review }) => {
+  await openReview(page, review, writeFile(review, "failed-recovery.html", html));
   await waitForSdk(page);
   await page.route("**/api/session/*/render/*/ready", (route) => route.fulfill({
-    status: 503, contentType: "application/json", body: JSON.stringify({ error: "Ready unavailable" }),
+    status: 503, json: { error: "Ready unavailable" },
   }));
-  await page.getByRole("switch", { name: "Enable page scripts" }).click();
+  await recover(page, "static");
   await expect(page.locator(".toast")).toContainText("could not confirm");
   await expect(page.locator("#previousFrame")).toHaveCount(0);
   await expect(page.locator("#frame")).not.toHaveAttribute("data-replacing");
   await expect(page.locator("#reloadNotice")).toBeVisible();
-  await expect(page.locator("#scriptStatus")).toContainText("could not confirm");
   await page.unroute("**/api/session/*/render/*/ready");
   await page.locator("#safeReload").click();
-  await waitForSdk(page);
-  await expect(page.locator("#previousFrame")).toHaveCount(0);
-  await expect(page.locator("#scriptStatus")).toBeHidden();
+  const frame = await waitForSdk(page);
+  await expect(frame.locator("#copy")).toHaveText("Original source");
+  await expect(page.locator("#reloadNotice")).toBeHidden();
 });

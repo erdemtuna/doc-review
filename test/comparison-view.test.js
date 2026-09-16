@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createComparisonView } from "../src/comparison-view.js";
 import { compareSemanticSnapshots, compareSources } from "../src/revision-diff.js";
+import { readFileSync } from "node:fs";
 
 const block = (text, tag = "p", extra = {}) => ({
   id: "b1", tag, text, path: ["body"], selector: "body > p:nth-of-type(1)",
@@ -115,4 +116,55 @@ test("source CRLF-only edits are visible as line-ending diagnostics", () => {
   createComparisonView(root).render(compareSources("same\r\n", "same\n"), { mode: "source" });
   assert.match(root.querySelector(".comparison-before").textContent, /Line ending: CRLF/);
   assert.match(root.querySelector(".comparison-after").textContent, /Line ending: LF/);
+});
+
+test("shell hosts navigation and headings in one sticky group without rebuilding stable headings", () => {
+  const dom = new JSDOM('<section><div class="comparison-header"><nav></nav><div class="comparison-heading-slot"></div></div><article></article></section>');
+  const root = dom.window.document.querySelector("article");
+  const view = createComparisonView(root);
+  const comparison = compareSources("Original\n", "Updated\n");
+  view.render(comparison, { mode: "source" });
+  const heading = dom.window.document.querySelector(".comparison-headings");
+  assert.equal(heading.parentElement.className, "comparison-heading-slot");
+  assert.equal(root.querySelector(".comparison-headings"), null);
+  view.render({ ...comparison, afterCapturedAt: 123 }, { mode: "source" });
+  assert.equal(heading.isConnected, true);
+  view.render({ available: false, rows: [], changes: [] });
+  assert.equal(heading.isConnected, false);
+  assert.equal(dom.window.document.querySelector(".comparison-heading-slot").textContent, "");
+});
+
+test("changed rows have non-color labels and unchanged mobile context has a single-version hook", () => {
+  const { root } = setup([block("Same"), block("Original")], [block("Same"), block("Updated")]);
+  const unchanged = root.querySelector(".comparison-unchanged");
+  assert.equal(unchanged.querySelector(".comparison-mobile-label").textContent, "Unchanged · both versions");
+  assert.ok(unchanged.querySelector(".comparison-after"));
+  const changed = root.querySelector(".comparison-row:not(.comparison-unchanged)");
+  assert.equal(changed.querySelector(".comparison-before").getAttribute("aria-label"), "Before · modified");
+  assert.equal(changed.querySelector(".comparison-after .comparison-mobile-label").textContent, "After · modified");
+  assert.equal(changed.querySelector(".comparison-change-label").textContent, "Modified");
+});
+
+test("shell keeps recovery and diagnostics secondary and preserves accessible destinations", () => {
+  const dom = new JSDOM(readFileSync(new URL("../src/chrome.html", import.meta.url), "utf8"));
+  const document = dom.window.document;
+  const byId = (id) => document.getElementById(id);
+  assert.equal(byId("latestVersion").textContent, "Review");
+  assert.equal(byId("seeChanges").textContent, "Changes");
+  assert.equal(byId("seeChanges").getAttribute("aria-controls"), "historyPanel");
+  assert.equal(byId("latestVersion").getAttribute("aria-pressed"), "true");
+  assert.equal(byId("reviewDetails").querySelector("summary").textContent.trim(), "More ⌄");
+  assert.equal(byId("executionStatic").textContent, "Reload without scripts");
+  assert.equal(byId("executionAuto").textContent, "Use page interactions");
+  assert.equal(byId("executionStatus").closest(".toolbar"), null);
+  assert.equal(byId("executionStatus").getAttribute("role"), "status");
+  assert.equal(byId("executionStatus").hidden, true);
+  assert.equal(byId("documentTrustControls").hidden, true);
+  for (const id of ["historyCurrentStatus", "historyViewCoverage", "historyUnavailable", "historyTiming", "historyCaptureDelay", "historyLimitations", "finishCapture", "finishCaptureHelp"]) {
+    assert.equal(byId(id).closest("details#historyDiagnostics"), byId("historyDiagnostics"), id);
+  }
+  assert.equal(byId("historyViewCoverage").hasAttribute("role"), false);
+  assert.equal(byId("captureResult").closest("details"), null);
+  assert.equal(byId("changeNavigation").parentElement.className, "comparison-header");
+  assert.ok(byId("drawer").querySelector("#commentsSection"));
 });

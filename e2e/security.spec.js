@@ -98,7 +98,8 @@ test("consumed registrations and stale capabilities cannot replay after reload o
     "first.html",
     '<!doctype html><html><body><a id="next" href="./second.html">Next</a><p>First</p></body></html>'
   );
-  const second = writeFile(review, "second.html", "<!doctype html><html><body><p>Second</p></body></html>");
+  const secondSource = "<!doctype html><html><body><p>Second</p></body></html>";
+  const second = writeFile(review, "second.html", secondSource);
   const registrations = [];
   page.on("response", async (response) => {
     if (/\/api\/session\/\w+\/render$/.test(response.url()) && response.ok()) {
@@ -126,9 +127,15 @@ test("consumed registrations and stale capabilities cannot replay after reload o
   );
   await expect(page).toHaveTitle("second.html");
   await waitForSdk(page);
+  await expect(page.locator("#previousFrame")).toHaveCount(0);
   await expect.poll(() => registrations.length).toBeGreaterThan(2);
-  const currentFrame = page.frames().find((candidate) => /\/artifact\/r_/.test(candidate.url()));
-  await currentFrame.evaluate((stale) => {
+  const currentFrame = page.frameLocator("#frame");
+  await expect(currentFrame.locator("p")).toHaveText("Second");
+  const currentSrc = await page.locator("#frame").getAttribute("src");
+  const currentPath = new URL(currentSrc, page.url()).pathname;
+  await expect.poll(() => registrations.find(({ path }) => path === currentPath)).toBeTruthy();
+  const beforeReload = registrations.find(({ path }) => path === currentPath);
+  const replayOrigin = await currentFrame.locator("body").evaluate((_, stale) => {
     parent.postMessage(
       {
         type: "eh:html",
@@ -139,16 +146,32 @@ test("consumed registrations and stale capabilities cannot replay after reload o
       },
       "*"
     );
+    return location.pathname;
   }, initial);
+  expect(replayOrigin).toBe(currentPath);
   await page.waitForTimeout(200);
-  expect(fs.readFileSync(second, "utf8")).toContain("<p>Second</p>");
+  expect(fs.readFileSync(second, "utf8")).toBe(secondSource);
+  await expect(page.locator("#frame")).toHaveAttribute("src", currentSrc);
 
-  const beforeReload = registrations.at(-1);
   const registrationCount = registrations.length;
-  await currentFrame.evaluate(() => location.reload());
+  await currentFrame.locator("body").evaluate(() => {
+    // Return before reload intentionally destroys this document's execution context.
+    setTimeout(() => location.reload(), 0);
+  });
   await expect.poll(() => registrations.length).toBeGreaterThan(registrationCount);
-  const reloadedFrame = page.frames().find((candidate) => /\/artifact\/r_/.test(candidate.url()));
-  await reloadedFrame.evaluate((stale) => {
+  await expect(page.locator("#frame")).not.toHaveAttribute("src", currentSrc);
+  const reloadedFrame = await waitForSdk(page);
+  await expect(page.locator("#previousFrame")).toHaveCount(0);
+  await expect(reloadedFrame.locator("p")).toHaveText("Second");
+  const reloadedSrc = await page.locator("#frame").getAttribute("src");
+  const reloadedPath = new URL(reloadedSrc, page.url()).pathname;
+  await expect.poll(() => registrations.find(({ path }) => path === reloadedPath)).toBeTruthy();
+  const reloaded = registrations.find(({ path }) => path === reloadedPath);
+  expect(reloaded.generation).toBeGreaterThan(beforeReload.generation);
+  expect(reloaded.capability).not.toBe(beforeReload.capability);
+  const consumed = await fetch(`http://127.0.0.1:${review.port}${beforeReload.path}`);
+  expect(consumed.status).toBe(410);
+  const reloadedOrigin = await reloadedFrame.locator("body").evaluate((_, stale) => {
     parent.postMessage(
       {
         type: "eh:html",
@@ -159,9 +182,16 @@ test("consumed registrations and stale capabilities cannot replay after reload o
       },
       "*"
     );
+    return location.pathname;
   }, beforeReload);
+  expect(reloadedOrigin).toBe(reloadedPath);
   await page.waitForTimeout(200);
-  expect(fs.readFileSync(second, "utf8")).toContain("<p>Second</p>");
+  expect(fs.readFileSync(second, "utf8")).toBe(secondSource);
+  const state = (await reviewApi(review, `/api/page/${reloaded.pageKey}`)).json();
+  expect(state.comments).toEqual([]);
+  expect(state.edits).toEqual([]);
+  await expect(page.locator("#frame")).toHaveAttribute("src", reloadedSrc);
+  await expect(page).toHaveTitle("second.html");
 });
 
 test("a failed controlled navigation leaves the current frame connected", async ({ page, review }) => {

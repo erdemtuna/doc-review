@@ -37,6 +37,9 @@ test("returning to the captured live tab retries without reloading or auto-click
     await page.locator("#drawerClose").click();
     const batch = (await reviewApi(review, `/api/poll?target=${encodeURIComponent(target)}`)).json();
     version = "After";
+    await page.reload();
+    await waitForSdk(page);
+    await expect(frame.locator("#product-panel")).toHaveText("After product content");
     const acknowledged = await fetch(
       `http://127.0.0.1:${review.port}/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batch.batch_id)}`,
       { headers: { "x-doc-review-token": review.token } }
@@ -62,7 +65,9 @@ test("returning to the captured live tab retries without reloading or auto-click
     expect(after.blocks.map((block) => block.text).join(" ")).toContain("After screens content");
     expect(after.blocks.map((block) => block.text).join(" ")).not.toContain("After product content");
     await page.locator("#seeChanges").click();
-    await expect(page.locator("#historyPanel")).toContainText("Matching visible view: Screens");
+    await page.locator("#historyDiagnostics > summary").click();
+    await expect(page.locator("#historyViewCoverage")).toBeVisible();
+    await expect(page.locator("#historyViewCoverage")).toContainText("Matching visible view: Screens");
   } finally {
     await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
   }

@@ -5,7 +5,7 @@ export function normalizeReviewMode(mode) {
 }
 
 export function savePolicyForPage(page) {
-  return page && (page.kind === "url" || page.markdown || page.feedbackOnly || page.trustMode === "trusted-file")
+  return page && (page.savePolicy === "feedback-only" || page.kind === "url" || page.markdown || page.feedbackOnly)
     ? "feedback-only"
     : "writable";
 }

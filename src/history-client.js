@@ -8,27 +8,36 @@ export function createCaptureRequests({ send, current, timeout = 6000 }) {
   const pending = new Map();
   let sequence = 0;
   return {
-    request() {
+    request({ timeout: requestTimeout = timeout, signal } = {}) {
       const identity = { ...current() };
-      if (!identity.renderId || identity.loading) return Promise.reject(new Error("The page is not ready to capture"));
+      if (signal?.aborted) return Promise.reject(captureError("CAPTURE_CANCELLED", "Capture cancelled"));
+      if (!identity.renderId || identity.loading) return Promise.reject(captureError("CAPTURE_NOT_READY", "The page is not ready to capture"));
       const requestId = `capture-${++sequence}`;
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const finish = (error, value) => {
+          if (!pending.has(requestId)) return;
           pending.delete(requestId);
-          reject(new Error("The page did not confirm a stable capture. Recapture when it is ready."));
-        }, timeout);
-        pending.set(requestId, { identity, resolve, reject, timer });
-        send({ type: "eh:captureSnapshot", requestId, requireStable: true });
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          if (error) reject(error);
+          else resolve(value);
+        };
+        const abort = () => finish(captureError("CAPTURE_CANCELLED", "Capture cancelled"));
+        const timer = setTimeout(() => finish(captureError("CAPTURE_TIMEOUT",
+          "The page did not confirm a stable capture. Recapture when it is ready.")), requestTimeout);
+        pending.set(requestId, { identity, finish });
+        signal?.addEventListener("abort", abort, { once: true });
+        try { send({ type: "eh:captureSnapshot", requestId, requireStable: true }); }
+        catch (error) { finish(error); }
       });
     },
     receive(message) {
       const request = pending.get(message.requestId);
       if (!request) return false;
-      pending.delete(message.requestId);
-      clearTimeout(request.timer);
-      if (!sameRender(request.identity, current())) request.reject(new Error("The page changed during capture. Recapture the latest version."));
-      else if (message.error || !message.snapshot) request.reject(new Error(message.error?.message || message.error || "Semantic capture is unavailable"));
-      else request.resolve({
+      if (!sameRender(request.identity, current())) request.finish(captureError("CAPTURE_CHANGED", "The page changed during capture. Recapture the latest version."));
+      else if (message.error || !message.snapshot) request.finish(captureError(message.error?.code || "CAPTURE_UNAVAILABLE",
+        message.error?.message || message.error || "Semantic capture is unavailable"));
+      else request.finish(null, {
         ...request.identity, semantic: message.snapshot, sourceHash: message.sourceHash,
         semanticCapturedAt: Number.isFinite(message.capturedAt) ? message.capturedAt : undefined,
         view: message.view,
@@ -37,13 +46,16 @@ export function createCaptureRequests({ send, current, timeout = 6000 }) {
     },
     cancel(reason = "The page changed during capture") {
       for (const request of pending.values()) {
-        clearTimeout(request.timer);
-        request.reject(new Error(reason));
+        request.finish(captureError("CAPTURE_CANCELLED", reason));
       }
       pending.clear();
     },
     get size() { return pending.size; },
   };
+}
+
+export function captureError(code, message) {
+  return Object.assign(new Error(message), { code });
 }
 
 export function draftCount({ compose, commentUi }, note = "") {
@@ -62,8 +74,7 @@ export function changeKind(item) {
 }
 
 export function pendingCaptureTarget(round, key, readyAt) {
-  if (round?.feedbackStatus !== "acknowledged" ||
-      !(readyAt > new Date(round.sentAt ?? round.createdAt).getTime())) return null;
+  if (round?.feedbackStatus !== "acknowledged" || !(readyAt > 0)) return null;
   return round.targets?.find((target) => target.key === key && !target.resultRevisionId &&
     ["pending", "failed"].includes(target.capture?.status || target.captureStatus || "pending")) || null;
 }

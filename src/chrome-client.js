@@ -24,10 +24,11 @@ import { externalHref } from "./editing.js";
 import { framePolicy } from "./frame-policy.js";
 import { createIcon } from "./icons.js";
 import { createComparisonView } from "./comparison-view.js";
-import { createDocumentTrustControls } from "./document-trust-client.js";
+import { createExecutionControls } from "./execution-client.js";
 import { alignedCardPosition, placeContextualSurface, visibleViewport } from "./positioning.js";
 import { normalizeReviewMode, reviewConfiguration } from "./review-mode.js";
-import { createCaptureRequests, sameRender, draftCount, excerpt, changeKind, pendingCaptureTarget, defaultHistoryRound, comparisonFreshness } from "./history-client.js";
+import { createCaptureRequests, captureError, sameRender, draftCount, excerpt, changeKind, pendingCaptureTarget, comparisonFreshness } from "./history-client.js";
+import { createCaptureCoordinator, createHistoryController, deliverFeedback, historyPresentation, requireCaptureSuccess } from "./history-coordinator.js";
 
 const $ = (id) => document.getElementById(id);
 let frame = $("frame");
@@ -82,7 +83,9 @@ const state = {
   renderSourceHash: null,
   frameReadyAt: 0,
   cleanObservation: null,
-  renderTrust: null,
+  renderExecution: null,
+  executionPreference: null,
+  ended: false,
 };
 
 const diagnostic = (event, detail = {}) => {
@@ -284,40 +287,43 @@ async function api(path, options) {
   return res.json();
 }
 
-const documentTrustControls = createDocumentTrustControls({
+const executionControls = createExecutionControls({
   api,
   sessionId: state.sessionId,
-  container: $("documentTrustControls"),
-  onChanged(page) {
+  elements: {
+    static: $("executionStatic"), auto: $("executionAuto"), status: $("executionStatus"),
+    details: $("executionDetails"), menu: $("reviewDetails"),
+    editDescription: $("modeMenu").querySelector('[data-mode="edit"] small'),
+  },
+  changed(page) {
     if (!page || page.key !== state.key) return;
+    state.executionPreference = page.executionPreference || null;
     state.page = {
       ...state.page,
-      trust: page.trust,
-      trustMode: page.trustMode,
-      trustedInteractive: page.trustedInteractive === true,
-      feedbackOnly: page.feedbackOnly === true,
-      ...state.renderTrust,
+      executionPreference: page.executionPreference,
+      ...state.renderExecution,
     };
     state.savePolicy = reviewConfiguration(state.page, state.reviewMode).savePolicy;
     render();
   },
-  onError(error) { toast(error.message || String(error)); },
+  failed(error) { toast(error.message || String(error)); },
 });
-let refreshedTrustPage = null;
 
 const toolbar = document.querySelector(".toolbar");
 new ResizeObserver(() => {
   document.documentElement.style.setProperty("--toolbar-h", `${toolbar.getBoundingClientRect().height}px`);
 }).observe(toolbar);
 
-function renderDocumentTrust() {
+function renderExecution() {
   const visibleFrame = previousFrame || frame;
-  documentTrustControls.setRenderState({
-    trustedInteractive: visibleFrame.hasAttribute("data-trusted-interactive")
-      ? visibleFrame.dataset.trustedInteractive === "true" : undefined,
+  const rendered = visibleFrame.dataset.savePolicy ? {
+    executionMode: visibleFrame.dataset.executionMode,
+    savePolicy: visibleFrame.dataset.savePolicy,
+    executionNotice: visibleFrame.dataset.executionNotice || null,
+  } : null;
+  executionControls.render(state.page, rendered, {
     pendingReload: state.pendingReload || !!previousFrame,
     loading: state.frameLoading,
-    notice: state.renderTrust?.trustNotice,
     error: state.frameFailure,
   });
 }
@@ -345,6 +351,7 @@ function persistEdit(key, payload) {
     payload = {
       ...payload,
       sessionId: state.sessionId, renderId: state.renderId, generation: state.renderGeneration,
+      savePolicy: state.renderExecution?.savePolicy || "feedback-only",
     };
   }
   const identity = editIdentity(payload);
@@ -449,6 +456,8 @@ const toFrame = (message) => {
 
 function suspendFrame() {
   captures.cancel();
+  captureCoordinator.reset();
+  manualCaptureController?.abort();
   for (const request of flushRequests.values()) request.settle(false);
   clearTimeout(state.frameReadyTimer);
   state.frameReadyTimer = null;
@@ -457,7 +466,7 @@ function suspendFrame() {
   state.frameLoading = true;
   state.readyGeneration = null;
   state.configurationGeneration = null;
-  state.renderTrust = null;
+  state.renderExecution = null;
   frame.removeAttribute("data-sdk-ready");
 }
 
@@ -494,7 +503,9 @@ async function registerFrame(key, generation) {
     const next = frame.cloneNode(false);
     next.src = `${ARTIFACT_ORIGIN}${registered.path}`;
     next.removeAttribute("data-sdk-ready");
-    next.removeAttribute("data-trusted-interactive");
+    delete next.dataset.executionMode;
+    delete next.dataset.savePolicy;
+    delete next.dataset.executionNotice;
     if (previousFrame) frame.remove();
     else {
       previousFrame = frame;
@@ -509,7 +520,7 @@ async function registerFrame(key, generation) {
     previousFrame.after(frame);
   }
   if (frame.src !== `${ARTIFACT_ORIGIN}${registered.path}`) frame.src = `${ARTIFACT_ORIGIN}${registered.path}`;
-  renderDocumentTrust();
+  renderExecution();
   state.frameReadyTimer = setTimeout(() => {
     if (state.key !== key || state.renderGeneration !== generation || !state.frameLoading) return;
     if (state.frameReadyRetries < 1) {
@@ -528,7 +539,7 @@ function finishFrameReplacement() {
   previousFrame?.remove();
   previousFrame = null;
   delete frame.dataset.replacing;
-  renderDocumentTrust();
+  renderExecution();
 }
 
 function failFrame(message) {
@@ -580,8 +591,8 @@ async function flushFrame({ strict = false } = {}) {
 }
 
 function configureFrame() {
-  if (state.frameLoading || !state.frameCapability || !state.renderTrust) return Promise.resolve(false);
-  Object.assign(state.page, state.renderTrust);
+  if (state.frameLoading || !state.frameCapability || !state.renderExecution) return Promise.resolve(false);
+  Object.assign(state.page, state.renderExecution);
   const configuration = reviewConfiguration(state.page, state.reviewMode);
   state.savePolicy = configuration.savePolicy;
   return new Promise((resolve) => {
@@ -641,6 +652,7 @@ async function loadPage(key, { reload = true } = {}) {
   state.key = key;
   const page = await api(pageUrl(key, state.sessionId));
   if (state.key !== key || state.renderGeneration !== generation) return;
+  state.executionPreference = page.executionPreference || null;
   reconcilePage(page, { reason: "reload", advance: false });
   state.savePolicy = reviewConfiguration(state.page, state.reviewMode).savePolicy;
   state.framePolicy = framePolicy(state.page, ARTIFACT_ORIGIN);
@@ -668,7 +680,7 @@ async function loadPage(key, { reload = true } = {}) {
   // the direct edits — which reads as data loss unless we say what happened.
   const edits = state.page.edits ? state.page.edits.length : 0;
   if (returning && state.page.feedbackOnly && edits > 0) {
-    toast(`This page renders from your dev server — ${edits} ${edits === 1 ? "edit is" : "edits are"} queued for the agent`);
+    toast(`${edits} ${edits === 1 ? "edit is" : "edits are"} queued for the agent to apply to the source`);
   }
 }
 
@@ -691,14 +703,10 @@ const clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute:
 function render() {
   const page = state.page;
   if (!page) return;
-  // A saved file's new trust decision does not change the policy of a still
-  // displayed older frame while draft-safe reload is waiting.
-  if (state.renderTrust) Object.assign(page, state.renderTrust);
-  if (refreshedTrustPage !== page) {
-    refreshedTrustPage = page;
-    void documentTrustControls.refresh(page);
-  }
-  renderDocumentTrust();
+  // Source updates cannot change the policy of a frame awaiting draft-safe reload.
+  if (state.renderExecution) Object.assign(page, state.renderExecution);
+  if (state.executionPreference) page.executionPreference = state.executionPreference;
+  renderExecution();
   syncFrameInteraction();
   const editWasFocused = skipEditCaptureOnce ? false : captureEditState();
   skipEditCaptureOnce = false;
@@ -712,7 +720,7 @@ function render() {
   $("empty").hidden = comments.length > 0 || !!state.compose;
   $("modeLabel").textContent = state.reviewMode === "edit" ? "Edit" : "View";
   replaceIcon($("modeIcon"), state.reviewMode === "edit" ? "pencil" : "eye");
-  $("modeButton").disabled = state.modeApplying || state.comparing || state.sending || !state.renderTrust;
+  $("modeButton").disabled = state.modeApplying || state.comparing || state.sending || !state.renderExecution;
   for (const item of $("modeMenu").querySelectorAll("[data-mode]")) {
     const checked = item.dataset.mode === state.reviewMode;
     item.setAttribute("aria-checked", String(checked));
@@ -832,7 +840,7 @@ function render() {
   const stranded = state.agent === "stranded";
   const busy = delivered || stranded || state.sent;
   send.disabled = (total === 0 && !hasNote) || busy || state.sending;
-  send.textContent = state.sending ? "Saving and capturing…" : delivered
+  send.textContent = state.sending ? "Sending feedback…" : delivered
     ? "Feedback delivered"
     : stranded
       ? "Sent — agent is not listening"
@@ -1538,13 +1546,23 @@ const currentRender = () => ({
   loading: state.frameLoading,
 });
 const captures = createCaptureRequests({ send: toFrame, current: currentRender });
-const history = {
-  rounds: [], selectedId: null, round: null, targetKey: null, mode: "content", preferredMode: "content",
-  index: 0, refresh: 0, captureBusy: false, finalizing: false, attempts: new Set(), failures: new Map(), preferCompleted: false,
-  viewRetry: null,
-};
 const comparisonView = createComparisonView($("changeDetail"));
 const historyUrl = (suffix = "") => `/api/session/${state.sessionId}/history${suffix}`;
+const historyController = createHistoryController({
+  request: (suffix) => api(historyUrl(suffix)), changed: renderHistory, refreshed: scheduleResultCapture,
+});
+const history = historyController.state;
+let manualCaptureController = null;
+const captureCoordinator = createCaptureCoordinator({
+  ready: () => !state.ended && !state.frameLoading && !state.pendingReload && !state.domDirty &&
+    !state.saveConflict && !state.sending && !history.captureBusy && !history.finalizing &&
+    (state.page?.kind === "url" || !!state.baseHash),
+  candidates: () => [...history.rounds].reverse().flatMap((round) => {
+    const target = pendingCaptureTarget(round, state.key, state.frameReadyAt);
+    return target ? [{ id: `${roundId(round)}:${state.renderId}:${state.renderGeneration}`, round, target }] : [];
+  }),
+  capture: ({ round, target }, signal) => captureResult(round, target, true, signal),
+});
 
 async function fullSaveBarrier() {
   const identity = currentRender();
@@ -1563,15 +1581,16 @@ async function fullSaveBarrier() {
   if (state.savePolicy !== "writable" || state.dynamic) state.domDirty = false;
 }
 
-async function captureStablePage() {
+async function captureStablePage(options) {
   const identity = currentRender();
-  const captured = await captures.request();
+  const captured = await captures.request(options);
   const capturedSaveSequence = saveSequence;
   const capturedEditSequence = editMutationSequence;
   // The SDK flushes its debounces before capture; their server writes must finish too.
   await activeSavePromise;
   await settleEditPersistence(identity.key);
   applyCleanObservation();
+  if (options?.signal?.aborted) throw captureError("CAPTURE_CANCELLED", "Capture cancelled");
   if (!sameRender(identity, currentRender()) || state.saveConflict || state.save === "failed") {
     throw new Error("The page changed or could not be saved during capture. Recapture the latest version.");
   }
@@ -1582,7 +1601,7 @@ async function captureStablePage() {
 }
 
 function syncFrameInteraction() {
-  frame.inert = state.comparing || state.sending || history.captureBusy;
+  frame.inert = state.comparing || state.sending;
 }
 
 function roundId(round) { return round?.id || round?.roundId; }
@@ -1598,50 +1617,11 @@ function comparisonItems() {
   return value?.changes || value?.items || (history.mode === "content" ? comparison.changes || comparison.items : []) || [];
 }
 
-async function refreshHistory() {
-  const revision = ++history.refresh;
-  try {
-    const data = await api(historyUrl());
-    if (revision !== history.refresh) return;
-    history.rounds = data.rounds || [];
-    if (history.preferCompleted) {
-      history.selectedId = roundId(defaultHistoryRound(history.rounds));
-      history.preferCompleted = false;
-    }
-    if (!history.rounds.some((round) => roundId(round) === history.selectedId)) history.selectedId = roundId(history.rounds[0]) || null;
-    if (history.selectedId) {
-      const detail = await api(historyUrl(`/${history.selectedId}`));
-      if (revision !== history.refresh) return;
-      history.round = detail.round || detail;
-      const summary = history.rounds.find((round) => roundId(round) === history.selectedId);
-      for (const target of roundTargets(history.round)) {
-        const label = roundTargets(summary).find((item) => item.key === target.key);
-        target.filename ||= label?.filename;
-      }
-      const target = selectedTarget();
-      history.targetKey = target?.key || null;
-      if (target) {
-        const comparisons = await Promise.all(["content", "source"].map((mode) =>
-          api(historyUrl(`/${history.selectedId}/compare?key=${encodeURIComponent(target.key)}&mode=${mode}`))
-        ));
-        if (revision !== history.refresh) return;
-        target.comparison = {
-          content: comparisons[0], source: comparisons[1],
-          availableModes: ["content", "source"].filter((mode, index) => comparisons[index].available),
-        };
-      }
-    } else history.round = null;
-    $("historyError").hidden = true;
-    renderHistory();
-    scheduleResultCapture();
-  } catch (err) {
-    $("historyError").hidden = false;
-    $("historyError").textContent = `History could not be loaded: ${err.message}`;
-  }
-}
+const refreshHistory = () => state.ended ? Promise.resolve(false) : historyController.refresh();
 
 function renderHistory() {
   syncFrameInteraction();
+  const focusedMode = document.activeElement?.dataset.comparisonMode;
   const picker = $("roundPicker");
   picker.replaceChildren();
   for (const [index, round] of history.rounds.entries()) {
@@ -1654,7 +1634,7 @@ function renderHistory() {
   picker.disabled = !history.rounds.length;
   const targets = roundTargets(history.round);
   const target = selectedTarget();
-  history.targetKey = target?.key || null;
+  if (history.round) history.targetKey = target?.key || null;
   $("historyTarget").replaceChildren();
   for (const item of targets) {
     const option = document.createElement("option");
@@ -1665,13 +1645,11 @@ function renderHistory() {
   $("historyTarget").value = history.targetKey || "";
   $("historyTargetLabel").hidden = targets.length < 2;
   const comparison = targetComparison(target);
-  const selectedComparison = comparison[history.mode] || {};
-  const modes = comparison.availableModes || [
-    ...(comparison.content || comparison.changes || comparison.items ? ["content"] : []),
-    ...(comparison.source ? ["source"] : []),
-  ];
+  const failedCapture = history.failures.get(`${roundId(history.round)}:${target?.key}`);
+  const presentation = historyPresentation({ ...history, target, comparison, failure: failedCapture });
+  const modes = presentation.modes;
   history.mode = modes.includes(history.preferredMode) ? history.preferredMode : modes[0] || "content";
-  const displayedComparison = comparison[history.mode] || selectedComparison;
+  const displayedComparison = comparison[history.mode] || {};
   $("historyUnavailable").replaceChildren();
   for (const mode of ["content", "source"]) {
     const representation = comparison[mode];
@@ -1730,35 +1708,12 @@ function renderHistory() {
     });
     $("comparisonModes").append(button);
   }
-  const failedCapture = history.failures.get(`${roundId(history.round)}:${target?.key}`);
-  const captureStatus = target?.capture?.status || target?.captureStatus || target?.status || history.round?.captureStatus || history.round?.status;
-  const status = failedCapture && !target?.resultRevisionId ? "failed"
-    : target?.resultRevisionId && target.baselineUnavailable ? "partial"
-      : captureStatus === "ready" ? "completed"
-        : captureStatus === "pending" && history.round?.feedbackStatus === "acknowledged" ? "awaiting-result"
-          : captureStatus || (target?.resultRevisionId ? "completed" : "pending");
-  const descriptions = {
-    pending: "Waiting for the agent's result. The baseline was captured when feedback was sent.",
-    "awaiting-result": "Waiting for the result page to stabilize. Capture result if automatic capture is unavailable.",
-    failed: "Capture failed. Saved feedback is safe; retry Capture result on the latest page.",
-    partial: "Partial comparison — some content or pages could not be captured.",
-    complete: "Before: feedback sent. After: captured result. This comparison is read-only.",
-    completed: "Before: feedback sent. After: captured result. This comparison is read-only.",
-    unavailable: "The result capture is unavailable. Any saved source comparison remains available.",
-    cancelled: "This review round was superseded. Existing captures are preserved.",
-    running: "Capturing the result. Your saved baseline will not change.",
-    claimed: "A review window is capturing the result. Your saved baseline will not change.",
-  };
-  $("historyStatus").textContent = history.round
-    ? `${status.charAt(0).toUpperCase() + status.slice(1)} · ${descriptions[status] || target?.reason || "Review the available captures below."}`
-    : "No review rounds yet. Send feedback to start a comparison.";
-  const captureReason = failedCapture || target?.capture?.error;
-  if (captureReason && !target?.resultRevisionId) $("historyStatus").textContent += ` ${captureReason}`;
-  if (target && !target.resultRevisionId && (target.sourceResultRevisionId || comparison.source?.available)) {
-    $("historyStatus").textContent += status === "unavailable"
-      ? " Source captured; missing Content was explicitly finalized as unavailable."
-      : " Source captured; Content capture pending.";
-  }
+  if (focusedMode) $("comparisonModes").querySelector(`[data-comparison-mode="${focusedMode}"]`)?.focus({ preventScroll: true });
+  if ($("historyStatus").textContent !== presentation.message) $("historyStatus").textContent = presentation.message;
+  $("historyStatus").dataset.state = presentation.state;
+  const detail = history.error?.message || failedCapture || target?.capture?.error;
+  $("historyError").hidden = !detail;
+  $("historyError").textContent = detail || "";
   const captureAllowed = target && !target.resultRevisionId && target.capture?.status !== "unavailable" && history.round?.feedbackStatus === "acknowledged";
   $("captureResult").hidden = !captureAllowed;
   $("captureResult").disabled = history.captureBusy || history.finalizing || target?.key !== state.key || state.frameLoading;
@@ -1770,8 +1725,6 @@ function renderHistory() {
   $("finishCapture").disabled = history.finalizing || history.captureBusy;
   $("finishCapture").setAttribute("aria-describedby", "finishCaptureHelp");
   $("finishCapture").textContent = history.finalizing ? "Finishing…" : "Finish with available snapshots";
-  if (captureAllowed && target.key !== state.key) $("historyStatus").textContent += " Open this page in Latest version before capturing its result.";
-  if (!modes.length && target) $("historyStatus").textContent += ` ${target.baselineUnavailable || target.resultUnavailable || comparison.content?.reason || ""}`;
   const items = comparisonItems();
   const limitations = [...new Set([
     ...(comparison.content?.limitations || []),
@@ -1784,16 +1737,21 @@ function renderHistory() {
     line.textContent = String(limitation).replaceAll("-", " ").replaceAll("_", " ");
     $("historyLimitationsList").append(line);
   }
-  const counts = displayedComparison.counts || { added: 0, modified: 0, removed: 0 };
-  if (!displayedComparison.counts) for (const item of items) counts[changeKind(item)]++;
-  $("historyCounts").textContent = modes.length
+  const counts = displayedComparison.counts;
+  $("historyCounts").textContent = modes.length && counts
     ? `${counts.added} Added · ${counts.modified} Modified · ${counts.removed} Removed`
-    : target?.resultRevisionId ? "Comparison unavailable for these captures." : "Comparison unavailable until both versions have been captured.";
+    : "";
+  $("historyCounts").hidden = !counts;
   history.index = Math.max(0, Math.min(history.index, items.length - 1));
-  comparisonView.render({ ...displayedComparison, changes: items, available: modes.length > 0 }, {
-    mode: history.mode, key: `${history.selectedId}:${history.targetKey}`,
-  });
-  comparisonView.select(history.index);
+  $("changeDetail").hidden = !modes.length;
+  const comparisonHeader = $("historyPanel").querySelector(".comparison-header");
+  if (comparisonHeader) comparisonHeader.hidden = !modes.length;
+  if (modes.length) {
+    comparisonView.render({ ...displayedComparison, changes: items }, {
+      mode: history.mode, key: `${history.selectedId}:${history.targetKey}`,
+    });
+    comparisonView.select(history.index);
+  }
   $("changeJump").replaceChildren();
   for (const [index, item] of items.entries()) {
     const option = document.createElement("option");
@@ -1808,37 +1766,45 @@ function renderHistory() {
   $("changePosition").textContent = `${items.length ? history.index + 1 : 0} of ${items.length}`;
 }
 
-async function captureResult(round, target, automatic = false) {
+async function captureResult(round, target, automatic = false, signal) {
   if (history.captureBusy || !round || target?.key !== state.key) return;
+  const manualController = automatic ? null : new AbortController();
+  if (manualController) {
+    manualCaptureController = manualController;
+    signal = manualController.signal;
+  }
   const identity = currentRender();
-  const attempt = `${roundId(round)}:${state.renderId}:${state.renderGeneration}`;
-  if (automatic && history.attempts.has(attempt)) return;
-  history.attempts.add(attempt);
   history.captureBusy = true;
   renderHistory();
   let phase = "saving";
   try {
     await fullSaveBarrier();
+    if (signal?.aborted || state.ended || !sameRender(identity, currentRender())) throw captureError("CAPTURE_CANCELLED", "Capture cancelled");
     phase = "snapshot";
-    const captured = await captureStablePage();
+    const captured = await captureStablePage({ signal });
     phase = "publishing";
-    await api(historyUrl(`/${roundId(round)}/capture`), {
+    const result = await api(historyUrl(`/${roundId(round)}/capture`), {
       method: "POST",
+      signal,
       body: JSON.stringify({
         sessionId: state.sessionId, roundId: roundId(round), key: captured.key,
         renderId: captured.renderId, generation: captured.generation,
-        semantic: captured.semantic, expectedSourceHash: state.baseHash || state.renderSourceHash,
+        semantic: captured.semantic, expectedSourceHash: captured.sourceHash || state.baseHash || state.renderSourceHash,
         semanticCapturedAt: captured.semanticCapturedAt, view: captured.view,
         manual: !automatic,
       }),
     });
+    requireCaptureSuccess(result, target.key);
+    if (signal?.aborted || state.ended || !sameRender(identity, currentRender())) return;
     history.failures.delete(`${roundId(round)}:${target.key}`);
     await refreshHistory();
   } catch (err) {
+    if (signal?.aborted || state.ended || !sameRender(identity, currentRender()) || err.code === "CAPTURE_CANCELLED") return;
     history.failures.set(`${roundId(round)}:${target.key}`, err.message);
     if (phase === "snapshot" && sameRender(identity, currentRender()) && !state.frameLoading) {
       await api(historyUrl(`/${roundId(round)}/capture`), {
         method: "POST",
+        signal,
         body: JSON.stringify({
           key: identity.key, renderId: identity.renderId, generation: identity.generation,
           manual: !automatic, error: String(err.message).slice(0, 500),
@@ -1847,29 +1813,21 @@ async function captureResult(round, target, automatic = false) {
     }
     $("historyError").hidden = false;
     $("historyError").textContent = `${err.message} Use Capture result to retry; existing captures are unchanged.`;
+    if (automatic) throw err;
   } finally {
+    if (manualCaptureController === manualController) manualCaptureController = null;
     history.captureBusy = false;
     renderHistory();
-    const viewRetry = history.viewRetry;
-    history.viewRetry = null;
-    if (viewRetry && sameRender(viewRetry, currentRender())) scheduleResultCapture();
+    scheduleResultCapture();
   }
 }
 
 function scheduleResultCapture() {
-  if (state.frameLoading || state.pendingReload || state.domDirty || state.saveConflict || state.sending || history.captureBusy || history.finalizing) return;
-  if (state.page?.kind !== "url" && !state.baseHash) return;
-  const round = history.rounds.find((item) => pendingCaptureTarget(item, state.key, state.frameReadyAt));
-  const target = roundTargets(round).find((item) => item.key === state.key);
-  // A pending round still belongs to the agent. Only an acknowledged round may capture its result.
-  if (round && target) {
-    void captureResult(round, target, true);
-  }
+  captureCoordinator.tick();
 }
 
 function setHistoryView(comparing) {
   captureEditState();
-  if (comparing && !state.comparing) history.preferCompleted = true;
   state.comparing = comparing;
   closeModeMenu("history-switch");
   document.body.classList.toggle("comparing", comparing);
@@ -1887,8 +1845,8 @@ function setHistoryView(comparing) {
 }
 $("latestVersion").addEventListener("click", () => setHistoryView(false));
 $("seeChanges").addEventListener("click", () => setHistoryView(true));
-$("roundPicker").addEventListener("change", () => { history.selectedId = $("roundPicker").value; history.index = 0; void refreshHistory(); });
-$("historyTarget").addEventListener("change", () => { history.targetKey = $("historyTarget").value; history.index = 0; void refreshHistory(); });
+$("roundPicker").addEventListener("change", () => void historyController.selectRound($("roundPicker").value));
+$("historyTarget").addEventListener("change", () => void historyController.selectTarget($("historyTarget").value));
 function jumpToChange(index) {
   history.index = index;
   renderHistory();
@@ -2016,7 +1974,7 @@ async function saveHtml(html, key, generation = state.renderGeneration) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       return saveHtml(html, key, generation);
     }
-    else toast("Couldn't save — your edits still reach the agent as feedback");
+    else if (!state.sending) toast("Couldn't save. Retry before sending feedback; your edits remain on this page.");
     return false;
   }
 }
@@ -2085,20 +2043,23 @@ window.addEventListener("message", async (event) => {
       }).catch(() => null);
       const readyState = await ready;
       if (!sameRender(readyIdentity, currentRender())) return;
-      if (!readyState) {
+      if (!readyState || !["static", "interactive", "application"].includes(readyState.executionMode) ||
+        !["writable", "feedback-only"].includes(readyState.savePolicy)) {
         failFrame("The review could not confirm this document's execution policy. Reload before editing.");
         return;
       }
-      state.renderTrust = {
-        trustedInteractive: readyState.trustedInteractive === true,
-        feedbackOnly: readyState.feedbackOnly === true,
-        trustMode: readyState.trustMode || (readyState.trustedInteractive ? "trusted-file" : "script-blocked"),
-        trustNotice: readyState.trustNotice,
+      state.renderExecution = {
+        executionMode: readyState.executionMode,
+        savePolicy: readyState.savePolicy,
+        feedbackOnly: readyState.savePolicy === "feedback-only",
+        executionNotice: readyState.executionNotice || null,
       };
-      state.page = { ...state.page, ...state.renderTrust };
+      state.page = { ...state.page, ...state.renderExecution };
       state.frameLoading = false;
       frame.dataset.sdkReady = "true";
-      frame.dataset.trustedInteractive = String(readyState.trustedInteractive === true);
+      frame.dataset.executionMode = readyState.executionMode;
+      frame.dataset.savePolicy = readyState.savePolicy;
+      frame.dataset.executionNotice = readyState.executionNotice || "";
       toFrame({ type: "eh:anchors", comments: state.page ? state.page.comments : [] });
       if (state.reloading) {
         toFrame({ type: "eh:restoreScroll", x: state.scroll.x, y: state.scroll.y });
@@ -2253,21 +2214,30 @@ window.addEventListener("message", async (event) => {
         staged_assets: msg.staged_assets,
       });
       break;
-    case "eh:asset":
+    case "eh:asset": {
+      const identity = currentRender();
+      const query = new URLSearchParams({
+        type: msg.assetType || "", sessionId: state.sessionId,
+        renderId: identity.renderId, generation: String(identity.generation),
+        savePolicy: state.renderExecution?.savePolicy || "feedback-only",
+      });
       try {
-        const saved = await fetch(`/api/page/${state.key}/asset?type=${encodeURIComponent(msg.assetType || "")}`, {
+        const saved = await fetch(`/api/page/${identity.key}/asset?${query}`, {
           method: "POST",
           headers: { "content-type": "application/octet-stream", "x-doc-review-token": state.token },
           body: msg.bytes,
         });
         const data = await saved.json();
+        if (!sameRender(identity, currentRender())) break;
         if (!saved.ok) throw new Error(data.error || "could not save the pasted image");
         toFrame({ type: "eh:assetSaved", id: msg.id, src: data.src, stagedId: data.stagedId });
       } catch (err) {
+        if (!sameRender(identity, currentRender())) break;
         toast(err.message);
         toFrame({ type: "eh:assetFailed", id: msg.id });
       }
       break;
+    }
     case "eh:saving":
       state.domDirty = true;
       state.save = "saving";
@@ -2288,14 +2258,11 @@ window.addEventListener("message", async (event) => {
       captures.receive(msg);
       break;
     case "eh:viewChanged": {
-      const suffix = `:${state.renderId}:${state.renderGeneration}`;
-      for (const attempt of history.attempts) {
-        if (attempt.endsWith(suffix)) history.attempts.delete(attempt);
-      }
       // Only a deduplicated identity-change signal can reopen this render's
       // automatic attempt. Snapshot and ordinary mutation messages cannot.
-      if (history.captureBusy) history.viewRetry = currentRender();
-      else scheduleResultCapture();
+      captureCoordinator.reset();
+      manualCaptureController?.abort();
+      scheduleResultCapture();
       break;
     }
     case "eh:dynamic":
@@ -2429,67 +2396,68 @@ const dismissCommentMenuOutside = (event) => {
 document.addEventListener("pointerdown", dismissCommentMenuOutside, true);
 document.addEventListener("focusin", dismissCommentMenuOutside, true);
 
-async function sendFeedback({ allowUnavailable = false } = {}) {
-  if (state.sending) return;
+async function sendFeedback() {
+  if (state.sending || state.ended) return;
+  const identity = currentRender();
+  const sentNote = $("note").value;
   state.sending = true;
-  $("captureWarning").hidden = true;
+  if ($("captureWarning")) $("captureWarning").hidden = true;
+  captureCoordinator.reset();
+  manualCaptureController?.abort();
   render();
+  let phase = "saving";
+  let delivered = false;
   try {
-    if (allowUnavailable && state.frameLoading && !state.domDirty && !state.saveConflict) {
-      await activeSavePromise;
-      await settleEditPersistence(state.key);
-    } else await fullSaveBarrier();
-    let snapshot = null;
-    if (!allowUnavailable) snapshot = await captureStablePage();
-    await api(`/api/page/${state.key}/send`, {
-      method: "POST",
-      body: JSON.stringify({
-        sessionId: state.sessionId, note: $("note").value.trim(),
-        history: {
-          renderId: state.renderId, generation: state.renderGeneration,
-          semantic: snapshot?.semantic || null,
-          semanticCapturedAt: snapshot?.semanticCapturedAt, view: snapshot?.view,
-          expectedSourceHash: state.baseHash || state.renderSourceHash,
-          allowUnavailable,
-        },
-      }),
-    });
-    $("note").value = "";
-    state.sent = true;
-    history.selectedId = null;
-    await refreshHistory();
-  } catch (err) {
-    $("captureWarning").hidden = false;
-    $("captureWarningText").textContent = `${err.message} Your feedback and open drafts are still here. Recapture this page, or send with missing Content comparison explicitly accepted. Available Source snapshots may still be kept; inactive pages are not recaptured automatically.`;
-    $("captureTargets").replaceChildren();
-    for (const target of err.targets || []) {
-      const line = document.createElement("p");
-      line.textContent = `${target.filename || target.key}: ${target.reason || "Capture unavailable"}`;
-      if (target.key && target.key !== state.key) {
-        const button = makeAction("Open page to recapture", "btn-ghost");
-        button.addEventListener("click", async () => {
-          try {
-            if (draftCount(state)) throw new Error("Save or cancel open comment drafts before changing pages");
-            await fullSaveBarrier();
-            await api(`/api/session/${state.sessionId}/goto`, { method: "POST", body: JSON.stringify({ key: target.key }) });
-            await loadPage(target.key);
-            $("captureWarningText").textContent = "This page is ready to recapture. Other inactive pages may still need Send without comparison.";
-          } catch (error) { toast(error.message); }
+    const outcome = await deliverFeedback({
+      save: fullSaveBarrier,
+      capture: () => captureStablePage({ timeout: 500 }),
+      deliver: async (snapshot) => {
+        // A snapshot flush can reveal more queued writes. Those are still required.
+        await activeSavePromise;
+        await settleEditPersistence(state.key);
+        if (state.ended || !sameRender(identity, currentRender())) throw new Error("The page changed before sending. Retry on the current page.");
+        if (state.saveConflict || state.save === "failed" ||
+          (state.savePolicy === "writable" && !state.dynamic && state.domDirty)) {
+          throw new Error("Your page edits have not finished saving.");
+        }
+        phase = "delivery";
+        const result = await api(`/api/page/${state.key}/send`, {
+          method: "POST",
+          body: JSON.stringify({
+            sessionId: state.sessionId, note: sentNote.trim(),
+            history: {
+              renderId: state.renderId, generation: state.renderGeneration,
+              semantic: snapshot?.semantic || null,
+              semanticCapturedAt: snapshot?.semanticCapturedAt, view: snapshot?.view,
+              expectedSourceHash: snapshot?.sourceHash || state.baseHash || state.renderSourceHash,
+              allowUnavailable: true,
+            },
+          }),
         });
-        line.append(button);
-      }
-      $("captureTargets").append(line);
-    }
-    $("sendWithoutComparison").disabled = state.saveConflict || state.domDirty || !!editBacklogs.get(state.key)?.size;
-    toast(err.message);
+        if (result.ok === false) throw new Error(result.error || "Feedback delivery was not confirmed");
+      },
+      committed() {
+        delivered = true;
+        if ($("note").value === sentNote) $("note").value = "";
+        state.sent = true;
+      },
+      refresh: refreshHistory,
+    });
+    if (outcome.refreshFailure) toast("Feedback sent. History could not be refreshed; your feedback does not need to be sent again.");
+    else if (outcome.captureFailure) announce("Feedback sent. Content comparison may be incomplete.");
+  } catch (err) {
+    const message = delivered ? "Feedback sent. History is temporarily unavailable; do not send it again."
+      : phase === "saving" ? `Feedback not sent: ${err.message} Your feedback and drafts are still here.`
+        : `Feedback delivery was not confirmed: ${err.message} No automatic retry was made. Check the agent before sending again.`;
+    toast(message);
+    announce(message);
   } finally {
     state.sending = false;
     render();
+    scheduleResultCapture();
   }
 }
 $("send").addEventListener("click", () => void sendFeedback());
-$("recaptureBaseline").addEventListener("click", () => void sendFeedback());
-$("sendWithoutComparison").addEventListener("click", () => void sendFeedback({ allowUnavailable: true }));
 
 $("revert").addEventListener("click", async () => {
   const count = state.page.edits.length;
@@ -2499,16 +2467,17 @@ $("revert").addEventListener("click", async () => {
   // can't land after the revert and write the edits straight back.
   toFrame({ type: "eh:abortSave" });
   clearTimeout(retryTimer);
-  state.baseHash = null;
   try {
+    await activeSavePromise;
     await settleEditPersistence(identity.key).catch(() => {});
     if (!sameRender(identity, currentRender())) throw new Error("The page changed before reverting. Retry on the current page.");
+    const baseHash = state.baseHash;
     editBacklogs.delete(identity.key);
     editErrors.delete(identity.key);
     const result = await api(`/api/page/${identity.key}/revert`, {
       method: "POST",
       body: JSON.stringify({
-        sessionId: state.sessionId, renderId: identity.renderId, generation: identity.generation,
+        sessionId: state.sessionId, renderId: identity.renderId, generation: identity.generation, baseHash,
       }),
     });
     if (state.key !== identity.key) return;
@@ -2524,6 +2493,11 @@ $("revert").addEventListener("click", async () => {
 /** The session is over: freeze the page and say so. Feedback is already safe. */
 function showEnded() {
   if (document.querySelector(".ended")) return;
+  state.ended = true;
+  captureCoordinator.stop();
+  manualCaptureController?.abort();
+  captures.cancel("Review ended");
+  historyController.cancel();
   if (events) events.close();
   clearTimeout(retryTimer);
   const overlay = document.createElement("div");
@@ -2604,6 +2578,14 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
+  const recoveryMenu = event.target.closest?.("#reviewDetails");
+  if (recoveryMenu) {
+    recoveryMenu.open = false;
+    recoveryMenu.querySelector("summary")?.focus({ preventScroll: true });
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   let handled = false;
   if (state.commentUi.confirmation) handled = cancelDeleteConfirmation();
   else if (state.commentUi.menu) handled = closeCommentMenu({ restoreFocus: true });
@@ -2634,8 +2616,10 @@ function holdReload() {
   $("reloadMessage").textContent = state.domDirty || state.saveConflict
     ? "The source changed. This page has unsaved edits; reload discards those page edits, but keeps open comment drafts. Stale edits will not overwrite the new source."
     : "The source changed. Reload keeps your comment drafts as unresolved excerpts so they cannot attach to the wrong content.";
-  void documentTrustControls.refresh(state.page);
-  renderDocumentTrust();
+  captureCoordinator.reset();
+  manualCaptureController?.abort();
+  captures.cancel();
+  renderExecution();
   if (state.comparing) renderHistory();
 }
 
@@ -2666,6 +2650,7 @@ async function reloadLatest({ explicit = false } = {}) {
   try {
     const page = await api(pageUrl(key, state.sessionId));
     if (state.key !== key || state.renderGeneration !== generation) return;
+    state.executionPreference = page.executionPreference || null;
     // Keep parent-owned drafts rather than replacing their text on a source update.
     replacePage(state, page);
     state.save = "idle";

@@ -168,4 +168,15 @@ test("a transient artifact fetch failure does not consume the render", async (t)
   assert.match(retried.raw, /<p>ready<\/p>/);
 });
 
+test("parent execution and capture modules are explicitly served", async (t) => {
+  const review = await start();
+  t.after(() => review.dispose());
+  for (const name of ["execution-client.js", "history-coordinator.js"]) {
+    const response = await request(review.port, "", { route: `/${name}` });
+    assert.equal(response.status, 200, name);
+    assert.match(response.headers["content-type"], /text\/javascript/);
+    assert.equal(response.raw, fs.readFileSync(path.join(process.cwd(), "src", name), "utf8"));
+  }
+});
+
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));

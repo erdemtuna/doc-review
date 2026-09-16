@@ -655,7 +655,7 @@ test("Back to selection reports unavailable when clipping cannot reveal the targ
   await expect(page.locator("#compose")).toHaveClass(/edge-bottom/);
 });
 
-test("View/Edit stays centered and light-dismisses across parent and hostile iframe handlers", async ({ page, review }) => {
+test("View/Edit stays in bounds and light-dismisses across parent and hostile iframe handlers", async ({ page, review }) => {
   const file = writeFile(review, "menu-dismiss.html", `<!doctype html><button id="hostile">Interact</button><button id="other">Other</button>
     <script>
       const button = document.querySelector('#hostile');
@@ -672,11 +672,15 @@ test("View/Edit stays centered and light-dismisses across parent and hostile ifr
   for (const size of [{ width: 1200, height: 700 }, { width: 680, height: 700 }]) {
     await page.setViewportSize(size);
     const mode = await page.locator("#modeButton").boundingBox();
-    expect(Math.abs((mode.x + mode.width / 2) - size.width / 2)).toBeLessThanOrEqual(2);
+    expect(mode.x).toBeGreaterThanOrEqual(0);
+    expect(mode.x + mode.width).toBeLessThanOrEqual(size.width);
+    expect(mode.width).toBeGreaterThanOrEqual(44);
+    expect(mode.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.locator("#modeButton").click();
   await expect(page.getByRole("menuitemradio", { name: "View Editing off, comments enabled" })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: "Edit Direct editing on" })).toBeVisible();
+  await expect(page.getByRole("menuitemradio", { name: /^Edit/ })).toBeVisible();
   await expect(page.locator("#feedbackButton")).toHaveCount(0);
 
   await expect(page.locator("#modeButton")).toHaveAttribute("aria-expanded", "true");

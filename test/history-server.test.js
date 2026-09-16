@@ -202,6 +202,45 @@ test("invalid semantic capture is rejected without publishing a feedback batch",
   assert.equal(review.store.listHistory(session.key).length, 0);
 });
 
+test("best-effort Send retains active Content alongside an inactive page's Source", async (t) => {
+  const review = await start();
+  t.after(() => review.dispose());
+  const active = await open(review, "partial-active.html", "Active before");
+  const other = await open(review, "partial-other.html", "Other before");
+  const goto = async (key) => {
+    const result = await request(review, `/api/session/${active.sessionId}/goto`, { body: { key } });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+  };
+  await goto(other.key);
+  const otherEdit = await request(review, `/api/page/${other.key}/edit`, {
+    body: { label: "Other copy", before: "Other before", after: "Other feedback" },
+  });
+  assert.equal(otherEdit.status, 200);
+  await goto(active.key);
+  const activeEdit = await request(review, `/api/page/${active.key}/edit`, {
+    body: { label: "Active copy", before: "Active before", after: "Active feedback" },
+  });
+  assert.equal(activeEdit.status, 200);
+  const frame = await render(review, active, 20);
+  const sent = await request(review, `/api/page/${active.key}/send`, {
+    body: {
+      sessionId: active.sessionId,
+      note: "Apply both pages",
+      history: { ...frame, semantic: semantic("Active before"), allowUnavailable: true },
+    },
+  });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.deepEqual(sent.body.historyUnavailable.map((target) => target.key), [other.key]);
+  const round = review.store.getRound(active.key, sent.body.roundId);
+  assert.equal(round.targets.length, 2);
+  const activeBaseline = round.targets.find((target) => target.key === active.key);
+  const otherBaseline = round.targets.find((target) => target.key === other.key);
+  assert.equal(review.store.revisions.readSemantic(activeBaseline.baselineRevisionId).blocks[0].text, "Active before");
+  assert.match(review.store.revisions.readSource(otherBaseline.baselineRevisionId), /Other before/);
+  const batch = await request(review, `/api/poll?target=${encodeURIComponent(active.file)}`);
+  assert.equal(batch.body.pages.length, 2, "missing optional Content does not drop either page's feedback");
+});
+
 test("known tab mismatch stays retryable and cannot freeze a misleading result", async (t) => {
     const review = await start();
     t.after(() => review.dispose());
@@ -243,18 +282,19 @@ test("known tab mismatch stays retryable and cannot freeze a misleading result",
     assert.equal(compared.body.viewComparison.status, "matched");
 });
 
-test("interactive result capture waits for renewed trust after the source version changes", async (t) => {
+test("a scripted baseline can capture an updated static source without renewed approval", async (t) => {
   const review = await start();
   t.after(() => review.dispose());
-  const session = await open(review, "trust-capture.html");
-  const trustRoute = `/api/session/${session.sessionId}/trust`;
-  const beforeTrust = (await request(review, trustRoute)).body.trust;
-  await request(review, trustRoute, { body: { action: "grant", sourceHash: beforeTrust.sourceHash } });
+  const session = await open(review, "scripted-capture.html");
+  fs.writeFileSync(session.file, '<!doctype html><p id="copy">Before</p><script>document.body.dataset.interactive = "yes";</script>');
   const before = await render(review, session, 1);
   const sent = await request(review, `/api/page/${session.key}/send`, {
-    body: { sessionId: session.sessionId, note: "Update this trusted document", history: { ...before, semantic: semantic("Before") } },
+    body: { sessionId: session.sessionId, note: "Simplify this document", history: { ...before, semantic: semantic("Before") } },
   });
   assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  const baselineId = review.store.getRound(session.key, sent.body.roundId).targets[0].baselineRevisionId;
+  assert.equal(review.store.revisions.get(baselineId).semantic.provenance.feedbackOnlyEdits, true,
+    "the baseline must actually use the automatic scripted-file policy");
   const delivered = await request(review, `/api/poll?target=${encodeURIComponent(session.file)}`);
   write(session.file, "After");
   await acknowledge(review, session.file, delivered.body.batch_id);
@@ -262,18 +302,10 @@ test("interactive result capture waits for renewed trust after the source versio
   while (!review.store.page(session.key).pristine.includes("After") && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  const safe = await render(review, session, 2);
+  const staticResult = await render(review, session, 2);
   const captureRoute = `/api/session/${session.sessionId}/history/${sent.body.roundId}/capture`;
-  const blocked = await request(review, captureRoute, {
-    body: { key: session.key, ...safe, semantic: semantic("After"), manual: true },
-  });
-  assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
-  assert.equal(blocked.body.code, "history_trust_required");
-  const afterTrust = (await request(review, trustRoute)).body.trust;
-  await request(review, trustRoute, { body: { action: "grant", sourceHash: afterTrust.sourceHash } });
-  const trusted = await render(review, session, 3);
   const captured = await request(review, captureRoute, {
-    body: { key: session.key, ...trusted, semantic: semantic("After"), manual: true },
+    body: { key: session.key, ...staticResult, semantic: semantic("After"), manual: true },
   });
   assert.equal(captured.status, 200, JSON.stringify(captured.body));
   assert.ok(captured.body.round.targets[0].resultRevisionId);

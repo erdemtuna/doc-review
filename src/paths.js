@@ -5,7 +5,7 @@ import fs from "node:fs";
 
 // Bump this when the CLI and detached server no longer share the same request
 // contract. A new CLI must not silently reuse an older background server.
-export const SERVER_PROTOCOL = 16;
+export const SERVER_PROTOCOL = 17;
 
 export function serverProtocolMatches(protocol) {
   return Number(protocol) === SERVER_PROTOCOL;

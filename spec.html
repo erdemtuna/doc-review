@@ -303,8 +303,8 @@
         <table>
           <thead><tr><th>Target</th><th>What the human reviews</th><th>Where edits land</th></tr></thead>
           <tbody>
-            <tr><td>Safe HTML</td><td>The actual file, with authored scripts blocked by default.</td><td>Direct edits autosave to the HTML file and are included in the feedback batch.</td></tr>
-            <tr><td>Trusted interactive HTML</td><td>Self-contained scripts enabled for the exact saved version with Enable page scripts. View/Edit stays centered in a thin toolbar with no explanatory second row. No approval popup or policy text injected into the authored page.</td><td>Direct edits are feedback-only. Changed source requires renewed approval. Turning the switch off revokes approval; the inline info control exposes status and policy details without moving the document. The prior page stays visible but non-interactive until the replacement is configured. External application dependencies use localhost review.</td></tr>
+            <tr><td>Plain HTML</td><td>The actual file, with native controls and no authored executable content. Inert data blocks and escaped code examples do not require interactive mode.</td><td>Direct edits autosave to the HTML file and are included in the feedback batch.</td></tr>
+            <tr><td>Interactive HTML</td><td>Supported self-contained scripts and handlers run automatically, including after source updates. No approval switch or repeated permission step.</td><td>Direct edits are feedback-only. Reload without scripts is a temporary recovery option, not a way to overwrite scripted source. The prior frame stays visible until its replacement is configured; genuine conflicts preserve drafts. External application dependencies remain outside file-review compatibility.</td></tr>
             <tr><td>Markdown</td><td>A rendered version of the Markdown.</td><td>The file stays untouched during review. The agent applies edits to the Markdown source.</td></tr>
             <tr><td>Generated HTML</td><td>The rendered page, including client-side output.</td><td>Edits become source-directed feedback so browser serialization cannot corrupt the generator.</td></tr>
             <tr><td>Localhost URL</td><td>The real development route and its assets, not a recreated page.</td><td>The agent applies edits to the matching MDX, TSX, template, or component. Rendered HTML is never written back into the app.</td></tr>
@@ -337,8 +337,8 @@
 
       <h2>Source behavior</h2>
       <div class="callout">
-        <p><strong>Direct editing describes the experience, not always the storage layer.</strong> A human can type and delete on every supported target. Safe HTML can save those changes directly. Trusted interactive HTML, Markdown, generated pages, and localhost routes send the same exact changes to the agent, which updates the real source.</p>
-        <p><strong>See changes is a reading surface.</strong> Content uses aligned before-and-after document blocks with expandable unchanged context; Source uses line-numbered hunks. Narrow screens use a unified layout. Each round retains its own immutable captured endpoints.</p>
+        <p><strong>Direct editing describes the experience, not always the storage layer.</strong> A human can type and delete on every supported target. Plain HTML saves those changes directly. Interactive HTML, Markdown, generated pages, and localhost routes send the same exact changes to the agent, which updates the real source.</p>
+        <p><strong>Changes is a reading surface.</strong> Content uses aligned before-and-after document blocks with expandable unchanged context; Source uses line-numbered hunks. Narrow screens stack Before and After. Each round retains its own immutable captured endpoints. Optional comparison capture does not block feedback delivery, and background capture does not freeze reviewing.</p>
         <p><strong>Visible views are not whole applications.</strong> Content capture records the selected tab where reliable identifiers exist and waits for that same tab after the update. Unknown view identity is labelled unverified. File Source comparison covers the whole file independently.</p>
       </div>
       <ul>
@@ -417,7 +417,7 @@
           <tbody>
             <tr><td>Runtime</td><td>Node.js 20+ using built-in HTTP, file system, and process APIs.</td></tr>
             <tr><td>Browser UI</td><td>Vanilla JavaScript toolbar, contextual surfaces, review drawer, sandboxed iframe, and capability-bound <code>postMessage</code>.</td></tr>
-            <tr><td>Persistence</td><td>Local JSON state for comments, pending batches, exact-version trust, and immutable review history. The latest five completed rounds are retained while pending work stays protected.</td></tr>
+            <tr><td>Persistence</td><td>Local JSON state for comments, pending batches, and immutable review history. Execution preferences belong to the review session; old version-approval records are unused. The latest five completed rounds are retained while pending work stays protected.</td></tr>
             <tr><td>Change detection</td><td>Native file watching reloads agent updates while suppressing the tool's own save echoes.</td></tr>
             <tr><td>Agent transport</td><td>Long-poll HTTP to stdout JSON with at-least-once delivery until acknowledgement.</td></tr>
           </tbody>

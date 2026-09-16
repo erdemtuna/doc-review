@@ -272,20 +272,25 @@ test("a save based on a stale version of the file is refused", async (t) => {
   const key = opened.key;
 
   const raw = j(await request(port, token, { route: `/api/page/${key}/raw` }));
+  const render = j(await request(port, token, {
+    method: "POST", route: `/api/session/${opened.sessionId}/render`, body: { key, generation: 1 },
+  }));
+  assert.equal((await request(port, "", { route: render.path })).status, 200);
+  const identity = { sessionId: opened.sessionId, renderId: render.renderId, generation: 1 };
   assert.equal(raw.html, v1);
   assert.ok(raw.hash, "raw hands out the save precondition");
 
   const v2 = v1.replace("One", "Two");
-  const stale = await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { html: v2, baseHash: "not-the-hash" } });
+  const stale = await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { ...identity, html: v2, baseHash: "0".repeat(40) } });
   assert.equal(stale.status, 409, "a save that names the wrong base version loses");
   assert.equal(fs.readFileSync(file, "utf8"), v1, "the refused save wrote nothing");
 
-  const good = j(await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { html: v2, baseHash: raw.hash } }));
+  const good = j(await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { ...identity, html: v2, baseHash: raw.hash } }));
   assert.ok(good.hash, "a successful save returns the next precondition");
   assert.equal(fs.readFileSync(file, "utf8"), v2);
 
   // The agent-rewrite race: a queued autosave still naming the old version.
-  const late = await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { html: v1, baseHash: raw.hash } });
+  const late = await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { ...identity, html: v1, baseHash: raw.hash } });
   assert.equal(late.status, 409, "the pre-rewrite hash no longer wins");
   assert.equal(fs.readFileSync(file, "utf8"), v2);
 });

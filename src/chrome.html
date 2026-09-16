@@ -9,9 +9,9 @@
 <body data-session="__SESSION_ID__" data-token="__TOKEN__">
   <div class="app">
     <header class="toolbar" aria-label="Review controls">
-      <div class="toolbar-product history-toggle" role="group" aria-label="Review version">
-        <button type="button" id="latestVersion" class="toolbar-btn" aria-pressed="true">Latest version</button>
-        <button type="button" id="seeChanges" class="toolbar-btn" aria-pressed="false">See changes</button>
+      <div class="toolbar-product history-toggle" role="group" aria-label="Review destination">
+        <button type="button" id="latestVersion" class="toolbar-btn" aria-pressed="true" aria-controls="frame">Review</button>
+        <button type="button" id="seeChanges" class="toolbar-btn" aria-pressed="false" aria-controls="historyPanel">Changes</button>
       </div>
       <div class="page-controls" role="group" aria-label="Page controls">
         <div class="mode-control">
@@ -33,9 +33,19 @@
         <button type="button" id="commentsButton" class="toolbar-btn" aria-controls="drawer" aria-label="Comments" aria-expanded="false">
           <span data-icon="messages"></span><span class="toolbar-label">Comments</span><span id="toolbarCount" class="count-badge">0</span>
         </button>
+        <details id="reviewDetails" class="review-details">
+          <summary>More <span aria-hidden="true">⌄</span></summary>
+          <div class="review-details-menu">
+            <p class="section">Page recovery</p>
+            <button type="button" id="executionStatic">Reload without scripts</button>
+            <button type="button" id="executionAuto" hidden>Use page interactions</button>
+            <p id="executionDetails" class="history-context" hidden></p>
+          </div>
+        </details>
       </div>
     </header>
     <main class="stage">
+      <p id="executionStatus" class="execution-notice" role="status" hidden></p>
       <section id="reloadNotice" class="reload-notice" aria-label="Source update" hidden>
         <p id="reloadMessage"></p>
         <button type="button" id="safeReload" class="btn-primary">Reload latest; keep comment drafts</button>
@@ -46,25 +56,33 @@
         title="Artifact under review"
         sandbox="allow-scripts allow-forms allow-modals"></iframe>
       <section id="historyPanel" class="history-panel" aria-labelledby="historyTitle" hidden>
-        <header class="history-head">
-          <div><h1 id="historyTitle">See changes <span class="section">Read-only</span></h1></div>
-          <label>Review round <select id="roundPicker" aria-label="Review round"></select></label>
-        </header>
-        <p id="historyStatus" role="status">No review rounds yet. Send feedback to start a comparison.</p>
-        <p id="historyCurrentStatus" class="history-context" hidden></p>
-        <p id="historyViewCoverage" class="history-context" role="status" hidden></p>
-        <div id="historyUnavailable" class="history-context" hidden></div>
+        <h1 id="historyTitle" class="sr-only">Changes</h1>
         <div class="history-controls">
+          <label class="history-round-label">Round <select id="roundPicker" aria-label="Review round"></select></label>
           <label id="historyTargetLabel" hidden>Page <select id="historyTarget" aria-label="Comparison page"></select></label>
           <div id="comparisonModes" role="group" aria-label="Comparison format"></div>
           <button type="button" id="captureResult" class="btn-primary" hidden>Capture result</button>
-          <button type="button" id="finishCapture" class="btn-ghost" hidden>Finish with available snapshots</button>
         </div>
-        <p id="finishCaptureHelp" class="history-context" hidden>Finishing marks missing Content as unavailable; it does not invent a result. Existing Source comparisons remain available, and this target will no longer retry capture.</p>
+        <div class="history-summary">
+          <p id="historyStatus" role="status">No review rounds yet. Send feedback to start a comparison.</p>
+          <div id="historyCounts" class="history-counts"></div>
+        </div>
         <p id="historyError" class="compose-error" role="alert" hidden></p>
-        <div id="historyCounts" class="history-counts"></div>
+        <div class="comparison-header">
+          <nav id="changeNavigation" class="history-navigation" aria-label="Change navigation" hidden>
+            <button type="button" id="previousChange" class="btn-ghost" aria-label="Previous change">Previous</button>
+            <span id="changePosition"></span>
+            <label class="change-jump-label"><span>Jump to</span> <select id="changeJump" aria-label="Jump to change"></select></label>
+            <button type="button" id="nextChange" class="btn-ghost" aria-label="Next change">Next</button>
+          </nav>
+          <div class="comparison-heading-slot"></div>
+        </div>
+        <article id="changeDetail" class="change-detail" aria-label="Continuous before and after comparison"></article>
         <details id="historyDiagnostics" class="history-diagnostics">
-          <summary>Capture details and comparison coverage</summary>
+          <summary>Comparison details</summary>
+          <p id="historyCurrentStatus" class="history-context" hidden></p>
+          <p id="historyViewCoverage" class="history-context" hidden></p>
+          <div id="historyUnavailable" class="history-context" hidden></div>
           <p>Content is a readable reconstruction of saved blocks, not the original page layout. Historical scripts, authored styles and image URLs are never replayed. Table rows use saved cell selectors; complex spanning structure is shown in row order. Source shows saved file text.</p>
           <dl id="historyTiming" class="history-timing" hidden></dl>
           <p id="historyCaptureDelay" class="history-context" hidden></p>
@@ -72,14 +90,9 @@
             <summary>Comparison coverage and limits</summary>
             <ul id="historyLimitationsList"></ul>
           </details>
+          <button type="button" id="finishCapture" class="btn-ghost" hidden>Finish with available snapshots</button>
+          <p id="finishCaptureHelp" class="history-context" hidden>Finishing marks missing Content as unavailable; it does not invent a result. Existing Source comparisons remain available, and this target will no longer retry capture.</p>
         </details>
-        <nav id="changeNavigation" class="history-navigation" aria-label="Change navigation" hidden>
-          <button type="button" id="previousChange" class="btn-ghost" aria-label="Previous change">Previous change</button>
-          <span id="changePosition"></span>
-          <label class="change-jump-label"><span>Jump to</span> <select id="changeJump" aria-label="Jump to change"></select></label>
-          <button type="button" id="nextChange" class="btn-ghost" aria-label="Next change">Next change</button>
-        </nav>
-        <article id="changeDetail" class="change-detail" aria-label="Continuous before and after comparison"></article>
       </section>
     </main>
 

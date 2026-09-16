@@ -177,6 +177,7 @@ function listPositions(rows, side) {
 
 export function createComparisonView(root) {
   const document = root.ownerDocument;
+  const headingSlot = root.parentElement?.querySelector(".comparison-heading-slot");
   let signature;
   let inputs;
   let changes = [];
@@ -196,6 +197,7 @@ export function createComparisonView(root) {
       changes = comparison.changes || [];
       const rows = comparison.rows || legacyRows(comparison);
       root.replaceChildren();
+      headingSlot?.replaceChildren();
       root.className = `change-detail comparison-surface comparison-${mode}`;
       if (!rows.length) {
         if (comparison.available !== false) root.textContent = "No changes detected in this comparison format.";
@@ -214,7 +216,7 @@ export function createComparisonView(root) {
       if (!comparison.rows) root.append(node(document, "p", "comparison-notice", "Saved excerpts only · unchanged context was not recorded in this comparison."));
       const heads = node(document, "div", "comparison-headings");
       heads.append(node(document, "div", "", "Before · feedback sent"), node(document, "div", "", "After · captured result"));
-      root.append(heads);
+      (headingSlot || root).append(heads);
       const changeMap = new Map(changes.map((change, index) => [change.id || `legacy-change-${index}`, change]));
       const numbers = { before: listPositions(rows, "before"), after: listPositions(rows, "after") };
       const units = [];
@@ -230,11 +232,13 @@ export function createComparisonView(root) {
       const renderUnit = (unit) => {
         const pair = node(document, "div", "comparison-row");
         const unchanged = unit.rows.every((row) => row.kind === "unchanged");
+        const kinds = [...new Set(unit.rows.map((row) => row.kind).filter((kind) => kind !== "unchanged"))];
+        const changeLabel = kinds.map((kind) => ({ added: "Added", removed: "Removed", modified: "Modified" })[kind] || "Changed").join(" · ");
         if (unchanged) pair.classList.add("comparison-unchanged");
         pair.dataset.rowId = unit.rows[0].id;
         for (const side of ["before", "after"]) {
           const cell = node(document, "section", `comparison-cell comparison-${side}`);
-          cell.setAttribute("aria-label", side === "before" ? "Before" : "After");
+          cell.setAttribute("aria-label", `${side === "before" ? "Before" : "After"} · ${unchanged ? "unchanged" : changeLabel.toLowerCase()}`);
           if (unit.rows.every((row) => !row[`${side}Block`])) cell.classList.add("comparison-gap");
           const changed = unit.rows.some((row) => row.kind !== "unchanged" && row[`${side}Block`]);
           if (changed) cell.classList.add(side === "before" ? "comparison-removed" : "comparison-added");
@@ -246,8 +250,9 @@ export function createComparisonView(root) {
           const body = node(document, "div", "comparison-cell-body");
           const mobileLabel = node(document, "span", "comparison-mobile-label", unchanged
             ? mode === "source" ? `Unchanged · Before ${sourceLines(unit.rows[0].beforeBlock)} / After ${sourceLines(unit.rows[0].afterBlock)}` : "Unchanged · both versions"
-            : `${side === "before" ? "Before" : "After"}${changed ? side === "before" ? " · removed" : " · added" : ""}`);
+            : `${side === "before" ? "Before" : "After"} · ${changeLabel.toLowerCase()}`);
           body.append(mobileLabel);
+          if (changed) body.append(node(document, "span", "comparison-change-label", changeLabel));
           let tableRow;
           if (unit.tableKey) {
             const table = node(document, "table", "saved-table");

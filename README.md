@@ -65,7 +65,7 @@ Review a page running on localhost:
 /doc-review (localhost URL)
 ```
 
-Doc Review opens in **View** (`Editing off, comments enabled`) so links, buttons, summaries, tabs, and application controls work normally. The centered mode selector switches to **Edit** (`Direct editing on`) when you want to change content directly. Commenting stays available in both modes.
+Doc Review opens in **Review**, with **View** selected, so you can read, use page controls, and comment. Switch to **Edit** to change content directly. Plain HTML saves edits to the file; scripted HTML, Markdown, and localhost pages send edits to your agent. Commenting stays available in both modes.
 
 Select text, or hover or focus an element, then use the nearby comment icon. `Ctrl+Alt+M` (`Cmd+Option+M` on macOS) opens a comment for the current selection. Press Enter to submit or Shift+Enter for a new line. On desktop the composer stays beside its target, or pins to the effective top or bottom scrolling edge when that target leaves view. **Back to selection** reveals the target without changing the draft. The full-width sheet is used only at the narrow responsive breakpoint.
 
@@ -73,53 +73,42 @@ Select text, or hover or focus an element, then use the nearby comment icon. `Ct
 
 Aligned cards show **Edit**, **Close**, and **More**; drawer cards show **Jump to**, **Edit**, and **More**. Delete lives only in **More** and requires an inline confirmation. Quote hints preserve both the beginning and ending of long selections. Editing has explicit **Save** and **Cancel** controls: Enter saves, Shift+Enter adds a line, Escape cancels, and moving focus never autosaves. A draft follows its comment between aligned and drawer cards and keeps its caret through target movement.
 
-For writable HTML files, Edit saves direct changes automatically. Markdown and localhost remain editable feedback-only surfaces: their rendered HTML is never written over the source, so click Send and let the agent apply those edits.
+### Files and page interactions
 
-File and rendered Markdown reviews run with authored scripts and inline handlers
-blocked by default, an opaque iframe origin, and no popup or download permission. Their
-per-render message capability is rotated for every load and navigation. It is
-kept out of document URLs, HTML attributes, authored DOM, and global JavaScript
-state; the single-use artifact URL loads a same-origin bootstrap module under a
-nonce-based CSP. Relative assets, including a same-artifact `<base>`, resolve
-beside the reviewed file, while review navigation always stays relative to the
-source file. External bases are ignored.
+Self-contained HTML runs its inline scripts and event handlers automatically.
+There is no approval switch or renewed approval after an agent updates the file.
+Plain HTML, including ordinary JSON data blocks and escaped code examples, keeps
+direct autosave and Revert. Scripted HTML is **feedback-only**: your edits are sent
+to the agent to apply to the original source, rather than writing script-generated
+DOM into the file. The renderer re-evaluates that distinction when the source changes.
+Markdown and localhost also remain feedback-only.
 
-Localhost reviews keep `allow-same-origin`, popup, and download compatibility so
-application behavior still works. Because localhost application scripts are
-trusted in that mode, the render capability provides correlation and stale
-message rejection rather than an authorization boundary. The authenticated
-parent still validates links and never exposes the raw-file save route to a
-localhost review.
+If a scripted page is broken, **More > Reload without scripts** provides a
+temporary recovery mode. **Use page interactions** restores automatic behavior.
+That preference belongs to this page in this review session, not to a saved
+approval record. Disabling scripts does not make a scripted file's preview
+edits writable. A changed preference takes effect when the frame is replaced;
+reload handling preserves comment drafts and reports genuine source conflicts.
 
-For self-contained HTML documents with scripted tabs or other controls, an
-**Enable page scripts** switch beside View/Edit enables interaction for the
-**exact saved version**, without an approval popup. The switch's tooltip and
-**Script details (?)** explain execution and feedback-only editing.
-View/Edit stays centered independently of the switch. There is no explanatory
-second row: details and status messages stay in the inline info control, which
-shows **!** when attention is needed. Errors also produce a notification.
-Nothing is inserted into the HTML being reviewed.
-Applying a setting still reloads the document to enforce its script policy,
-but the prior page remains visible and non-interactive until the replacement
-confirms its review settings. A loading failure provides an explicit reload action.
-Trust is remembered locally for that file and its original byte hash. Changing
-the file requires approval again; it does not inherit trust from its path.
-Turn the switch off to revoke trust and return to script-blocked review.
-Changed versions show **File changed - enable again** in Script details. If an open draft holds
-the reload, the switch shows the saved permission while those details explain
-that the displayed page has not changed yet. In particular, revocation does not
-stop scripts already running in the old frame until it reloads. The existing
-reload action keeps comment drafts. Markdown remains script-blocked.
-Trusted HTML keeps an opaque frame origin, but its own scripts run: only trust
-documents you are willing to execute. Their frame messages are correlation
-signals, not a security boundary against the trusted document.
+The supported interactive-file mode is for self-contained documents. Separate
+script files, application imports, workers, and embedded applications are not
+made compatible by this change. Use the existing localhost review route for
+application workflows. Dependency limitations appear in contextual details,
+not as a permission task or text inserted into the authored document.
 
-Trusted interactive HTML edits are **feedback-only**, like Markdown and localhost:
-the review does not save script-generated DOM over your source. Apply those
-edits to the original file through the agent. Ordinary safe HTML retains
-autosave. External script dependencies, dynamic imports, and workers are not
-authorized by trusting a self-contained file; use the localhost review path for
-applications requiring those capabilities.
+Files retain an opaque iframe origin. The parent owns API authentication and
+checks the frame identity for messages and writes. Authored code shares the
+document with the SDK, so frame correlation is not proof of human authorship.
+Relative assets stay scoped to the reviewed file. Localhost reviews retain their
+existing nonopaque artifact origin, popup, and download behavior; they are fetched
+and rewritten by the review server, not guaranteed to reproduce the application's
+original cookies, storage, or origin-sensitive requests.
+
+**Compatibility:** the old per-version `/trust` API is retired and returns 410.
+Existing decision files are left unused. The CLI does not reuse background
+servers with the previous protocol. Writable HTML save and revert requests must
+identify their current served frame and source hash so delayed edits cannot
+overwrite a newer file.
 
 Agent polling returns an immutable `batch_id`. After applying the batch, the
 agent acknowledges that exact receipt and keeps waiting:
@@ -131,10 +120,10 @@ npx -y @erdemtuna/doc-review poll path/to/file.html --ack b_0123456789abcdef --t
 A stale or repeated batch ID is harmless: it never clears newer feedback. The
 complete acknowledgement command is included in each response's `next_step`.
 
-### Latest version and See changes
+### Review and Changes
 
-**Latest version** keeps the document interactive. **See changes** is a separate,
-read-only presentation of a selected review round; it does not replace View/Edit.
+**Review** keeps the document interactive. **Changes** shows a selected review
+round, with round selection and comparison navigation instead of live-page controls.
 The default comparison is the content captured when feedback was sent against
 the result captured after the agent acknowledged that exact batch. Previous
 rounds retain their own fixed endpoints rather than changing on every reload.
@@ -156,10 +145,12 @@ application state. Changes to image bytes at an unchanged URL, canvas pixels,
 external stylesheet appearance, and inaccessible embedded content are outside
 the comparison guarantee.
 
-Send waits for edit persistence and writable HTML saves before capturing its
-baseline. If a target cannot be captured, open and recapture it or explicitly
-send its feedback without a comparison. A last-visited live page is never
-silently described as a fresh Send-time snapshot.
+Send waits for edit persistence and writable HTML saves, then makes a short
+best-effort baseline capture. Missing comparison data does not require a second
+decision or prevent feedback from being sent. Available snapshots are retained;
+inactive pages can have incomplete Content coverage. A last-visited live page is
+never described as a fresh Send-time snapshot. Actual save or delivery failures
+are reported without discarding your feedback.
 
 When an active tab has reliable authored tab/panel identifiers, Content capture
 records that visible view. A result on a different tab remains pending and asks
@@ -173,11 +164,14 @@ After acknowledgement, file-source results are captured independently of the
 browser. Content results are captured when the appropriate reviewed page is
 ready. These observations can have different timestamps; neither timestamp
 claims that the document was captured at the instant of acknowledgement.
-**Capture result** is the fallback for unavailable, closed, or continuously
-changing pages. **Finish with available snapshots** explicitly ends a pending
-content capture without inventing missing content or removing an available source
-comparison. Failed captures are not reported as zero changes, and handled
-feedback remains archived even when its comparison is unavailable.
+Background capture does not disable document interaction and retries transient
+failures a bounded number of times. An unchanged file does not need a new reload
+solely to capture an acknowledged result. Available Source remains readable
+while Content is pending. Contextual retry or return-to-view actions handle
+remaining failures; a continuously changing page may still have no stable Content
+snapshot. Permanent finalization is optional in capture details, not a prerequisite
+for reading the comparison. Failed or limited captures are not reported as zero
+changes, and handled feedback remains archived even when history is unavailable.
 
 Snapshots stay in the local Doc Review state directory. The latest five
 completed rounds are retained automatically, while active rounds, pending

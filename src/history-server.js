@@ -417,11 +417,6 @@ export function createHistoryController({
             });
           } else {
             const value = snapshot(session, key, body, body.manual === true ? "manual-result" : "automatic-result");
-            if (baseline?.semantic?.provenance.trustedInteractive === true && !value.provenance.trustedInteractive) {
-              throw new HistoryRequestError("This result version needs your document trust approval before interactive content can be captured.", {
-                status: 409, code: "history_trust_required",
-              });
-            }
             const viewComparison = compareCapturedViews(baseline?.semantic?.view, value.view);
             if (viewComparison.status === "mismatch") {
               throw new HistoryRequestError(viewComparison.message, { status: 409, code: "history_view_mismatch" });

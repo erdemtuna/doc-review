@@ -11,12 +11,13 @@ export const TRUSTED_SDK_MODULE_PATHS = Object.freeze([
   "/revision-schema.js", "/view-identity.js",
 ]);
 
-export function trustedFileCsp(sdkOrigin) {
+export function interactiveFileCsp(sdkOrigin) {
   const origin = new URL(sdkOrigin);
   if (!["http:", "https:"].includes(origin.protocol) || origin.username || origin.password ||
       origin.pathname !== "/" || origin.search || origin.hash) {
     throw new TypeError("The SDK origin must be an HTTP origin without a path or credentials.");
   }
+
   const modules = TRUSTED_SDK_MODULE_PATHS.map((route) => `${origin.origin}${route}`).join(" ");
   return [
     "default-src 'none'",
@@ -35,6 +36,8 @@ export function trustedFileCsp(sdkOrigin) {
     "media-src http: https: data: blob:",
   ].join("; ");
 }
+
+export const trustedFileCsp = interactiveFileCsp;
 
 /**
  * Localhost apps need their real origin so their routing and JavaScript work.

@@ -30,6 +30,11 @@ test("CLI help and version use the doc-review identity", async () => {
   const escapedVersion = pkg.version.replaceAll(".", "\\.");
   assert.match(help.stdout, new RegExp(`^doc-review ${escapedVersion}$`, "m"));
   assert.doesNotMatch(help.stdout, /human-review/i);
+  assert.match(help.stdout, /Review \/ Changes/);
+  assert.match(help.stdout, /Plain HTML edits autosave/);
+  assert.match(help.stdout, /file scripts run automatically with feedback-only edits/);
+  assert.match(help.stdout, /Comparison capture does not block sending feedback/);
+  assert.doesNotMatch(help.stdout, /exact-version trust|scripts are blocked by default|Latest version \/ See changes/);
 });
 
 test("state discovery uses only the doc-review namespace", () => {
@@ -53,8 +58,9 @@ test("state discovery uses only the doc-review namespace", () => {
 });
 
 test("the reliability contract rejects pre-upgrade background servers", () => {
-  assert.equal(SERVER_PROTOCOL, 16);
-  assert.equal(serverProtocolMatches(16), true);
+  assert.equal(SERVER_PROTOCOL, 17);
+  assert.equal(serverProtocolMatches(17), true);
+  assert.equal(serverProtocolMatches(16), false);
   assert.equal(serverProtocolMatches(15), false);
   assert.equal(serverProtocolMatches(14), false);
   assert.equal(serverProtocolMatches(13), false);
