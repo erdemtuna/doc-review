@@ -30,6 +30,9 @@ const HELP = `doc-review ${pkg.version}
   doc-review setup --global         ...for every project, not just this one
 
 Everything runs locally. No account, no cloud, no database.
+Use Latest version / See changes in the browser for retained content history.
+File scripts are blocked by default. Explicit exact-version trust enables self-contained interaction with feedback-only edits.
+Acknowledgement handles feedback; browser result capture may complete later.
 `;
 
 // --------------------------------------------------------------- server glue

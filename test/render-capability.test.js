@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const root = path.join(process.cwd(), `.doc-review-render-test-${process.pid}`);
 fs.rmSync(root, { recursive: true, force: true });
@@ -98,6 +99,11 @@ test("render registrations are current, single-use, capability-bound, and expiri
     body: { capability: current.capability, generation: 3, pageKey: key },
   });
   assert.equal(ready.status, 200);
+  assert.equal(
+    JSON.parse(ready.raw).sourceHash,
+    createHash("sha1").update(fs.readFileSync(file, "utf8")).digest("hex"),
+    "ready identifies the source bytes that were served, not a later source read"
+  );
   assert.equal(
     (
       await request(review.port, review.token, {

@@ -5,6 +5,9 @@ import { normalizeCommentAnchor } from "./comment-anchor.js";
 import { canonicalTarget, ensureStateDir, pageKey, realFile, statePath, targetKey } from "./paths.js";
 export { atomicWrite } from "./atomic-write.js";
 import { atomicWrite } from "./atomic-write.js";
+import { RevisionStore } from "./revision-store.js";
+import { CAPTURE_LEASE_MS, HISTORY_SCHEMA_VERSION, normalizeHistoryTargets, revisionError } from "./revision-schema.js";
+import { historyRevisionReferences, retainHistory } from "./history-policy.js";
 
 /** Anything untouched this long is review debris, not work in progress. */
 const PRUNE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -12,11 +15,50 @@ const DELIVERY_STATES = new Set(["queued", "possibly_delivered", "delivered"]);
 
 const fresh = (entry, now) => !!entry && now - (entry.updatedAt || 0) < PRUNE_AGE_MS;
 const batchId = () => `b_${crypto.randomBytes(12).toString("hex")}`;
-const emptyState = () => ({ pages: {}, batches: {}, receipts: {} });
+const emptyState = () => ({ pages: {}, batches: {}, receipts: {}, histories: {} });
+const historyId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
+
+function historyRound(data, entryKey, roundId) {
+  return data.histories[entryKey]?.rounds.find((round) => round.roundId === roundId) || null;
+}
+
+function batchRound(data, entryKey, id) {
+  return data.histories[entryKey]?.rounds.find((round) => round.batchId === id) || null;
+}
+
+function publicRound(round) {
+  if (!round) return null;
+  const copy = structuredClone(round);
+  copy.sentAt ||= new Date(copy.createdAt).toISOString();
+  for (const target of copy.targets) {
+    target.captureStatus = target.capture?.status || "pending";
+    target.ownerSessionId = target.capture?.ownerSessionId || target.ownerSessionId || null;
+  }
+  return copy;
+}
+
+function finishCapture(round) {
+  const statuses = round.targets.map((target) => target.capture?.status || "pending");
+  if (statuses.every((status) => status === "ready" || status === "unavailable")) {
+    const fullContent = round.targets.every((target) => target.capture.status === "ready" &&
+      target.baselineCoverage?.semantic && target.resultCoverage?.semantic);
+    const anyResult = statuses.some((status) => status === "ready") ||
+      round.targets.some((target) => target.sourceResultRevisionId);
+    round.captureStatus = fullContent ? "ready" : anyResult ? "partial" : "failed";
+    round.completedAt ||= Date.now();
+  } else {
+    round.captureStatus = statuses.some((status) => status === "failed") ? "failed" : "pending";
+  }
+}
 
 function pruneData(data, now = Date.now()) {
-  let changed = false;
+  let changed = retainHistory(data);
   for (const [key, page] of Object.entries(data.pages)) {
+    const protectedPage = page.comments?.length || page.edits?.length || page.revisionRefs?.length ||
+      data.batches[key] || Object.values(data.batches).some((record) => record.cleanup.some((item) => item.key === key)) ||
+      Object.values(data.histories).some((history) => history.rounds.some((round) =>
+        round.targets.some((target) => target.key === key)));
+    if (protectedPage) continue;
     const missingFile = page.kind !== "url" && !fs.existsSync(page.file);
     if (!fresh(page, now) || missingFile) {
       delete data.pages[key];
@@ -24,13 +66,8 @@ function pruneData(data, now = Date.now()) {
       changed = true;
     }
   }
-  for (const [key, batch] of Object.entries(data.batches)) {
-    if (!fresh(batch, now)) {
-      delete data.batches[key];
-      changed = true;
-    }
-  }
   for (const [id, receipt] of Object.entries(data.receipts)) {
+    if (Object.values(data.histories).some((history) => history.rounds.some((round) => round.batchId === id))) continue;
     if (!fresh(receipt, now)) {
       delete data.receipts[id];
       changed = true;
@@ -47,8 +84,25 @@ function normalizeState(parsed, makeBatchId) {
     pages: parsed.pages,
     batches: parsed.batches && typeof parsed.batches === "object" ? parsed.batches : {},
     receipts: parsed.receipts && typeof parsed.receipts === "object" ? parsed.receipts : {},
+    histories: parsed.histories && typeof parsed.histories === "object" ? parsed.histories : {},
   };
   let changed = !parsed.batches || !parsed.receipts;
+  for (const history of Object.values(data.histories)) {
+    if (history?.version !== HISTORY_SCHEMA_VERSION || !Array.isArray(history.rounds) ||
+        !Number.isSafeInteger(history.nextOrdinal)) throw new Error("Invalid doc-review history.");
+    for (const round of history.rounds) {
+      if (!round?.roundId || !round.batchId || !Array.isArray(round.targets)) throw new Error("Invalid doc-review round.");
+      for (const target of round.targets) {
+        if (target.capture?.status === "running") {
+          target.capture = {
+            ...target.capture, captureId: historyId("cap"), status: "pending",
+            ownerSessionId: null, generation: null, leaseExpiresAt: 0, error: "context_lost",
+          };
+          changed = true;
+        }
+      }
+    }
+  }
   const normalizeAnchor = (comment) => {
     if (!comment || comment.anchor == null) return;
     const normalized = normalizeCommentAnchor(comment.kind === "element" ? "element" : "selection", comment.anchor);
@@ -109,10 +163,11 @@ function normalizeState(parsed, makeBatchId) {
  * means "your feedback is safe" stays true across server restarts.
  */
 export class Store {
-  constructor({ write = atomicWrite, makeBatchId = batchId } = {}) {
+  constructor({ write = atomicWrite, makeBatchId = batchId, revisions = new RevisionStore() } = {}) {
     this.data = emptyState();
     this.write = write;
     this.makeBatchId = makeBatchId;
+    this.revisions = revisions;
     this.load();
   }
 
@@ -392,27 +447,61 @@ export class Store {
     return this.data.batches;
   }
 
-  setBatch(entryKey, { batch, cleanup, deliveryState = "queued" }) {
+  setBatch(entryKey, { batch, cleanup, deliveryState = "queued", history } = {}, options = {}) {
+    const optionHistory = options.history || (options.targets ? options : undefined);
+    if (history && optionHistory) throw revisionError("Specify history context only once.");
+    history ||= optionHistory;
     if (!DELIVERY_STATES.has(deliveryState)) throw new Error(`Unknown delivery state: ${deliveryState}`);
+    const targets = history ? normalizeHistoryTargets(history.targets) : null;
+    for (const target of targets || []) {
+      if (!this.page(target.key)) throw revisionError("Unknown history document.");
+      if (target.baselineRevisionId) {
+        const manifest = this.revisions.verify(target.baselineRevisionId, target.key);
+        target.baselineCoverage = { source: !!manifest.source, semantic: !!manifest.semantic };
+      }
+    }
     return this.transaction((draft) => {
       const existing = draft.batches[entryKey];
+      const superseded = existing ? batchRound(draft, entryKey, existing.batch_id) : null;
+      if (superseded) {
+        superseded.feedbackStatus = "superseded";
+        superseded.supersededAt = Date.now();
+        superseded.captureStatus = "cancelled";
+      }
       if (existing && existing.delivery_state !== "queued") {
         draft.receipts[existing.batch_id] = {
           cleanup: existing.cleanup,
           delivery_state: existing.delivery_state,
+          batch: structuredClone(existing.batch),
           updatedAt: Date.now(),
         };
       }
       const id = batch.batch_id || this.makeBatchId();
-      const storedBatch = { ...batch, batch_id: id };
+      const storedBatch = { ...structuredClone(batch), batch_id: id };
       const record = {
         batch_id: id,
         batch: storedBatch,
-        cleanup,
+        cleanup: structuredClone(cleanup),
         delivery_state: deliveryState,
         updatedAt: Date.now(),
       };
       draft.batches[entryKey] = record;
+      if (targets) {
+        const historyState = draft.histories[entryKey] ||= {
+          version: HISTORY_SCHEMA_VERSION, entryKey, nextOrdinal: 1, rounds: [],
+        };
+        const round = {
+          roundId: historyId("round"), entryKey, ordinal: historyState.nextOrdinal++,
+          batchId: id, createdAt: Date.now(),
+          sentAt: new Date().toISOString(),
+          feedbackStatus: deliveryState === "delivered" ? "delivered" : "queued",
+          captureStatus: "pending",
+          targets: targets.map((target) => ({ ...target, resultRevisionId: null, capture: null })),
+        };
+        if (deliveryState === "delivered") round.deliveredFeedback = structuredClone(storedBatch);
+        historyState.rounds.push(round);
+        record.round_id = round.roundId;
+      }
       return record;
     });
   }
@@ -423,6 +512,12 @@ export class Store {
       const record = draft.batches[entryKey];
       record.delivery_state = "delivered";
       record.updatedAt = Date.now();
+      const round = batchRound(draft, entryKey, record.batch_id);
+      if (round) {
+        round.feedbackStatus = "delivered";
+        round.deliveredAt ||= Date.now();
+        round.deliveredFeedback ||= structuredClone(record.batch);
+      }
       return record;
     });
   }
@@ -442,13 +537,26 @@ export class Store {
       draft.receipts[id] = {
         cleanup: record.cleanup,
         delivery_state: "acknowledged",
+        batch: structuredClone(record.batch),
         updatedAt: Date.now(),
       };
+      const round = batchRound(draft, entryKey, id);
+      if (round) {
+        round.feedbackStatus = "acknowledged";
+        round.acknowledgedAt = Date.now();
+        round.deliveredFeedback ||= structuredClone(record.batch);
+        for (const target of round.targets) {
+          target.capture = {
+            captureId: historyId("cap"), status: "pending", ownerSessionId: null,
+            generation: null, attempt: 0, leaseExpiresAt: 0,
+          };
+        }
+      }
       const staged = [];
-      const keys = [];
+      const keys = round ? round.targets.map((target) => target.key) : [];
       for (const { key, ids, staged: assets = [], sentAt } of record.cleanup) {
         staged.push(...assets);
-        keys.push(key);
+        if (!keys.includes(key)) keys.push(key);
         const page = draft.pages[key];
         if (!page) continue;
         const drop = new Set(ids);
@@ -459,8 +567,125 @@ export class Store {
             : [];
         page.updatedAt = Date.now();
       }
-      return { acknowledged: true, staged, keys };
+      return { acknowledged: true, staged, keys, ...(round ? { roundId: round.roundId } : {}) };
     });
+  }
+
+  listHistory(entryKey) {
+    return (this.data.histories[entryKey]?.rounds || []).map(publicRound).sort((a, b) => b.ordinal - a.ordinal);
+  }
+
+  getRound(entryKey, roundId) {
+    return publicRound(historyRound(this.data, entryKey, roundId));
+  }
+
+  recordSourceResult(entryKey, roundId, key, { revisionId, unavailable } = {}) {
+    if (revisionId && unavailable) throw revisionError("Source result availability is ambiguous.");
+    if (revisionId) {
+      const manifest = this.revisions.verify(revisionId, key);
+      if (!manifest.source) throw revisionError("Source result must contain a source snapshot.");
+    } else if (typeof unavailable !== "string" || !unavailable || unavailable.length > 500) {
+      throw revisionError("Source result needs a revision or unavailable reason.");
+    }
+    const existing = historyRound(this.data, entryKey, roundId);
+    const existingTarget = existing?.targets.find((target) => target.key === key);
+    if (existing?.feedbackStatus !== "acknowledged" || !existingTarget) throw revisionError("Source capture is not pending.");
+    if (existingTarget.sourceResultRevisionId) {
+      if (existingTarget.sourceResultRevisionId === revisionId) return { accepted: false, duplicate: true, round: publicRound(existing) };
+      throw revisionError("The source result is already frozen.", "CAPTURE_FINALIZED");
+    }
+    if (existing.completedAt || existingTarget.resultRevisionId || existingTarget.capture?.status === "unavailable") {
+      throw revisionError("The target capture is already finalized.", "CAPTURE_FINALIZED");
+    }
+    const result = this.transaction((draft) => {
+      const round = historyRound(draft, entryKey, roundId);
+      const target = round.targets.find((item) => item.key === key);
+      if (revisionId) {
+        target.sourceResultRevisionId = revisionId;
+        delete target.sourceResultUnavailable;
+      } else target.sourceResultUnavailable = unavailable;
+      return round;
+    });
+    return { accepted: true, round: publicRound(result) };
+  }
+
+  claimCapture(entryKey, roundId, key, { ownerSessionId, generation, leaseMs = CAPTURE_LEASE_MS } = {}) {
+    if (typeof ownerSessionId !== "string" || !ownerSessionId || ownerSessionId.length > 200 ||
+        !Number.isSafeInteger(generation) || generation < 0 ||
+        !Number.isSafeInteger(leaseMs) || leaseMs <= 0 || leaseMs > 5 * CAPTURE_LEASE_MS) {
+      throw revisionError("Invalid capture ownership.");
+    }
+    const result = this.transaction((draft) => {
+      const round = historyRound(draft, entryKey, roundId);
+      const target = round?.targets.find((item) => item.key === key);
+      if (round?.feedbackStatus !== "acknowledged" || !target?.capture) throw revisionError("Capture is not pending.");
+      if (target.capture.status === "ready" || target.capture.status === "unavailable") throw revisionError("Capture is already finalized.", "CAPTURE_FINALIZED");
+      if (target.capture.status === "running" && target.capture.leaseExpiresAt > Date.now()) {
+        if (target.capture.ownerSessionId === ownerSessionId && target.capture.generation === generation) return target.capture;
+        throw revisionError("Another frame owns this capture.", "CAPTURE_CONFLICT");
+      }
+      target.capture = {
+        captureId: historyId("cap"), status: "running", ownerSessionId, generation,
+        attempt: target.capture.attempt + 1, leaseExpiresAt: Date.now() + leaseMs,
+      };
+      round.captureStatus = "pending";
+      return target.capture;
+    });
+    return structuredClone(result);
+  }
+
+  recordCaptureResult(entryKey, roundId, key, { captureId, ownerSessionId, generation, revisionId } = {}) {
+    const manifest = this.revisions.verify(revisionId, key);
+    const result = this.transaction((draft) => {
+      const round = historyRound(draft, entryKey, roundId);
+      const target = round?.targets.find((item) => item.key === key);
+      const capture = target?.capture;
+      if (capture?.status === "ready" && capture.captureId === captureId &&
+          capture.ownerSessionId === ownerSessionId && capture.generation === generation &&
+          target.resultRevisionId === revisionId) return { accepted: false, duplicate: true, round };
+      this.assertCapture(round, capture, { captureId, ownerSessionId, generation });
+      target.resultRevisionId = revisionId;
+      target.resultCoverage = { source: !!manifest.source, semantic: !!manifest.semantic };
+      capture.status = "ready";
+      capture.capturedAt = Date.now();
+      capture.leaseExpiresAt = 0;
+      finishCapture(round);
+      return { accepted: true, round };
+    });
+    return structuredClone(result);
+  }
+
+  markCaptureUnavailable(entryKey, roundId, key, { captureId, ownerSessionId, generation, reason, final = false } = {}) {
+    if (typeof reason !== "string" || !reason || reason.length > 500) throw revisionError("Invalid capture failure reason.");
+    const result = this.transaction((draft) => {
+      const round = historyRound(draft, entryKey, roundId);
+      const target = round?.targets.find((item) => item.key === key);
+      const capture = target?.capture;
+      const unowned = round?.feedbackStatus === "acknowledged" &&
+        (capture?.status === "pending" || capture?.status === "failed") &&
+        !capture.ownerSessionId && capture.captureId === captureId &&
+        !ownerSessionId && generation == null;
+      if (!unowned) this.assertCapture(round, capture, { captureId, ownerSessionId, generation });
+      capture.status = final ? "unavailable" : "failed";
+      capture.error = reason;
+      capture.leaseExpiresAt = 0;
+      if (final) target.resultUnavailable = reason;
+      finishCapture(round);
+      return { accepted: true, round };
+    });
+    return structuredClone(result);
+  }
+
+  assertCapture(round, capture, { captureId, ownerSessionId, generation }) {
+    if (round?.feedbackStatus !== "acknowledged" || capture?.status !== "running" ||
+        capture.captureId !== captureId || capture.ownerSessionId !== ownerSessionId ||
+        capture.generation !== generation || capture.leaseExpiresAt <= Date.now()) {
+      throw revisionError("Capture response is stale or belongs to another frame.", "CAPTURE_CONFLICT");
+    }
+  }
+
+  collectHistoryGarbage(options) {
+    return this.revisions.collectGarbage(historyRevisionReferences(this.data), options);
   }
 
   clearBatch(entryKey) {

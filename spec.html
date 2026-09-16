@@ -303,7 +303,8 @@
         <table>
           <thead><tr><th>Target</th><th>What the human reviews</th><th>Where edits land</th></tr></thead>
           <tbody>
-            <tr><td>Static HTML</td><td>The actual file, rendered in the review UI.</td><td>Direct edits autosave to the HTML file and are included in the feedback batch.</td></tr>
+            <tr><td>Safe HTML</td><td>The actual file, with authored scripts blocked by default.</td><td>Direct edits autosave to the HTML file and are included in the feedback batch.</td></tr>
+            <tr><td>Trusted interactive HTML</td><td>Self-contained scripts enabled for the exact saved version with Enable page scripts. View/Edit stays centered in a thin toolbar with no explanatory second row. No approval popup or policy text injected into the authored page.</td><td>Direct edits are feedback-only. Changed source requires renewed approval. Turning the switch off revokes approval; the inline info control exposes status and policy details without moving the document. The prior page stays visible but non-interactive until the replacement is configured. External application dependencies use localhost review.</td></tr>
             <tr><td>Markdown</td><td>A rendered version of the Markdown.</td><td>The file stays untouched during review. The agent applies edits to the Markdown source.</td></tr>
             <tr><td>Generated HTML</td><td>The rendered page, including client-side output.</td><td>Edits become source-directed feedback so browser serialization cannot corrupt the generator.</td></tr>
             <tr><td>Localhost URL</td><td>The real development route and its assets, not a recreated page.</td><td>The agent applies edits to the matching MDX, TSX, template, or component. Rendered HTML is never written back into the app.</td></tr>
@@ -336,7 +337,9 @@
 
       <h2>Source behavior</h2>
       <div class="callout">
-        <p><strong>Direct editing describes the experience, not always the storage layer.</strong> A human can type and delete on every supported target. Static HTML can save those changes directly. Markdown, generated pages, and localhost routes send the same exact changes to the agent, which updates the real source.</p>
+        <p><strong>Direct editing describes the experience, not always the storage layer.</strong> A human can type and delete on every supported target. Safe HTML can save those changes directly. Trusted interactive HTML, Markdown, generated pages, and localhost routes send the same exact changes to the agent, which updates the real source.</p>
+        <p><strong>See changes is a reading surface.</strong> Content uses aligned before-and-after document blocks with expandable unchanged context; Source uses line-numbered hunks. Narrow screens use a unified layout. Each round retains its own immutable captured endpoints.</p>
+        <p><strong>Visible views are not whole applications.</strong> Content capture records the selected tab where reliable identifiers exist and waits for that same tab after the update. Unknown view identity is labelled unverified. File Source comparison covers the whole file independently.</p>
       </div>
       <ul>
         <li>Human wording is final. The agent carries direct edits across verbatim and does not rewrite them.</li>
@@ -399,7 +402,7 @@
           <tbody>
             <tr><td><code>doc-review &lt;target&gt;</code></td><td>Open the file or localhost page for review.</td></tr>
             <tr><td><code>doc-review poll &lt;target&gt; --timeout 600</code></td><td>Wait for a feedback batch and print it as JSON.</td></tr>
-            <tr><td><code>doc-review poll &lt;target&gt; --ack --timeout 600</code></td><td>Acknowledge the handled batch, reload, and keep listening.</td></tr>
+            <tr><td><code>doc-review poll &lt;target&gt; --ack &lt;batch_id&gt; --timeout 600</code></td><td>Acknowledge the exact handled batch, request result capture, and keep listening.</td></tr>
             <tr><td><code>doc-review status &lt;target&gt;</code></td><td>Check whether feedback is waiting without blocking.</td></tr>
             <tr><td><code>doc-review setup --global</code></td><td>Install the usage skill for Claude Code, Codex, and compatible agent directories.</td></tr>
           </tbody>
@@ -414,7 +417,7 @@
           <tbody>
             <tr><td>Runtime</td><td>Node.js 20+ using built-in HTTP, file system, and process APIs.</td></tr>
             <tr><td>Browser UI</td><td>Vanilla JavaScript toolbar, contextual surfaces, review drawer, sandboxed iframe, and capability-bound <code>postMessage</code>.</td></tr>
-            <tr><td>Persistence</td><td>Local JSON state for comments and pending batches; atomic writes for editable HTML files.</td></tr>
+            <tr><td>Persistence</td><td>Local JSON state for comments, pending batches, exact-version trust, and immutable review history. The latest five completed rounds are retained while pending work stays protected.</td></tr>
             <tr><td>Change detection</td><td>Native file watching reloads agent updates while suppressing the tool's own save echoes.</td></tr>
             <tr><td>Agent transport</td><td>Long-poll HTTP to stdout JSON with at-least-once delivery until acknowledgement.</td></tr>
           </tbody>

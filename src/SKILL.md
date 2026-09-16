@@ -18,9 +18,24 @@ end it; stop if they cancel or switch to a different task.
 
 ## Review behavior
 
-The user reviews your HTML, Markdown, or localhost page in a real browser. It starts in View,
-where normal page controls work. They can switch to Edit, comment explicitly in either mode,
+The user reviews your HTML, Markdown, or localhost page in a real browser. It starts in View.
+Native page controls work; authored JavaScript is blocked for files by default.
+They can switch to Edit, comment explicitly in either mode,
 and send the whole batch at once.
+
+Self-contained HTML can be explicitly trusted by the user for its exact saved
+version using **Enable page scripts** beside View/Edit, without a popup.
+Changed files require renewed approval. Turning the switch off revokes approval;
+if a draft holds the reload, Script details distinguishes saved permission
+from the older page still being displayed.
+The switch does not shift View/Edit or the document when its state changes.
+The thin toolbar has no explanatory second row. Policy explanations and status
+messages live in its inline Script details control, not inside the authored HTML.
+Reloads retain a non-interactive prior view until the replacement is configured.
+Never grant trust on the user's behalf or describe arbitrary scripts as safe.
+Trusted interactive HTML edits are feedback-only: apply them to the original
+source, never serialize the script-modified runtime page over the file.
+Applications requiring external script dependencies should use localhost review.
 
 Markdown files open rendered. Their quotes and edits reference the rendered text,
 and the file itself is never touched — apply every change to the Markdown source,
@@ -95,6 +110,17 @@ carried; newer comments and corrections survive.
 
    The response's `next_step` contains the complete acknowledgement command.
    Never acknowledge a different or guessed ID.
+
+   Acknowledgement means that you handled the feedback; it is separate from
+   browser result-capture readiness. Do not wait for history capture before
+   acknowledging completed work, and do not acknowledge merely because a page
+   looks stable. The browser captures round results automatically when possible
+   and offers Capture result when a page is unavailable or still changing.
+   Captured differences are observations, not proof that you alone authored them.
+   Content results may wait for the same identifiable tab as the baseline.
+   The user sees a return-to-tab prompt; do not automate tab clicking to force
+   capture. Source comparison remains independent. Unknown view identity is
+   labelled unverified, not asserted as a whole-application comparison.
 
 Repeat 3–4 until the user says they are done.
 
@@ -173,8 +199,12 @@ One batch covers every page the user visited, grouped by file or localhost URL.
 - Find each comment by its `quote`; that exact string is in the file.
 - `kind: "element"` points at a whole block, so `quote` is its label, not body text.
 - Fix every page in `pages`, not just the first.
-- **Do not write a reply.** There is no chat. The user sees your work when the page
-  reloads, which happens on its own the moment you save the file.
+- **Do not write a reply.** There is no chat. The user sees the updated page and
+  can choose See changes for a fixed Send-to-result comparison. Reload may wait
+  for the user to handle unsaved review work. Live result capture may require
+  Capture result; never describe unavailable history as no changes.
+- Review history uses local content/source snapshots, not screenshots or Git
+  commits. Do not create commits or alter repository state to populate history.
 
 ## Better edit labels (optional)
 

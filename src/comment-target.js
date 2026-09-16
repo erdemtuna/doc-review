@@ -1,5 +1,92 @@
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
+export function groupCommentTargets(targets) {
+  const groups = new Map();
+  for (const [id, element] of targets) {
+    if (!element?.isConnected) continue;
+    if (!groups.has(element)) groups.set(element, []);
+    groups.get(element).push(id);
+  }
+  return groups;
+}
+
+export function nextCommentId(ids, activeId) {
+  return ids.length ? ids[(ids.indexOf(activeId) + 1) % ids.length] : null;
+}
+
+/** Retarget dwell is independent of initial intent; revisiting a candidate
+ * does not restart its clock. The caller owns corridor and selection policy. */
+export function createHoverIntent(commit, {
+  initial = 150, retarget = 100, exit = 120,
+  schedule = setTimeout, unschedule = clearTimeout,
+} = {}) {
+  let current = null;
+  let candidate = null;
+  let timer = null;
+  const cancel = () => {
+    unschedule(timer);
+    timer = null;
+    candidate = null;
+  };
+  return {
+    cancel,
+    reset() { cancel(); current = null; },
+    request(key, payload, immediate = false) {
+      if (key === current && !immediate) { cancel(); return; }
+      if (timer !== null && candidate === key && !immediate) return;
+      cancel();
+      candidate = key;
+      const apply = () => {
+        timer = null;
+        current = key;
+        candidate = null;
+        commit(payload);
+      };
+      if (immediate) apply();
+      else timer = schedule(apply, key === null ? exit : current === null ? initial : retarget);
+    },
+  };
+}
+
+export function normalizeSelectionRange(map, range) {
+  let first = null;
+  let last = null;
+  // Element offsets index children, not characters. Intersect the filtered text
+  // nodes so an exclusive endpoint before the next block never includes it.
+  for (const entry of map) {
+    const length = entry.node.nodeValue.length;
+    if (range.comparePoint(entry.node, length) < 0 || range.comparePoint(entry.node, 0) > 0) continue;
+    const from = entry.node === range.startContainer ? range.startOffset : 0;
+    const to = entry.node === range.endContainer ? range.endOffset : length;
+    if (to <= from) continue;
+    first ||= { entry, offset: from };
+    last = { entry, offset: to };
+  }
+  if (!first || !last) return null;
+  const normalized = range.cloneRange();
+  normalized.setStart(first.entry.node, first.offset);
+  normalized.setEnd(last.entry.node, last.offset);
+  return {
+    start: first.entry.start + first.offset,
+    end: last.entry.start + last.offset,
+    range: normalized,
+  };
+}
+
+export function sameRange(one, two) {
+  return !!one && !!two &&
+    one.startContainer === two.startContainer && one.startOffset === two.startOffset &&
+    one.endContainer === two.endContainer && one.endOffset === two.endOffset;
+}
+
+export function pointInCommentApproach(point, target, action) {
+  if (!target || !action || action.width <= 0 || action.height <= 0) return false;
+  return point.x >= Math.min(target.left, action.left) &&
+    point.x <= Math.max(target.right, action.right) &&
+    point.y >= Math.min(target.top, action.top) &&
+    point.y <= Math.max(target.bottom, action.bottom);
+}
+
 export function sanitizeRect(rect) {
   if (!rect) return null;
   const values = ["left", "top", "right", "bottom", "width", "height"];

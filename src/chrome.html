@@ -9,31 +9,78 @@
 <body data-session="__SESSION_ID__" data-token="__TOKEN__">
   <div class="app">
     <header class="toolbar" aria-label="Review controls">
-      <div class="toolbar-product" aria-hidden="true"></div>
-      <div class="mode-control">
-        <button type="button" id="modeButton" class="toolbar-btn" aria-haspopup="menu" aria-expanded="false">
-          <span id="modeIcon"></span><span id="modeLabel">View</span><span id="modeChevron"></span>
-        </button>
-        <div id="modeMenu" class="mode-menu" role="menu" hidden>
-          <button type="button" role="menuitemradio" aria-checked="true" data-mode="view">
-            <span data-icon="eye"></span><span><strong>View</strong><small>Editing off, comments enabled</small></span><span class="menu-check"></span>
+      <div class="toolbar-product history-toggle" role="group" aria-label="Review version">
+        <button type="button" id="latestVersion" class="toolbar-btn" aria-pressed="true">Latest version</button>
+        <button type="button" id="seeChanges" class="toolbar-btn" aria-pressed="false">See changes</button>
+      </div>
+      <div class="page-controls" role="group" aria-label="Page controls">
+        <div class="mode-control">
+          <button type="button" id="modeButton" class="toolbar-btn" aria-haspopup="menu" aria-expanded="false">
+            <span id="modeIcon"></span><span id="modeLabel">View</span><span id="modeChevron"></span>
           </button>
-          <button type="button" role="menuitemradio" aria-checked="false" data-mode="edit">
-            <span data-icon="pencil"></span><span><strong>Edit</strong><small>Direct editing on</small></span><span class="menu-check"></span>
-          </button>
+          <div id="modeMenu" class="mode-menu" role="menu" hidden>
+            <button type="button" role="menuitemradio" aria-checked="true" data-mode="view">
+              <span data-icon="eye"></span><span><strong>View</strong><small>Editing off, comments enabled</small></span><span class="menu-check"></span>
+            </button>
+            <button type="button" role="menuitemradio" aria-checked="false" data-mode="edit">
+              <span data-icon="pencil"></span><span><strong>Edit</strong><small>Direct editing on</small></span><span class="menu-check"></span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="toolbar-actions">
+        <div id="documentTrustControls" hidden></div>
         <button type="button" id="commentsButton" class="toolbar-btn" aria-controls="drawer" aria-label="Comments" aria-expanded="false">
           <span data-icon="messages"></span><span class="toolbar-label">Comments</span><span id="toolbarCount" class="count-badge">0</span>
         </button>
       </div>
     </header>
     <main class="stage">
+      <section id="reloadNotice" class="reload-notice" aria-label="Source update" hidden>
+        <p id="reloadMessage"></p>
+        <button type="button" id="safeReload" class="btn-primary">Reload latest; keep comment drafts</button>
+        <button type="button" id="keepCurrent" class="btn-ghost">Keep this page</button>
+      </section>
       <iframe
         id="frame"
         title="Artifact under review"
         sandbox="allow-scripts allow-forms allow-modals"></iframe>
+      <section id="historyPanel" class="history-panel" aria-labelledby="historyTitle" hidden>
+        <header class="history-head">
+          <div><h1 id="historyTitle">See changes <span class="section">Read-only</span></h1></div>
+          <label>Review round <select id="roundPicker" aria-label="Review round"></select></label>
+        </header>
+        <p id="historyStatus" role="status">No review rounds yet. Send feedback to start a comparison.</p>
+        <p id="historyCurrentStatus" class="history-context" hidden></p>
+        <p id="historyViewCoverage" class="history-context" role="status" hidden></p>
+        <div id="historyUnavailable" class="history-context" hidden></div>
+        <div class="history-controls">
+          <label id="historyTargetLabel" hidden>Page <select id="historyTarget" aria-label="Comparison page"></select></label>
+          <div id="comparisonModes" role="group" aria-label="Comparison format"></div>
+          <button type="button" id="captureResult" class="btn-primary" hidden>Capture result</button>
+          <button type="button" id="finishCapture" class="btn-ghost" hidden>Finish with available snapshots</button>
+        </div>
+        <p id="finishCaptureHelp" class="history-context" hidden>Finishing marks missing Content as unavailable; it does not invent a result. Existing Source comparisons remain available, and this target will no longer retry capture.</p>
+        <p id="historyError" class="compose-error" role="alert" hidden></p>
+        <div id="historyCounts" class="history-counts"></div>
+        <details id="historyDiagnostics" class="history-diagnostics">
+          <summary>Capture details and comparison coverage</summary>
+          <p>Content is a readable reconstruction of saved blocks, not the original page layout. Historical scripts, authored styles and image URLs are never replayed. Table rows use saved cell selectors; complex spanning structure is shown in row order. Source shows saved file text.</p>
+          <dl id="historyTiming" class="history-timing" hidden></dl>
+          <p id="historyCaptureDelay" class="history-context" hidden></p>
+          <details id="historyLimitations" hidden>
+            <summary>Comparison coverage and limits</summary>
+            <ul id="historyLimitationsList"></ul>
+          </details>
+        </details>
+        <nav id="changeNavigation" class="history-navigation" aria-label="Change navigation" hidden>
+          <button type="button" id="previousChange" class="btn-ghost" aria-label="Previous change">Previous change</button>
+          <span id="changePosition"></span>
+          <label class="change-jump-label"><span>Jump to</span> <select id="changeJump" aria-label="Jump to change"></select></label>
+          <button type="button" id="nextChange" class="btn-ghost" aria-label="Next change">Next change</button>
+        </nav>
+        <article id="changeDetail" class="change-detail" aria-label="Continuous before and after comparison"></article>
+      </section>
     </main>
 
     <section id="compose" class="contextual-compose" role="dialog" aria-modal="false" aria-labelledby="composeTitle" hidden>
@@ -107,6 +154,13 @@
           </div>
           <textarea id="note" rows="2" placeholder="Overall note…"></textarea>
           <button type="button" id="send" class="send" disabled>Nothing to send yet</button>
+          <p id="draftWarning" class="dim" hidden></p>
+          <div id="captureWarning" class="capture-warning" role="alert" hidden>
+            <p id="captureWarningText"></p>
+            <div id="captureTargets"></div>
+            <button type="button" id="recaptureBaseline" class="btn-primary">Recapture and send</button>
+            <button type="button" id="sendWithoutComparison" class="btn-ghost">Send without comparison</button>
+          </div>
           <div class="agent-line" id="agentLine" hidden><span class="dot amber"></span><span id="agentText"></span></div>
         </div>
         <div class="send-secondary">
