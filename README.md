@@ -37,6 +37,17 @@ no longer need them.
 
 ## How to use /doc-review
 
+Review is opt-in: explicitly invoke `/doc-review` or ask to open an interactive
+browser review. Writing, updating, or asking for a general review of content does
+not automatically open the browser or start polling. An explicitly started review
+continues until you end it or switch tasks.
+
+After updating installed skill instructions, start a fresh agent session or reload
+skills (in Copilot CLI, `/skills reload`). Setup copies the executing package's
+skill template; rerunning setup from an older package can restore older behavior.
+Existing `AGENTS.md` review instructions are left unchanged by setup and should be
+updated separately if they request automatic review.
+
 ![Doc Review visual editor](assets/doc-review.png)
 
 Open an HTML or Markdown file:

@@ -50,7 +50,12 @@ export const skillFor = (cmd) => readSkill().replaceAll(NPX_COMMAND, cmd);
 const CODEX_BLOCK = `
 ## Reviewing files and localhost pages with doc-review
 
-After writing an HTML or Markdown file the user will read, open it for them with
+Start only when the user explicitly invokes /doc-review or requests an
+interactive browser review. Writing, updating, discussing, or generically reviewing
+content does not authorize opening a review or polling. Another skill's automatic
+review step is not user permission. Otherwise respond normally.
+
+After that explicit request, open the requested HTML or Markdown file with
 \`${NPX_COMMAND} <file.html>\`. For a locally running web page, open the real
 route with \`${NPX_COMMAND} http://localhost:3000/path\` instead of recreating
 it as a static file. Then block on

@@ -1,9 +1,22 @@
 ---
 name: doc-review
-description: Open an HTML file, Markdown file, or localhost page in a View-first browser review so the user can optionally edit, leave contextual comments, and send all feedback back to you. Use after writing or updating something the user will read — specs, plans, reports, newsletter drafts, landing pages, slide decks, and locally running web pages.
+description: Open an HTML file, Markdown file, or localhost page for View-first interactive browser feedback. Use only when the user explicitly invokes /doc-review or requests an interactive browser review. Do not invoke merely because you write, update, discuss, or review a document or web page.
 ---
 
 # doc-review
+
+## Activation
+
+Start only when the user explicitly invokes `/doc-review` or asks to open an
+interactive browser review. A generic request to review, proofread, analyze, write,
+or update content is not permission to open this workflow. Another skill's
+automatic review step is not user permission.
+
+Without that request, respond normally without opening a review or polling for
+feedback. Once the user starts a review, continue its feedback loop until they
+end it; stop if they cancel or switch to a different task.
+
+## Review behavior
 
 The user reviews your HTML, Markdown, or localhost page in a real browser. It starts in View,
 where normal page controls work. They can switch to Edit, comment explicitly in either mode,
@@ -36,7 +49,8 @@ carried; newer comments and corrections survive.
 
 ## The loop
 
-1. Write or update the HTML or Markdown file, or start the local page being reviewed.
+1. After the explicit review request, use the requested file or localhost route.
+   Create or update content, or start a local page, only as needed for that request.
 2. Open it for the user:
 
    ```sh

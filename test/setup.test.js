@@ -14,6 +14,19 @@ import {
   skillFor,
 } from "../src/setup.js";
 
+test("skill activation requires an explicit interactive review request", () => {
+  const contents = skillFor(COMMAND_NAME);
+  const description = contents.match(/^description: (.+)$/m)?.[1];
+
+  assert.match(contents, /^name: doc-review$/m);
+  assert.match(description, /Use only when the user explicitly invokes \/doc-review/);
+  assert.match(description, /Do not invoke merely because you write, update, discuss, or review/);
+  assert.match(contents, /Another skill's\s+automatic review step is not user permission/);
+  assert.match(contents, /without opening a review or polling/);
+  assert.match(contents, /After the explicit review request/);
+  assert.doesNotMatch(contents, /Use after writing or updating something the user will read/);
+});
+
 test("global setup installs the skill for Claude Code, Codex, and shared agents", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-setup-"));
 
@@ -25,12 +38,37 @@ test("global setup installs the skill for Claude Code, Codex, and shared agents"
       const contents = fs.readFileSync(skill, "utf8");
       assert.match(contents, /npx -y @erdemtuna\/doc-review poll/);
       assert.match(contents, /--ack b_0123456789abcdef/);
+      assert.match(contents, /Use only when the user explicitly invokes \/doc-review/);
     }
     assert.match(result.join("\n"), /Claude Code skill/);
     assert.match(result.join("\n"), /Codex skill/);
     assert.match(result.join("\n"), /Shared agents skill/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("project setup gates both skill and AGENTS instructions on explicit review", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-setup-"));
+
+  try {
+    const existing = "# Project instructions\n\nPreserve this guidance.\n";
+    fs.writeFileSync(path.join(cwd, "AGENTS.md"), existing);
+    installSkills(cwd, { command: COMMAND_NAME });
+
+    const skill = fs.readFileSync(path.join(cwd, ".claude", "skills", "doc-review", "SKILL.md"), "utf8");
+    const agents = fs.readFileSync(path.join(cwd, "AGENTS.md"), "utf8");
+    assert.match(skill, /Use only when the user explicitly invokes \/doc-review/);
+    assert.ok(agents.startsWith(existing.trimEnd()));
+    assert.match(agents, /Start only when the user explicitly invokes \/doc-review/);
+    assert.match(agents, /Another skill's automatic\s+review step is not user permission/);
+    assert.doesNotMatch(agents, /After writing an HTML or Markdown file the user will read/);
+    assert.match(agents, /--ack <batch_id>/);
+
+    installSkills(cwd, { command: COMMAND_NAME });
+    assert.equal(fs.readFileSync(path.join(cwd, "AGENTS.md"), "utf8"), agents);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
 
