@@ -10,6 +10,7 @@ import { isMarkdown, renderMarkdownPage } from "./markdown.js";
 import { canonicalTarget, ensureStateDir, localUrl, SERVER_PROTOCOL, serverPath, stateDir, targetKey } from "./paths.js";
 import { acquireServerLock, releaseServerLock, removeOwnedServerRecord } from "./server-lock.js";
 import { invocation, shellQuote } from "./setup.js";
+import { limitEditFields } from "./edit-limits.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -289,6 +290,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           kind: e.kind,
           before: e.before,
           after: e.after,
+          ...(e.truncated ? { truncated: true, truncated_fields: e.truncated_fields } : {}),
           ...(e.before_html !== undefined && e.before_html !== e.before ? { before_html: e.before_html } : {}),
           ...(e.after_html !== undefined && e.after_html !== e.after ? { after_html: e.after_html } : {}),
           ...(Array.isArray(e.staged_assets) && e.staged_assets.length ? { staged_assets: e.staged_assets } : {}),
@@ -319,6 +321,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
     const hasMarkdown = pages.some((p) => p.kind === "file" && isMarkdown(p.file));
     const hasUrl = pages.some((p) => p.kind === "url");
     const hasCorrections = pages.some((p) => p.comments.some((c) => c.correction));
+    const hasTruncation = pages.some((p) => p.edits.some((e) => e.truncated));
     const id = `b_${crypto.randomBytes(12).toString("hex")}`;
     const entry = store.page(session.entryKey);
     const pollTarget = entry?.kind === "url" ? entry.url : entry?.file;
@@ -331,9 +334,14 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       sent_at: new Date().toISOString(),
       next_step:
         "Apply this feedback. Each entry in `pages` names the reviewed file or localhost URL. Items under `edits` are " +
-        "changes the human already made: `after` is their exact new wording, so carry it across verbatim, and " +
+        "changes the human already made: unless marked `truncated`, `after` is their exact new wording, so carry it across verbatim, and " +
         "never revert it. When an edit carries `after_html`, the human changed formatting (bold, italic, links) — " +
         "use the HTML version, translated into the source's own syntax. " +
+        (hasTruncation
+          ? "Some edits are marked `truncated`; `truncated_fields` lists incomplete fields. Never apply incomplete text or HTML " +
+            "as a complete replacement or invent missing content. Recover the full edit only from an authoritative source, " +
+            "or ask the user for it. Do not acknowledge this batch until all feedback is handled. "
+          : "") +
         (hasMarkdown
           ? "Markdown pages were reviewed rendered, so quotes and `after` wording use the rendered text — apply " +
             "the change to the Markdown source, keeping its formatting syntax. "
@@ -878,7 +886,11 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           const body = await readBody(req);
           const label = String(body.label || "Document");
           const kind = body.kind === "deleted" ? "deleted" : body.kind === "moved" ? "moved" : "edited";
-          const cap = (s) => (typeof s === "string" ? s.slice(0, 4000) : undefined);
+          const limited = limitEditFields({
+            before: body.before, after: body.after, before_html: body.before_html, after_html: body.after_html,
+            ...(kind === "moved" ? { moved_after: body.moved_after, moved_before: body.moved_before } : {}),
+          });
+          const fields = limited.fields;
           const stagedRoot = path.join(stateDir(), "pasted", key);
           const stagedAssets = Array.isArray(body.staged_assets)
             ? body.staged_assets
@@ -898,10 +910,12 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
                 .map(({ path: assetPath, preview_src }) => ({ path: assetPath, preview_src }))
             : [];
           const extra = {
-            ...(kind === "moved" ? { moved_after: cap(body.moved_after) || "", moved_before: cap(body.moved_before) || "" } : {}),
+            truncated: limited.truncated,
+            truncated_fields: limited.truncated_fields,
+            ...(kind === "moved" ? { moved_after: fields.moved_after || "", moved_before: fields.moved_before || "" } : {}),
             ...(stagedAssets.length ? { staged_assets: stagedAssets } : {}),
           };
-          store.addEdit(key, label, kind, cap(body.before), cap(body.after), cap(body.before_html), cap(body.after_html), extra);
+          store.addEdit(key, label, kind, fields.before, fields.after, fields.before_html, fields.after_html, extra);
           return json(res, 200, { page: pageState(key) });
         }
 

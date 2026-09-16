@@ -133,8 +133,13 @@ One batch covers every page the user visited, grouped by file or localhost URL.
 
 ## Rules
 
+- Edits marked **`truncated`** contain incomplete fields listed in
+  `truncated_fields`. Each text/HTML field is limited to 200,000 Unicode code
+  points. Never apply a truncated field as a complete replacement or guess the
+  missing content. Obtain the complete edit from an authoritative source, or ask
+  the user for it. Do not acknowledge the batch until all feedback is handled.
 - **`edits` are changes the user already made.** `after` is their exact wording —
-  carry it across verbatim and never revert it. If the HTML was generated from
+  unless marked truncated, carry it across verbatim and never revert it. If the HTML was generated from
   something else (MDX, Markdown, a template), apply `after` to the **source** too,
   or their fix disappears on the next build.
 - When `before_html`/`after_html` are present, the user changed formatting, not

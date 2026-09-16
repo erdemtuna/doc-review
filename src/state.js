@@ -343,6 +343,19 @@ export class Store {
         if (afterHtml !== undefined) row.after_html = afterHtml;
         // A re-move of the same block replaces its landing spot.
         if (extra) {
+          if (Array.isArray(extra.truncated_fields)) {
+            const replaced = new Set([
+              ...(after !== undefined ? ["after"] : []),
+              ...(afterHtml !== undefined ? ["after_html"] : []),
+              ...["moved_after", "moved_before"].filter((field) => extra[field] !== undefined),
+            ]);
+            // Original before text is retained across edits, including its truncation.
+            const truncatedFields = [...new Set([
+              ...(row.truncated_fields || []).filter((field) => !replaced.has(field)),
+              ...extra.truncated_fields.filter((field) => replaced.has(field)),
+            ])];
+            extra = { ...extra, truncated: truncatedFields.length > 0, truncated_fields: truncatedFields };
+          }
           if (extra.staged_assets) {
             const assets = [...(row.staged_assets || []), ...extra.staged_assets];
             extra = { ...extra, staged_assets: [...new Map(assets.map((asset) => [asset.path, asset])).values()] };
