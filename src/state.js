@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { normalizeCommentAnchor } from "./comment-anchor.js";
 import { canonicalTarget, ensureStateDir, pageKey, realFile, statePath, targetKey } from "./paths.js";
+export { atomicWrite } from "./atomic-write.js";
+import { atomicWrite } from "./atomic-write.js";
 
 /** Anything untouched this long is review debris, not work in progress. */
 const PRUNE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -90,24 +92,6 @@ function normalizeState(parsed, makeBatchId) {
     }
   }
   return { data, changed };
-}
-
-/**
- * Atomic write via a unique sibling tmp file. The name is unguessable and the
- * create is exclusive, so a pre-planted symlink can never redirect the write,
- * and a failed rename never leaves a predictable orphan behind.
- */
-export function atomicWrite(file, data) {
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.doc-review.tmp`;
-  fs.writeFileSync(tmp, data, { flag: "wx" });
-  try {
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {}
-    throw err;
-  }
 }
 
 /**
