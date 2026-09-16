@@ -103,6 +103,7 @@ test("Markdown Edit is feedback-only and View preserves application interactions
     await expect(frame.locator("#button")).toHaveText("Worked");
     await frame.locator("#button").press("Control+Alt+m");
     await expect(page.locator("#compose")).toBeVisible();
+    await expect(page.locator("#composeText")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect.poll(() => frame.locator("#button").evaluate((element) => document.activeElement === element)).toBe(true);
     await frame.locator("summary").click();
@@ -361,7 +362,7 @@ test("nested scrollers update and hide the contextual target", async ({ page, re
   await openReview(page, review, file);
   const frame = await waitForSdk(page);
   await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 210; });
-  await frame.locator("#target").dispatchEvent("mouseover");
+  await frame.locator("#target").hover();
   await expect(frame.locator("#commentAction")).toBeVisible();
   await frame.locator("#scroll").evaluate((element) => { element.scrollTop += 30; });
   await expect(frame.locator("#commentAction")).toBeVisible();
@@ -1290,6 +1291,8 @@ test("actual dark spec keeps multiple saved block comments visible and cycles ac
     await page.locator("#composeText").fill(feedback);
     await page.locator("#composeAdd").click();
     await expect(page.locator("#compose")).toBeHidden();
+    const count = feedback === "First block feedback" ? 1 : 2;
+    await expect(frame.getByRole("button", { name: new RegExp(`^${count} block comments? on`) })).toBeVisible();
   }
   const badge = frame.getByRole("button", { name: /^2 block comments on/ });
   await expect(badge).toBeVisible();
