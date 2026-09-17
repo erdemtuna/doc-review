@@ -3,6 +3,9 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "paths": {
+      "@/*": ["./src/ui/*"]
+    },
     "strict": true,
     "allowJs": true,
     "checkJs": false,

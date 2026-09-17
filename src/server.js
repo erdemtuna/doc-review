@@ -660,8 +660,8 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (await history.handle(req, res, url)) return undefined;
 
       // --- static chrome assets
-      if (route === "/chrome.css") return serveFile(res, path.join(here, "chrome.css"));
-      if (route === "/chrome.js") return serveFile(res, path.join(here, "chrome-client.js"));
+      if (route === "/chrome.css") return serveFile(res, path.join(here, "ui", "chrome.css"));
+      if (route === "/chrome.js") return serveFile(res, path.join(here, "ui", "chrome.js"));
       if (route === "/chrome-session.js") return serveFile(res, path.join(here, "chrome-session.js"));
       if (route === "/chrome-api.js") return serveFile(res, path.join(here, "chrome-api.js"));
       if (route === "/contracts/page.js") return serveFile(res, path.join(here, "contracts", "page.js"));
@@ -669,6 +669,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (route === "/frame-controller.js") return serveFile(res, path.join(here, "frame-controller.js"));
       if (route === "/save-controller.js") return serveFile(res, path.join(here, "save-controller.js"));
       if (route === "/feedback-controller.js") return serveFile(res, path.join(here, "feedback-controller.js"));
+      if (route === "/controller-store.js") return serveFile(res, path.join(here, "controller-store.js"));
       if (route === "/review-controller.js") return serveFile(res, path.join(here, "review-controller.js"));
       if (route === "/icons.js") return serveFile(res, path.join(here, "icons.js"), opaqueModuleCors(req));
       if (route === "/positioning.js") return serveFile(res, path.join(here, "positioning.js"), opaqueModuleCors(req));
@@ -685,7 +686,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (route === "/revision-schema.js") return serveFile(res, path.join(here, "revision-schema.js"), opaqueModuleCors(req));
       if (route === "/history-client.js") return serveFile(res, path.join(here, "history-client.js"));
       if (route === "/view-identity.js") return serveFile(res, path.join(here, "view-identity.js"), opaqueModuleCors(req));
-      if (route === "/comparison-view.js") return serveFile(res, path.join(here, "comparison-view.js"));
       if (route === "/history-coordinator.js") return serveFile(res, path.join(here, "history-coordinator.js"));
       if (route === "/execution-client.js") return serveFile(res, path.join(here, "execution-client.js"));
 

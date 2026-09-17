@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G2 toolbar review</title>
+  <style>
+    body { margin: 0; background: #fff; color: #273142; font: 17px/1.65 system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 36px 24px; }
+    h1 { font-size: clamp(26px, 5vw, 36px); line-height: 1.2; letter-spacing: -0.03em; }
+    h2 { margin-top: 32px; font-size: 21px; }
+    .eyebrow { color: #657084; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+    label { display: block; font-size: 14px; font-weight: 600; }
+    input, button { box-sizing: border-box; max-width: 100%; font: inherit; border: 1px solid #96a0af; border-radius: 6px; padding: 8px 12px; }
+    input { width: 100%; }
+    button { margin-top: 12px; background: #edf0f5; color: #273142; cursor: pointer; }
+    .note { padding: 16px; border-left: 3px solid #7b8ca8; background: #f4f6f9; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Disposable review fixture / G2</p>
+    <h1>A clearer place to review</h1>
+    <p id="intro">Keep your attention on the document. The refreshed toolbar brings
+      navigation, editing, comments and theme switching together without resetting this page.</p>
+    <h2>Try the toolbar</h2>
+    <p id="detail">Switch between Review and Changes, open View/Edit with the keyboard,
+      and inspect the Comments entry. The recovery menu and remaining panels keep their
+      existing appearance until their own review checkpoints.</p>
+    <label for="draft">Authored-page draft</label>
+    <input id="draft" value="This value belongs to the document">
+    <button id="increment" type="button">Increment counter</button>
+    <output id="counter" aria-live="polite">0</output>
+    <p class="note">Type a draft and increment the counter before switching views or
+      themes. Both should survive. This is sample data: edits, feedback and ending
+      this review cannot change your project documents.</p>
+  </main>
+  <script>
+    window.boots = (window.boots || 0) + 1;
+    document.getElementById("increment").addEventListener("click", () => {
+      const output = document.getElementById("counter");
+      output.value = String(Number(output.value) + 1);
+    });
+  </script>
+</body>
+</html>

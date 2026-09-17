@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G3 recovery review</title>
+  <style>
+    body { margin: 0; background: #fff; color: #273142; font: 17px/1.65 system-ui, sans-serif; }
+    main { max-width: 760px; margin: auto; padding: 32px 24px; }
+    h1 { font-size: clamp(26px, 5vw, 36px); line-height: 1.2; }
+    h2 { font-size: 21px; }
+    label { display: block; font-size: 14px; font-weight: 600; }
+    input, button { box-sizing: border-box; max-width: 100%; font: inherit; border: 1px solid #96a0af; border-radius: 6px; padding: 8px 12px; }
+    input { width: 100%; }
+    button { margin-top: 12px; background: #edf0f5; color: #273142; cursor: pointer; }
+    .note { padding: 16px; border-left: 3px solid #7b8ca8; background: #f4f6f9; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p>Disposable review fixture / G3</p>
+    <h1>More, without losing your place</h1>
+    <p id="intro">Keep your attention on the document. More now uses the shared menu components;
+      recovery notices have their own space above the document.</p>
+    <h2>Try a draft-safe reload</h2>
+    <p id="detail">Switch between Review and Changes without resetting the page. To inspect the
+      source-update notice, select this paragraph, open a comment, and type an unsent draft.
+      Then choose More and Reload without scripts.</p>
+    <p>Try Keep this page, or reload with the notice's primary action. Your comment draft stays.
+      Reopening More lets you restore page interactions.</p>
+    <label for="draft">Authored-page input</label>
+    <input id="draft" value="Click here while More is open">
+    <button id="increment" type="button">Increment counter</button>
+    <output id="counter" aria-live="polite">0</output>
+    <p class="note">Theme and menu changes preserve this document. An explicit reload resets
+      page-owned inputs and the counter, but preserves review comment drafts. This fixture
+      is disposable; it cannot change your project documents.</p>
+  </main>
+  <script>
+    document.getElementById("increment").addEventListener("click", () => {
+      const output = document.getElementById("counter");
+      output.value = String(Number(output.value) + 1);
+    });
+  </script>
+</body>
+</html>

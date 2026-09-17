@@ -161,8 +161,10 @@ test("selection comments use explicit action, keyboard shortcut, aligned card, a
   await expect(frame.locator("mark.eh-active")).toHaveCount(0);
   await expect(page.locator("#cards").getByRole("button", { name: "Jump to" })).toBeVisible();
   await expect(page.locator("#cards").getByRole("button", { name: "Edit comment" })).toBeVisible();
-  await expect(page.locator("#cards").getByRole("button", { name: "More" })).toBeVisible();
-  await expect(page.locator("#cards").getByRole("button", { name: "Delete" })).toHaveCount(0);
+  await expect(page.locator("#cards").getByRole("button", { name: "Delete comment", exact: true })).toBeVisible();
+  await expect(page.locator("#cards").getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+  await expect(page.locator("#cards").getByRole("menu")).toHaveCount(0);
+  await expect(page.locator("#cards").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
   await page.locator("#drawerClose").click();
   await expect(page.locator("#commentsButton")).toBeFocused();
   await expect(page.locator("#commentsButton")).toHaveAttribute("aria-expanded", "false");
@@ -171,8 +173,10 @@ test("selection comments use explicit action, keyboard shortcut, aligned card, a
   await expect(page.locator("#alignedCard")).toBeVisible();
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Edit comment" })).toBeVisible();
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Close comment card" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "More" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete" })).toHaveCount(0);
+  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true })).toBeVisible();
+  await expect(page.locator("#alignedCard").getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+  await expect(page.locator("#alignedCard").getByRole("menu")).toHaveCount(0);
+  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
 
   await selectText(frame, "#second");
   await frame.locator("body").dispatchEvent("keydown", { key: "m", ctrlKey: true, altKey: true });
@@ -211,55 +215,53 @@ test("submission restores exact element focus and stays closed through drawer re
   await expect(page.locator("#alignedCard")).toBeVisible();
 });
 
-test("More owns focus and ARIA, and delete requires one confirmed request", async ({ page, review }) => {
-  const file = writeFile(review, "comment-menu.html", "<!doctype html><p id=\"copy\">Menu target</p>");
+test("aligned direct Delete restores focus and requires one confirmed request", async ({ page, review }) => {
+  const file = writeFile(review, "comment-delete.html", "<!doctype html><p id=\"copy\">Delete target</p>");
   await openReview(page, review, file);
   const frame = await waitForSdk(page);
-  await addSelectionComment(page, frame, "#copy", "Menu feedback");
+  await addSelectionComment(page, frame, "#copy", "Delete feedback");
   await frame.locator("mark[data-eh-mark]").click();
 
   let deletes = 0;
   page.on("request", (request) => {
     if (request.method() === "DELETE" && request.url().includes("/comment/")) deletes += 1;
   });
-  const more = page.locator("#alignedCard").getByRole("button", { name: "More" });
-  const menuId = await more.getAttribute("aria-controls");
-  await expect(more).toHaveAttribute("aria-haspopup", "menu");
-  await expect(more).toHaveAttribute("aria-expanded", "false");
-  await more.click();
-  const menu = page.locator(`#${menuId}`);
-  await expect(more).toHaveAttribute("aria-expanded", "true");
-  await expect(menu).toHaveAttribute("role", "menu");
-  await expect(menu).toHaveAttribute("aria-labelledby", await more.getAttribute("id"));
-  await expect(menu.getByRole("menuitem", { name: "Delete" })).toBeFocused();
+  const card = page.locator("#alignedCard");
+  const deleteAction = card.getByRole("button", { name: "Delete comment", exact: true });
+  const confirm = card.getByRole("button", { name: "Delete", exact: true });
+  await expect(deleteAction).toHaveAttribute("aria-label", "Delete comment");
+  await expect(deleteAction).toHaveAttribute("title", "Delete comment");
+  await expect(deleteAction).not.toHaveAttribute("aria-haspopup", "menu");
+  await expect(card.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+  await deleteAction.click();
+  await expect(card.getByRole("menu")).toHaveCount(0);
+  await expect(card).toContainText("Delete this comment?");
+  await expect(confirm).toBeFocused();
+  await expect(confirm).toHaveText("Delete");
+  await expect(card.getByRole("button", { name: "Cancel", exact: true })).toHaveText("Cancel");
   expect(deletes).toBe(0);
 
   await page.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
-  await expect(more).toBeFocused();
-  await more.click();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("menu")).toHaveCount(0);
-  await more.click();
-  await page.locator("#frame").click({ position: { x: 5, y: 5 } });
-  await expect(page.getByRole("menu")).toHaveCount(0);
-
-  await more.click();
-  await page.getByRole("menuitem", { name: "Delete" }).click();
-  await expect(page.locator("#alignedCard")).toContainText("Delete this comment?");
+  await expect(confirm).toHaveCount(0);
+  await expect(card).toBeVisible();
+  await expect(deleteAction).toBeFocused();
+  await deleteAction.click();
+  await expect(confirm).toBeFocused();
   expect(deletes).toBe(0);
-  await page.locator("#alignedCard").getByRole("button", { name: "Cancel" }).click();
-  await expect(more).toBeFocused();
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(deleteAction).toBeFocused();
+  await expect(confirm).toHaveCount(0);
   expect(deletes).toBe(0);
 
   await page.route("**/api/page/*/comment/*", (route) => {
     if (route.request().method() === "DELETE") return route.abort();
     return route.continue();
   });
-  await more.click();
-  await page.getByRole("menuitem", { name: "Delete" }).click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete" }).click();
+  await deleteAction.click();
+  await confirm.click();
   await expect(page.locator("#alignedCard")).toContainText("Delete this comment?");
+  await expect(confirm).toBeEnabled();
+  await expect(page.locator(".toast")).toBeVisible();
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
   await page.unroute("**/api/page/*/comment/*");
 
@@ -272,12 +274,17 @@ test("More owns focus and ARIA, and delete requires one confirmed request", asyn
     await gate;
     await route.continue();
   });
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete" }).evaluate((button) => {
-    button.click();
-    button.click();
-  });
-  await expect.poll(() => deletes).toBe(2);
-  releaseDelete();
+  try {
+    await confirm.evaluate((button) => {
+      button.click();
+      button.click();
+    });
+    await expect(card.getByRole("button", { name: "Deleting...", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await expect(deleteAction).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Edit comment", exact: true })).toHaveCount(0);
+    await expect.poll(() => deletes).toBe(2);
+  } finally { releaseDelete(); }
   await expect(page.locator("#toolbarCount")).toHaveText("0");
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
   await page.unroute("**/api/page/*/comment/*");
@@ -290,10 +297,13 @@ test("Escape performs exactly one prioritized comment transition", async ({ page
   await addSelectionComment(page, frame, "#copy", "Escape feedback");
   await page.locator("#commentsButton").click();
   await page.locator("#cards").getByRole("button", { name: "Jump to" }).click();
-  await page.locator("#cards").getByRole("button", { name: "More" }).click();
+  const deleteAction = page.locator("#cards").getByRole("button", { name: "Delete comment", exact: true });
+  await deleteAction.click();
+  await expect(page.locator("#cards").getByRole("button", { name: "Delete", exact: true })).toBeFocused();
 
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(page.locator("#cards").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
+  await expect(deleteAction).toBeFocused();
   await expect(page.locator("#drawer")).toHaveClass(/open/);
   await page.keyboard.press("Escape");
   await expect(page.locator("#drawer")).not.toHaveClass(/open/);
@@ -323,10 +333,19 @@ test("another card cannot steal an unsaved edit", async ({ page, review }) => {
   await firstCard.getByRole("button", { name: "Edit comment" }).click();
   await firstCard.locator("textarea").fill("Unsaved first draft");
   await expect(secondCard.getByRole("button", { name: "Edit comment" })).toBeDisabled();
-  await expect(secondCard.getByRole("button", { name: "More" })).toBeDisabled();
+  await expect(secondCard.getByRole("button", { name: "Delete comment", exact: true })).toBeDisabled();
+  let deletes = 0;
+  page.on("request", (request) => {
+    if (request.method() === "DELETE" && request.url().includes("/comment/")) deletes++;
+  });
+  await secondCard.getByRole("button", { name: "Delete comment", exact: true }).evaluate((button) => button.click());
   await secondCard.locator(".body").click();
   await expect(firstCard.locator("textarea")).toHaveValue("Unsaved first draft");
   await expect(page.locator("#cards textarea")).toHaveCount(1);
+  await expect(secondCard.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
+  expect(deletes).toBe(0);
+  await firstCard.locator("textarea").press("Escape");
+  await expect(secondCard.getByRole("button", { name: "Delete comment", exact: true })).toBeEnabled();
 });
 
 test("closing the drawer moves its edit to the edited comment's aligned card", async ({ page, review }) => {
@@ -679,7 +698,7 @@ test("View/Edit stays in bounds and light-dismisses across parent and hostile if
     expect(mode.x).toBeGreaterThanOrEqual(0);
     expect(mode.x + mode.width).toBeLessThanOrEqual(size.width);
     expect(mode.width).toBeGreaterThanOrEqual(44);
-    expect(mode.height).toBeGreaterThanOrEqual(44);
+    expect(mode.height).toBe(32);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.locator("#modeButton").click();
@@ -769,7 +788,7 @@ test("comment Enter handling is IME-safe and single-flight for POST and PATCH", 
     await route.continue();
   });
   await page.locator("#alignedCard textarea").evaluate((element) => {
-    const save = element.parentElement.querySelector("button.btn-primary");
+    const save = [...element.parentElement.querySelectorAll("button")].find((button) => button.textContent === "Save");
     element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     save.click();
   });
@@ -793,7 +812,7 @@ test("editing is explicit and follows geometry plus aligned-drawer switching", a
   await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Save" })).toBeVisible();
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Cancel" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "More" })).toHaveCount(0);
+  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true })).toHaveCount(0);
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Close comment card" })).toHaveCount(0);
 
   await page.locator("#alignedCard textarea").fill("Draft follows the card");
@@ -931,8 +950,7 @@ test("acknowledgement clears idle and in-flight edit or delete state without res
   await addSelectionComment(page, frame, "#copy", "Confirmation race");
   await frame.locator("mark[data-eh-mark]").click();
   batch = await deliverCurrent();
-  await page.locator("#alignedCard").getByRole("button", { name: "More" }).click();
-  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
   await acknowledgeBatch(review, file, batch.batch_id);
   await expect(page.locator("#toolbarCount")).toHaveText("0");
   await expect(page.getByText("Delete this comment?")).toHaveCount(0);
@@ -954,9 +972,8 @@ test("acknowledgement clears idle and in-flight edit or delete state without res
     await deleteGate;
     await route.continue();
   });
-  await page.locator("#alignedCard").getByRole("button", { name: "More" }).click();
-  await page.getByRole("menuitem", { name: "Delete" }).click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete" }).click();
+  await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
+  await page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true }).click();
   await deleteStart;
   await acknowledgeBatch(review, file, batch.batch_id);
   await expect(page.locator("#toolbarCount")).toHaveText("0");
@@ -1106,10 +1123,10 @@ test("a delayed correction exposes only disabled Save and Cancel until it settle
   await page.locator("#alignedCard textarea").fill("Corrected feedback");
   await page.locator("#alignedCard").getByRole("button", { name: "Save" }).click();
   await started;
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(page.locator("#alignedCard").getByRole("button", { name: /^Saving/ })).toBeDisabled();
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Cancel" })).toBeDisabled();
   await expect(page.locator("#alignedCard").getByRole("button", { name: "Close comment card" })).toHaveCount(0);
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "More" })).toHaveCount(0);
+  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true })).toHaveCount(0);
   releasePatch();
   await expect(page.locator("#toolbarCount")).toHaveText("1");
   await expect(page.locator("#alignedCard")).toContainText("Corrected feedback");
@@ -1161,7 +1178,7 @@ test("narrow screens use compact toolbar and bottom-sheet composition", async ({
   await frame.locator("#commentAction").click();
   await expect(page.locator("#compose")).toHaveClass(/sheet/);
   await expect(page.locator("#toolbarCount")).toBeVisible();
-  await expect(page.locator(".toolbar-label").first()).toBeHidden();
+  await expect(page.locator(".shell-comments-label")).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -1324,9 +1341,8 @@ test("actual dark spec keeps multiple saved block comments visible and cycles ac
   await page.emulateMedia({ colorScheme: "light" });
   await expect(frame.locator(".block-badge")).toHaveAttribute("data-dark", "false");
   await page.screenshot({ path: testInfo.outputPath("light-block-comments.png") });
-  await page.locator("#alignedCard").getByRole("button", { name: "More" }).click();
-  await page.getByRole("menuitem", { name: "Delete" }).click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete" }).click();
+  await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
+  await page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true }).click();
   await expect(frame.getByRole("button", { name: /^1 block comment on/ })).toBeVisible();
   await frame.getByRole("button", { name: /^1 block comment on/ }).click();
   await expect(page.locator("#alignedCard")).toContainText("Second block feedback");

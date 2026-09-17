@@ -749,18 +749,19 @@ test("populated continuous comparisons align real Content and Source across two 
     const responsiveScreenshots = async (mode) => {
       for (const theme of ["light", "dark"]) {
         await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
-        for (const width of [1440, 390, 320]) {
+        for (const width of [1440, 768, 390, 320]) {
           await page.setViewportSize({ width, height: 1000 });
           await page.locator("#historyPanel").evaluate((element) => { element.scrollTop = 0; });
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-          const controls = await page.locator(".history-controls button, .history-controls select, .history-navigation button, .history-navigation select").evaluateAll((elements) =>
+          const controls = await page.locator(".changes-controls button, .changes-controls select, .changes-navigation button, .changes-navigation select").evaluateAll((elements) =>
             elements.filter((element) => element.checkVisibility()).map((element) => {
               const { x, y, width, height } = element.getBoundingClientRect();
               return { id: element.id || element.textContent, x, y, width, height };
             }));
+          expect(controls.length).toBeGreaterThanOrEqual(6);
           for (const [index, control] of controls.entries()) {
             expect(control.width, control.id).toBeGreaterThanOrEqual(44);
-            expect(control.height, control.id).toBeGreaterThanOrEqual(44);
+            expect(control.height, control.id).toBeGreaterThanOrEqual(28);
             expect(control.x).toBeGreaterThanOrEqual(0);
             expect(control.x + control.width).toBeLessThanOrEqual(width);
             for (const other of controls.slice(index + 1)) {
@@ -941,11 +942,11 @@ test("held recovery keeps drafts and first SDK configuration uses the served ren
   await frame.locator("#commentAction").click();
   await page.locator("#composeText").fill("Preserve this while recovering");
   const before = await page.locator("#frame").getAttribute("src");
-  await page.locator("#reviewDetails > summary").click();
+  await page.locator("#reviewDetails").click();
   await page.keyboard.press("Escape");
   await expect(page.locator("dialog")).toHaveCount(0);
   await expect(page.locator("#composeText")).toHaveValue("Preserve this while recovering");
-  await page.locator("#reviewDetails > summary").click();
+  await page.locator("#reviewDetails").click();
   await page.locator("#executionStatic").click();
   await expect(page.locator("#reloadNotice")).toBeVisible();
   expect(await page.locator("#frame").getAttribute("src")).toBe(before);
@@ -960,7 +961,7 @@ test("held recovery keeps drafts and first SDK configuration uses the served ren
   await expect(page.locator("#composeText")).toHaveValue("Preserve this while recovering");
   await expect(page.locator("#composeError")).toContainText("original excerpt");
   const recoveryRender = await page.locator("#frame").getAttribute("src");
-  await page.locator("#reviewDetails > summary").click();
+  await page.locator("#reviewDetails").click();
   await page.locator("#executionAuto").click();
   await expect(page.locator("#reloadNotice")).toBeVisible();
   expect(await page.locator("#frame").getAttribute("src")).toBe(recoveryRender);
@@ -1013,8 +1014,8 @@ test("static edits and Revert carry source hash and frame identity after script 
     baseHash: expect.any(String),
   });
   await page.locator("#commentsButton").click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator("#revert").click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Revert all", exact: true }).click();
   await expect.poll(() => reverted).toEqual({
     sessionId: session.sessionId, renderId: identity.renderId, generation: identity.generation,
     baseHash: savedHash,

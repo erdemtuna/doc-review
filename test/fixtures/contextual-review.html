@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G5 contextual commenting review</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; color: #263142; background: #fafbfc; font: 16px/1.7 system-ui; }
+    main { max-width: 900px; margin: auto; }
+    h1 { font-size: 28px; line-height: 1.25; }
+    h2 { font-size: 20px; }
+    .label { color: #52647b; font-size: 12px; font-weight: 650; letter-spacing: .08em; }
+    section { margin: 28px 0; padding: 20px; border: 1px solid #ccd4df; border-radius: 10px; background: white; }
+    input, button, select { max-width: 100%; padding: 8px; font: inherit; }
+    label { display: block; margin: 14px 0; }
+    .scroller { height: 270px; overflow: auto; border: 1px solid #aab9ca; padding: 16px; }
+    .space { height: 450px; background: linear-gradient(#f3f6fa, white); }
+    .long { min-height: 750px; padding-top: 32px; }
+  </style>
+</head>
+<body><main>
+  <p class="label">REAL SHELL FIXTURE · G5 ONLY</p>
+  <h1>Contextual comments, without losing your place</h1>
+  <p id="intro">Keep your attention on the document.</p>
+  <p>Select a sentence and choose the comment action, or focus a control and press Ctrl+Alt+M. Try Enter, Shift+Enter and Escape. Saved highlights open an aligned card on wide screens; open Comments to use the shared inventory on phones.</p>
+  <p>Focus the comment field to inspect the space between its outline and keyboard hints. Saved cards expose Edit and Delete icons directly; Delete still asks for confirmation, and Cancel returns to the trash icon.</p>
+  <section>
+    <h2>Selection and keyboard review</h2>
+    <p id="detail">Switch between Review and Changes without losing your draft. A good review explains what should change and why it matters to the reader.</p>
+    <p id="second">This second paragraph is a new target. A nonempty draft is saved before retargeting; a failed request keeps the original draft.</p>
+    <label>Page-owned draft <input aria-label="Page-owned draft" value="Keep this field unchanged"></label>
+    <label>Review priority <select><option>Clarity</option><option>Accuracy</option><option>Accessibility</option></select></label>
+    <details><summary>Expand authored content</summary><p>These native controls belong to the reviewed document, not the shell.</p></details>
+  </section>
+  <section>
+    <h2>Nested scroll area</h2>
+    <p>Select the nested paragraph, open a comment, then scroll this panel. Use Back to selection when it leaves view.</p>
+    <div class="scroller" tabindex="0" aria-label="Nested review content">
+      <p id="nested">The nested selection should keep its excerpt and draft while the surrounding panel scrolls.</p>
+      <div class="space"></div>
+      <p id="nested-end">The end of this panel offers another meaningful selection target.</p>
+    </div>
+  </section>
+  <div class="long"><h2>Long-document review</h2><p>Scroll back to a saved highlight. Edit its comment, open Comments, then close the drawer: the text and selection should follow the same edit owner.</p></div>
+  <section><h2>Last section</h2><p id="last">A comment near the end of a document must stay visible and usable, including at narrow widths.</p></section>
+</main></body>
+</html>

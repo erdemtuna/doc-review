@@ -1,0 +1,50 @@
+body {
+  margin: 0;
+  min-width: 0;
+  background: var(--background);
+}
+
+.preview-shell {
+  min-height: 100dvh;
+  padding: 0 32px 40px;
+}
+
+.preview-header,
+.preview-main {
+  max-width: 1080px;
+  margin-inline: auto;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 76px;
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-intro { padding-block: 40px 28px; max-width: 650px; }
+.preview-title { font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: -0.035em; }
+.preview-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 20px; }
+.preview-section { border: 1px solid var(--border); border-radius: 10px; background: var(--card); min-width: 0; }
+.preview-section-heading { border-bottom: 1px solid var(--border); padding: 18px 20px; }
+.preview-section-body { padding: 20px; display: grid; gap: 24px; }
+.preview-subtitle { font-size: 13px; font-weight: 600; }
+.preview-kicker { font-size: 10px; letter-spacing: 0.12em; font-weight: 650; text-transform: uppercase; color: var(--muted-foreground); }
+.preview-field { display: grid; gap: 8px; min-width: 0; }
+.preview-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.preview-swatch { height: 34px; border: 1px solid var(--border); border-radius: 5px; }
+.preview-diff { padding: 12px 14px; font: 12px/1.6 var(--review-font-mono); overflow-wrap: anywhere; border-left: 2px solid; }
+.preview-footer { padding-top: 24px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
+.preview-key { padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; font: 11px var(--review-font-mono); background: var(--card); }
+
+@media (max-width: 720px) {
+  .preview-shell { padding-inline: 16px; }
+  .preview-header { min-height: 64px; }
+  .preview-intro { padding-block: 28px 24px; }
+  .preview-title { font-size: 25px; }
+  .preview-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .preview-section-heading { padding: 16px; }
+  .preview-section-body { padding: 16px; }
+}

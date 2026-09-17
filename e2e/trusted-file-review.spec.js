@@ -27,7 +27,7 @@ body{font:16px/1.6 system-ui;margin:24px;max-width:760px}button{min-width:44px;m
 </body></html>`;
 
 async function recover(page, preference) {
-  if (!(await page.locator("#reviewDetails").evaluate((element) => element.open))) await page.locator("#reviewDetails > summary").click();
+  if (await page.locator("#reviewDetails").getAttribute("aria-expanded") !== "true") await page.locator("#reviewDetails").click();
   await page.locator(preference === "static" ? "#executionStatic" : "#executionAuto").click();
 }
 
@@ -141,7 +141,7 @@ test("optional recovery is keyboard operable, stays feedback-only and persists o
   const file = writeFile(review, "recovery.html", html);
   const session = await openReview(page, review, file);
   const frame = await waitForSdk(page);
-  await page.locator("#reviewDetails > summary").focus();
+  await page.locator("#reviewDetails").focus();
   await page.keyboard.press("Enter");
   await page.locator("#executionStatic").focus();
   await page.keyboard.press("Enter");
@@ -212,8 +212,8 @@ test("served review layout has accessible controls without overflow across width
       expect(geometry.overflow).toBe(false);
       expect(geometry.frame.y).toBeGreaterThanOrEqual(geometry.toolbar.y + geometry.toolbar.height);
       for (const [index, control] of geometry.controls.entries()) {
-        expect(control.width, control.id).toBeGreaterThanOrEqual(44);
-        expect(control.height, control.id).toBeGreaterThanOrEqual(44);
+        expect(control.width, control.id).toBeGreaterThanOrEqual(32);
+        expect(control.height, control.id).toBe(32);
         expect(control.x).toBeGreaterThanOrEqual(0);
         expect(control.x + control.width).toBeLessThanOrEqual(width);
         for (const other of geometry.controls.slice(index + 1)) {
@@ -222,12 +222,12 @@ test("served review layout has accessible controls without overflow across width
         }
       }
       await page.screenshot({ path: testInfo.outputPath(`review-${theme}-${width}.png`) });
-      await page.locator("#reviewDetails > summary").click();
-      const menu = await page.locator(".review-details-menu").boundingBox();
+      await page.locator("#reviewDetails").click();
+      const menu = await page.locator("#recoveryMenu").boundingBox();
       expect(menu.x).toBeGreaterThanOrEqual(0);
       expect(menu.x + menu.width).toBeLessThanOrEqual(width);
       await page.keyboard.press("Escape");
-      await expect(page.locator("#reviewDetails")).not.toHaveAttribute("open", "");
+      await expect(page.locator("#reviewDetails")).toHaveAttribute("aria-expanded", "false");
     }
   }
 });

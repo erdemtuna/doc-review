@@ -277,7 +277,7 @@ jobs:
             [ "$ok" = 1 ] || fail "Unexpected packed file '$entry'."
           done < dist/contents.txt
 
-          for required in package/package.json package/README.md package/LICENSE package/lib/cli.js package/lib/server-entry.js package/lib/chrome.html package/lib/chrome.css package/lib/SKILL.md; do
+          for required in package/package.json package/README.md package/LICENSE package/lib/cli.js package/lib/server-entry.js package/lib/chrome.html package/lib/ui/chrome.js package/lib/ui/chrome.css package/lib/ui/THIRD_PARTY_NOTICES.md package/lib/sdk.js package/lib/SKILL.md; do
             grep -qx "$required" dist/contents.txt || fail "Tarball is missing $required."
           done
 

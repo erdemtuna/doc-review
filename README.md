@@ -74,6 +74,9 @@ setup options, comments, comparisons, limitations, and upgrades.
 [Development](https://github.com/erdemtuna/doc-review/blob/main/docs/development.md):
 build, test, architecture, and package checks.
 
+[Prepared review example](docs/migration-review.md):
+disposable HTML/Markdown sessions with saved comparison rounds and a shell review checklist.
+
 [Releasing](https://github.com/erdemtuna/doc-review/blob/main/RELEASING.md):
 the maintainers' release process.
 

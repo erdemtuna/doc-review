@@ -1,4 +1,5 @@
 import { record } from "./chrome-api.js";
+import { createControllerStore } from "./controller-store.js";
 import { deliverFeedback } from "./history-coordinator.js";
 import type { RenderIdentity } from "./frame-controller.js";
 import type { createSaveController } from "./save-controller.js";
@@ -10,7 +11,8 @@ interface Snapshot {
   sourceHash?: string | null;
 }
 type DeliveryState =
-  | { phase: "idle" | "saving" | "delivering" | "delivered" }
+  | { phase: "idle" | "saving" | "delivering" }
+  | { phase: "delivered"; notice?: string }
   | { phase: "failed" | "uncertain"; message: string };
 interface Options {
   sessionId: string;
@@ -31,13 +33,13 @@ interface Options {
 }
 
 export function createFeedbackController(options: Options) {
-  const listeners = new Set<() => void>();
   let state: DeliveryState = { phase: "idle" };
   let disposed = false;
   let inFlight = false;
   let sent = false;
+  const store = createControllerStore(() => ({ ...state, sending: inFlight, sent }));
   const busy = () => inFlight;
-  const publish = () => { if (!disposed) for (const listener of listeners) listener(); };
+  const publish = () => { if (!disposed) store.publish(); };
   const current = (identity: RenderIdentity) => !disposed && !!identity.renderId &&
     identity.key === options.current().key && identity.generation === options.current().generation &&
     identity.renderId === options.current().renderId;
@@ -46,13 +48,11 @@ export function createFeedbackController(options: Options) {
     get state(): Readonly<DeliveryState> { return state; },
     get sending() { return busy(); },
     get sent() { return sent; },
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => { listeners.delete(listener); };
-    },
-    clearSent() { sent = false; if (!busy()) state = { phase: "idle" }; },
+    getSnapshot: store.getSnapshot,
+    subscribe: store.subscribe,
+    clearSent() { sent = false; if (!busy()) state = { phase: "idle" }; publish(); },
     async send() {
-      if (busy() || disposed) return;
+      if (busy() || disposed || sent) return;
       const identity = options.current();
       const sentNote = options.note();
       inFlight = true;
@@ -98,12 +98,20 @@ export function createFeedbackController(options: Options) {
             sent = true;
             state = { phase: "delivered" };
             if (!disposed) options.clearNote(sentNote);
+            publish();
           },
           refresh: () => disposed ? Promise.resolve(false) : options.refresh(),
         });
         if (disposed) return;
-        if (outcome.refreshFailure) options.warning("Feedback sent. History could not be refreshed; your feedback does not need to be sent again.");
-        else if (outcome.captureFailure) options.announce("Feedback sent. Content comparison may be incomplete.");
+        if (outcome.refreshFailure) {
+          const notice = "Feedback sent. History could not be refreshed; your feedback does not need to be sent again.";
+          if (sent) state = { phase: "delivered", notice };
+          options.warning(notice);
+        } else if (outcome.captureFailure) {
+          const notice = "Feedback sent. Content comparison may be incomplete.";
+          if (sent) state = { phase: "delivered", notice };
+          options.announce(notice);
+        }
       } catch (error) {
         if (disposed) return;
         const detail = error instanceof Error ? error.message : String(error);
@@ -119,6 +127,6 @@ export function createFeedbackController(options: Options) {
         if (!disposed) options.resumeCapture();
       }
     },
-    dispose() { disposed = true; listeners.clear(); },
+    dispose() { disposed = true; store.dispose(); },
   };
 }

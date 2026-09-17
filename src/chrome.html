@@ -8,186 +8,43 @@
 </head>
 <body data-session="__SESSION_ID__" data-token="__TOKEN__">
   <div class="app">
-    <header class="toolbar" aria-label="Review controls">
-      <div class="toolbar-product history-toggle" role="group" aria-label="Review destination">
-        <button type="button" id="latestVersion" class="toolbar-btn" aria-pressed="true" aria-controls="frame">Review</button>
-        <button type="button" id="seeChanges" class="toolbar-btn" aria-pressed="false" aria-controls="historyPanel">Changes</button>
-      </div>
-      <div class="page-controls" role="group" aria-label="Page controls">
-        <div class="mode-control">
-          <button type="button" id="modeButton" class="toolbar-btn" aria-haspopup="menu" aria-expanded="false">
-            <span id="modeIcon"></span><span id="modeLabel">View</span><span id="modeChevron"></span>
-          </button>
-          <div id="modeMenu" class="mode-menu" role="menu" hidden>
-            <button type="button" role="menuitemradio" aria-checked="true" data-mode="view">
-              <span data-icon="eye"></span><span><strong>View</strong><small>Editing off, comments enabled</small></span><span class="menu-check"></span>
-            </button>
-            <button type="button" role="menuitemradio" aria-checked="false" data-mode="edit">
-              <span data-icon="pencil"></span><span><strong>Edit</strong><small>Direct editing on</small></span><span class="menu-check"></span>
-            </button>
-          </div>
-        </div>
-      </div>
-      <div class="toolbar-actions">
-        <div id="documentTrustControls" hidden></div>
-        <button type="button" id="commentsButton" class="toolbar-btn" aria-controls="drawer" aria-label="Comments" aria-expanded="false">
-          <span data-icon="messages"></span><span class="toolbar-label">Comments</span><span id="toolbarCount" class="count-badge">0</span>
-        </button>
-        <details id="reviewDetails" class="review-details">
-          <summary>More <span aria-hidden="true">⌄</span></summary>
-          <div class="review-details-menu">
-            <p class="section">Page recovery</p>
-            <button type="button" id="executionStatic">Reload without scripts</button>
-            <button type="button" id="executionAuto" hidden>Use page interactions</button>
-            <p id="executionDetails" class="history-context" hidden></p>
-          </div>
-        </details>
-      </div>
+    <header class="toolbar shell-toolbar review-ui" aria-label="Review controls">
+      <div id="toolbarRoot"></div>
     </header>
     <main class="stage">
-      <p id="executionStatus" class="execution-notice" role="status" hidden></p>
-      <section id="reloadNotice" class="reload-notice" aria-label="Source update" hidden>
-        <p id="reloadMessage"></p>
-        <button type="button" id="safeReload" class="btn-primary">Reload latest; keep comment drafts</button>
-        <button type="button" id="keepCurrent" class="btn-ghost">Keep this page</button>
-      </section>
+      <div id="noticesRoot" class="review-ui"></div>
+      <div class="document-host">
       <iframe
         id="frame"
         title="Artifact under review"
         sandbox="allow-scripts allow-forms allow-modals"></iframe>
-      <section id="historyPanel" class="history-panel" aria-labelledby="historyTitle" hidden>
+      <section id="historyPanel" class="history-panel review-ui" aria-labelledby="historyTitle" hidden>
         <h1 id="historyTitle" class="sr-only">Changes</h1>
-        <div class="history-controls">
-          <label class="history-round-label">Round <select id="roundPicker" aria-label="Review round"></select></label>
-          <label id="historyTargetLabel" hidden>Page <select id="historyTarget" aria-label="Comparison page"></select></label>
-          <div id="comparisonModes" role="group" aria-label="Comparison format"></div>
-          <button type="button" id="captureResult" class="btn-primary" hidden>Capture result</button>
-        </div>
-        <div class="history-summary">
-          <p id="historyStatus" role="status">No review rounds yet. Send feedback to start a comparison.</p>
-          <div id="historyCounts" class="history-counts"></div>
-        </div>
-        <p id="historyError" class="compose-error" role="alert" hidden></p>
-        <div class="comparison-header">
-          <nav id="changeNavigation" class="history-navigation" aria-label="Change navigation" hidden>
-            <button type="button" id="previousChange" class="btn-ghost" aria-label="Previous change">Previous</button>
-            <span id="changePosition"></span>
-            <label class="change-jump-label"><span>Jump to</span> <select id="changeJump" aria-label="Jump to change"></select></label>
-            <button type="button" id="nextChange" class="btn-ghost" aria-label="Next change">Next</button>
-          </nav>
+        <div id="changesControlsRoot" class="review-ui"></div>
+        <div id="comparisonHeader" class="comparison-header">
+          <div id="changesNavigationRoot" class="review-ui"></div>
           <div class="comparison-heading-slot"></div>
         </div>
         <article id="changeDetail" class="change-detail" aria-label="Continuous before and after comparison"></article>
-        <details id="historyDiagnostics" class="history-diagnostics">
-          <summary>Comparison details</summary>
-          <p id="historyCurrentStatus" class="history-context" hidden></p>
-          <p id="historyViewCoverage" class="history-context" hidden></p>
-          <div id="historyUnavailable" class="history-context" hidden></div>
-          <p>Content is a readable reconstruction of saved blocks, not the original page layout. Historical scripts, authored styles and image URLs are never replayed. Table rows use saved cell selectors; complex spanning structure is shown in row order. Source shows saved file text.</p>
-          <dl id="historyTiming" class="history-timing" hidden></dl>
-          <p id="historyCaptureDelay" class="history-context" hidden></p>
-          <details id="historyLimitations" hidden>
-            <summary>Comparison coverage and limits</summary>
-            <ul id="historyLimitationsList"></ul>
-          </details>
-          <button type="button" id="finishCapture" class="btn-ghost" hidden>Finish with available snapshots</button>
-          <p id="finishCaptureHelp" class="history-context" hidden>Finishing marks missing Content as unavailable; it does not invent a result. Existing Source comparisons remain available, and this target will no longer retry capture.</p>
-        </details>
+        <div id="changesDiagnosticsRoot" class="review-ui"></div>
       </section>
+      </div>
     </main>
 
-    <section id="compose" class="contextual-compose" role="dialog" aria-modal="false" aria-labelledby="composeTitle" hidden>
-      <div class="compose-head">
-        <div>
-          <span class="chip" id="composeKind">Selection</span>
-          <strong id="composeTitle">Add comment</strong>
-        </div>
-        <button type="button" id="composeClose" class="icon-btn" title="Cancel comment" aria-label="Cancel comment"></button>
-      </div>
-      <div id="composeDirection" class="compose-direction" hidden>
-        <span id="composeDirectionText"></span>
-        <button type="button" id="composeReveal" class="link-action">Back to selection</button>
-      </div>
-      <p class="quote" id="composeQuote"></p>
-      <textarea id="composeText" rows="3" placeholder="What should change?" aria-label="Comment" aria-describedby="composeHelp"></textarea>
-      <p id="composeHelp" class="compose-help"><span>Enter to comment</span><span>Shift+Enter for new line</span></p>
-      <p id="composeError" class="compose-error" role="alert" hidden></p>
-      <div class="compose-actions">
-        <button type="button" id="composeAdd" class="btn-primary"><span data-icon="messageSquarePlus"></span><span id="composeAddLabel">Comment</span></button>
-        <button type="button" id="composeCancel" class="btn-ghost">Cancel</button>
-      </div>
-    </section>
+    <section id="compose" class="contextual-compose review-ui" role="dialog" aria-modal="false" aria-labelledby="composeTitle" hidden></section>
 
-    <article id="alignedCard" class="aligned-card" hidden></article>
+    <div id="alignedCard" class="aligned-card review-ui" hidden></div>
 
     <aside class="drawer" id="drawer" aria-label="Review feedback" aria-hidden="true">
-      <div class="drawer-head">
-        <div>
-          <span class="section">Review</span>
-          <h2 id="drawerTitle">Comments</h2>
-        </div>
-        <button type="button" id="theme" class="icon-btn" title="Switch chrome to dark" aria-label="Switch chrome to dark"></button>
-        <button type="button" id="drawerClose" class="icon-btn" title="Close review drawer" aria-label="Close review drawer"></button>
-      </div>
+      <div id="drawerHeadRoot" class="review-ui"></div>
       <div id="commentsSection" class="drawer-inventory" tabindex="-1" aria-labelledby="inventoryHeading">
-        <section>
-          <div class="rail-head">
-            <span class="section" id="inventoryHeading">Comments</span>
-            <span class="dim" id="count">0</span>
-          </div>
-
-          <div id="cards" class="cards"></div>
-
-          <div id="empty" class="empty">Select text or focus an element, then use the comment button</div>
-        </section>
-
-        <section id="othersBox" hidden>
-          <div class="rail-head tight">
-            <span class="section">Other pages</span>
-            <span class="dim" id="othersCount">0</span>
-          </div>
-          <div class="edit-list" id="othersList"></div>
-        </section>
-
-        <section id="editsBox" hidden>
-          <div class="rail-head tight">
-            <span class="section">Your edits</span>
-            <span class="dim" id="editCount">0</span>
-            <button type="button" id="revert" class="link-btn danger-hover">Revert all</button>
-          </div>
-          <div class="save-line" id="saveLine"><span class="dot"></span><span id="saveText"></span></div>
-          <div class="edit-list" id="editList"></div>
-        </section>
+        <div id="inventoryRoot" class="review-ui"></div>
+        <div id="editsRoot" class="review-ui"></div>
 
       </div>
-      <footer id="sendSection" class="drawer-footer send-section" tabindex="-1" aria-label="Send feedback">
-        <div class="send-primary">
-          <div class="rail-head tight">
-            <span class="section">Send feedback</span>
-          </div>
-          <textarea id="note" rows="2" placeholder="Overall note…"></textarea>
-          <button type="button" id="send" class="send" disabled>Nothing to send yet</button>
-          <p id="draftWarning" class="dim" hidden></p>
-          <div id="captureWarning" class="capture-warning" role="alert" hidden>
-            <p id="captureWarningText"></p>
-            <div id="captureTargets"></div>
-            <button type="button" id="recaptureBaseline" class="btn-primary">Recapture and send</button>
-            <button type="button" id="sendWithoutComparison" class="btn-ghost">Send without comparison</button>
-          </div>
-          <div class="agent-line" id="agentLine" hidden><span class="dot amber"></span><span id="agentText"></span></div>
-        </div>
-        <div class="send-secondary">
-          <div class="handoff" id="handoff" hidden>
-            <p class="handoff-title">Sent — but no agent is listening yet.</p>
-            <p class="handoff-body">Paste this into your agent — Claude Code, Codex, or Cursor:</p>
-            <div class="handoff-cmd"><code id="handoffCmd"></code></div>
-            <button type="button" id="handoffCopy" class="btn-ghost">Copy prompt</button>
-          </div>
-          <button type="button" id="endReview" class="end-review" title="Stop this review and release the waiting agent">End review</button>
-        </div>
-      </footer>
+      <footer id="sendSection" class="drawer-footer send-section review-ui" tabindex="-1" aria-label="Send feedback"></footer>
     </aside>
-    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <div id="drawerBackdropRoot"></div>
     <div id="liveRegion" class="sr-only" role="status" aria-live="polite"></div>
   </div>
 

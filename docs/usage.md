@@ -57,7 +57,7 @@ changing the draft. Narrow screens use a full width composer.
 | Add a line inside a comment | `Shift+Enter` |
 | Cancel a comment edit | `Escape` or **Cancel** |
 | Find a comment's target | **Jump to** in the Comments drawer |
-| Delete a comment | **More**, then confirm deletion |
+| Delete a comment | **Delete comment** (trash icon), then confirm deletion |
 
 Submitting a comment adds its highlight and count without opening its card.
 Activate the highlight or choose **Jump to** to see it. Existing comments have
@@ -74,6 +74,10 @@ reviews. Command clicking links lets you review multiple pages in one session.
 
 Open **Comments** for the feedback inventory, overall note, and **Send to agent**.
 The inventory scrolls independently of the note and Send controls.
+The overall note can be sent on its own. It stays in this tab when you close
+Comments, switch Review/Changes, or change theme. Open comment drafts are not
+included until you explicitly save them. Supporting messages and the handoff
+prompt scroll separately beneath Send.
 
 ## Files, scripts, and local apps
 
@@ -111,6 +115,16 @@ authorship.
 Send waits for edit persistence and writable HTML saves, then attempts a short
 baseline capture for comparisons. Missing comparison data does not block
 delivery. Save or delivery failures are reported without discarding feedback.
+An incomplete comparison appears as a supporting notice after sending, not
+another confirmation gate. An unconfirmed delivery asks you to check the
+agent before retrying.
+
+**Revert all** and **End review** ask for confirmation with **Cancel** focused.
+Escape cancels just that confirmation. Revert keeps comments and the overall
+note. End retains persisted unsent items for next time, but open drafts and the
+overall note exist only in the current tab and are not sent by End. A source or
+feedback change invalidates an open confirmation; cancel it and review the
+latest state. Pending actions cannot be submitted a second time.
 
 The agent receives one batch covering the visited pages. It polls using the
 same target that opened the review:

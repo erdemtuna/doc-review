@@ -376,6 +376,22 @@ test("ambiguous delivery is not retried and newly entered note text survives com
   success.saving.controller.dispose();
 });
 
+test("optional capture notice preserves committed delivery and never offers a second send", async () => {
+  const f = feedbackFixture({
+    refresh: async () => true,
+  });
+  await f.controller.send();
+  assert.equal(f.controller.state.phase, "delivered");
+  assert.match(f.controller.state.notice, /comparison may be incomplete/);
+  assert.equal(f.note, "");
+  assert.equal(f.failures.length, 0);
+  await f.controller.send();
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].history.allowUnavailable, true);
+  f.controller.dispose();
+  f.saving.controller.dispose();
+});
+
 test("review coordinator rejects stale same-page refresh and connects/disposes once", async () => {
   const requests = [deferred(), deferred()];
   const pages = [];

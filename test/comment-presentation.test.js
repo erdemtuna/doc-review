@@ -6,16 +6,13 @@ import {
   mutationIsCurrent,
   ownConfirmation,
   ownEdit,
-  ownMenu,
   reconcileCommentUi,
 } from "../lib/chrome-session.js";
 
-test("one comment owns menu, confirmation, or edit state", () => {
+test("one comment owns confirmation or edit state", () => {
   const ui = createCommentUi();
-  ownMenu(ui, "c1", "aligned", "trigger");
-  assert.equal(ui.menu.commentId, "c1");
   ownConfirmation(ui, "c1", "aligned");
-  assert.equal(ui.menu, null);
+  assert.equal(ui.confirmation.commentId, "c1");
   assert.equal(ui.confirmation.status, "idle");
   ownEdit(ui, { id: "c2", feedback: "draft" }, "drawer");
   assert.equal(ui.confirmation, null);
@@ -38,11 +35,19 @@ test("only Save or Cancel can release an owned edit", () => {
   const ui = createCommentUi();
   assert.equal(ownEdit(ui, { id: "c1", feedback: "draft" }, "drawer"), true);
   ui.edit.draft = "unsaved";
-  assert.equal(ownMenu(ui, "c2", "drawer", "trigger"), false);
   assert.equal(ownConfirmation(ui, "c2", "drawer"), false);
   assert.equal(ownEdit(ui, { id: "c2", feedback: "other" }, "drawer"), false);
   assert.equal(ui.edit.commentId, "c1");
   assert.equal(ui.edit.draft, "unsaved");
+});
+
+test("an in-flight deletion retains its owner until completion", () => {
+  const ui = createCommentUi();
+  ownConfirmation(ui, "c1", "aligned");
+  ui.confirmation.status = "deleting";
+  assert.equal(ownConfirmation(ui, "c2", "drawer"), false);
+  assert.equal(ownEdit(ui, { id: "c2", feedback: "other" }, "drawer"), false);
+  assert.equal(ui.confirmation.commentId, "c1");
 });
 
 test("mutation epochs reject stale responses and missing comments", () => {

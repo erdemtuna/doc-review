@@ -146,6 +146,13 @@ export function createHistoryController({ request, changed = () => {}, refreshed
       state.round = round;
       state.targetKey = targetKey;
       if (selectedId) targets.set(selectedId, targetKey);
+      const comparison = round?.targets?.find((target) => target.key === targetKey)?.comparison || {};
+      const modes = ["content", "source"].filter((mode) => comparison[mode]?.available === true);
+      state.mode = modes.includes(state.preferredMode) ? state.preferredMode : modes[0] || "content";
+      const value = comparison[state.mode];
+      const items = value?.changes || value?.items ||
+        (state.mode === "content" ? comparison.changes || comparison.items : null) || [];
+      state.index = Math.max(0, Math.min(state.index, items.length - 1));
       state.loading = false;
       changed();
       refreshed();
