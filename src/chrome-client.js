@@ -160,6 +160,8 @@ function restoreTransientFocus(editWasFocused = false) {
       return;
     }
     editFocusRequested = false;
+    // A mounted React editor already owns its live selection; delayed focus must not reset it.
+    if (document.activeElement === input) return;
     input.focus();
     input.setSelectionRange(edit.selectionStart, edit.selectionEnd);
   });

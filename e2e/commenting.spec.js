@@ -348,6 +348,43 @@ test("another card cannot steal an unsaved edit", async ({ page, review }) => {
   await expect(secondCard.getByRole("button", { name: "Delete comment", exact: true })).toBeEnabled();
 });
 
+test("delayed comment focus cannot replace a selection made in the mounted editor", async ({ page, review }) => {
+  const file = writeFile(review, "edit-focus-selection.html", "<!doctype html><p>Keep my selection</p>");
+  const session = await openReview(page, review, file);
+  await reviewApi(review, `/api/page/${session.key}/comment`, {
+    method: "POST",
+    body: { kind: "element", quote: "Keep my selection", anchor: { selector: "p", label: "Paragraph" }, feedback: "Original comment" },
+  });
+  await page.reload();
+  await waitForSdk(page);
+  await page.locator("#commentsButton").click();
+  await page.evaluate(() => {
+    const request = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    const queued = new Map();
+    let id = 0;
+    window.requestAnimationFrame = (callback) => { queued.set(--id, callback); return id; };
+    window.cancelAnimationFrame = (value) => { if (value < 0) queued.delete(value); else cancel(value); };
+    window.releaseCommentFocusFrames = () => {
+      window.requestAnimationFrame = request;
+      window.cancelAnimationFrame = cancel;
+      for (const callback of queued.values()) callback(performance.now());
+      delete window.releaseCommentFocusFrames;
+    };
+  });
+  await page.locator("#cards").getByRole("button", { name: "Edit comment" }).click();
+  const input = page.locator("#cards textarea");
+  const selection = await input.evaluate((element) => {
+    element.focus();
+    element.setSelectionRange(0, element.value.length);
+    window.releaseCommentFocusFrames();
+    return [element.selectionStart, element.selectionEnd];
+  });
+  expect(selection).toEqual([0, "Original comment".length]);
+  await page.keyboard.type("Replacement draft");
+  await expect(input).toHaveValue("Replacement draft");
+});
+
 test("closing the drawer moves its edit to the edited comment's aligned card", async ({ page, review }) => {
   const file = writeFile(review, "edit-drawer-owner.html", "<!doctype html><p id=\"one\">First owner</p><p id=\"two\">Second owner</p>");
   const session = await openReview(page, review, file);
