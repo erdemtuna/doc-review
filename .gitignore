@@ -1,4 +1,8 @@
 node_modules/
+lib/
+dist/
+.toolchain/
+.package-smoke-*/
 *.log
 *.tgz
 .DS_Store

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createCaptureRequests, sameRender, draftCount, canJumpToCurrent, excerpt, changeKind, pendingCaptureTarget, defaultHistoryRound, comparisonFreshness } from "../src/history-client.js";
+import { createCaptureRequests, sameRender, draftCount, canJumpToCurrent, excerpt, changeKind, pendingCaptureTarget, defaultHistoryRound, comparisonFreshness } from "../lib/history-client.js";
 
 const identity = { key: "page-a", renderId: "render-a", generation: 1 };
 

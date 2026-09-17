@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildContext, findQuote, tidy, tidyMiddle } from "../src/anchor-text.js";
+import { buildContext, findQuote, tidy, tidyMiddle } from "../lib/anchor-text.js";
 
 test("buildContext captures the quote with surrounding context", () => {
   const text = "The quick brown fox jumps over the lazy dog";

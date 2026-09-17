@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compareSemanticSnapshots, compareSources, DIFF_LIMITS } from "../src/revision-diff.js";
+import { compareSemanticSnapshots, compareSources, DIFF_LIMITS } from "../lib/revision-diff.js";
 
 const block = (text, options = {}) => ({
   id: "b1", tag: "p", selector: "body > p:nth-of-type(1)", text,

@@ -7,7 +7,7 @@ import http from "node:http";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-history-server-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
-const { start } = await import("../src/server.js");
+const { start } = await import("../lib/server.js");
 
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 

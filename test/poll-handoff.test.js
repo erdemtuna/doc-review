@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { requestRaw } from "../src/poll-transport.js";
+import { requestRaw } from "../lib/poll-transport.js";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tmp = fs.mkdtempSync(path.join(project, ".doc-review-poll-"));
@@ -53,7 +53,7 @@ test("poll exits with the feedback batch when the user sends", { timeout: 15000 
   const file = path.join(tmp, "review.html");
   fs.writeFileSync(file, "<p>Original</p>");
 
-  const reviewServer = spawn(process.execPath, ["src/server-entry.js"], {
+  const reviewServer = spawn(process.execPath, ["lib/server-entry.js"], {
     cwd: project,
     env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
     stdio: "ignore",
@@ -82,7 +82,7 @@ test("poll exits with the feedback batch when the user sends", { timeout: 15000 
   });
   assert.equal(commented.status, 200);
 
-  child = spawn(process.execPath, ["src/cli.js", "poll", file], {
+  child = spawn(process.execPath, ["lib/cli.js", "poll", file], {
     cwd: project,
     env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
     stdio: ["ignore", "pipe", "pipe"],

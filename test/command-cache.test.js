@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { once } from "node:events";
 
-import { createServer } from "../src/server.js";
+import { createServer } from "../lib/server.js";
 
 test("a review keeps the CLI invocation resolved when its server starts", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-command-"));

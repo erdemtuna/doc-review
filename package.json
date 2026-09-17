@@ -1,6 +1,6 @@
 {
   "name": "@erdemtuna/doc-review",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Review and edit agent-generated files and localhost pages in the browser, then send the whole batch back to your agent.",
   "author": "Peter Yang",
   "homepage": "https://github.com/erdemtuna/doc-review#readme",
@@ -13,22 +13,30 @@
   },
   "type": "module",
   "bin": {
-    "doc-review": "src/cli.js"
+    "doc-review": "lib/cli.js"
   },
   "files": [
-    "src",
+    "lib",
     "README.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24.21.0"
   },
+  "packageManager": "npm@12.0.2",
   "scripts": {
+    "build": "node scripts/build.js",
+    "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.browser.json && tsc -p tsconfig.node.json",
+    "prepack": "node scripts/build.js",
     "test": "npm run test:unit",
-    "test:unit": "node --test",
-    "test:browser": "playwright test",
-    "test:all": "npm run test:unit && npm run test:browser",
-    "start": "node src/cli.js"
+    "test:unit": "npm run build && node --test test/*.test.js",
+    "test:browser": "npm run build && playwright test",
+    "test:package": "node scripts/package-smoke.js",
+    "test:package:browser": "node scripts/package-smoke.js --browser",
+    "test:all": "npm run build && node --test test/*.test.js && playwright test && npm run test:package",
+    "browser:install": "playwright install chromium",
+    "browser:install:ci": "playwright install --with-deps chromium",
+    "start": "npm run build && node lib/cli.js"
   },
   "keywords": [
     "html",
@@ -48,13 +56,15 @@
     "registry": "https://registry.npmjs.org"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
-    "jsdom": "^29.1.1",
-    "lucide-static": "^1.34.0"
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.10.4",
+    "jsdom": "30.0.1",
+    "lucide-static": "1.44.0",
+    "typescript": "6.0.3"
   },
   "dependencies": {
-    "diff": "^9.0.0",
-    "marked": "^18.0.7",
-    "parse5": "^8.0.1"
+    "diff": "9.0.0",
+    "marked": "18.0.12",
+    "parse5": "8.0.1"
   }
 }

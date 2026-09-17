@@ -8,8 +8,8 @@ const root = path.join(process.cwd(), `.doc-review-redirect-test-${process.pid}`
 fs.rmSync(root, { recursive: true, force: true });
 process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
 
-const { localUrl } = await import("../src/paths.js");
-const { start } = await import("../src/server.js");
+const { localUrl } = await import("../lib/paths.js");
+const { start } = await import("../lib/server.js");
 
 // Preserves the security-test intent of upstream PR #16 by anupamme without
 // merging its duplicate redirect allowlist implementation.

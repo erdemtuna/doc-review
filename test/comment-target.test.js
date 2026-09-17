@@ -8,7 +8,7 @@ import {
   nextCommentId,
   sanitizeClientRects,
   targetMessage,
-} from "../src/comment-target.js";
+} from "../lib/comment-target.js";
 
 test("block groups preserve every id, ignore detached targets, and cycle drawer activation", () => {
   const first = { isConnected: true };

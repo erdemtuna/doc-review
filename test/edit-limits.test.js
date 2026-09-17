@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { limitEditFields, MAX_EDIT_CHARACTERS } from "../src/edit-limits.js";
+import { limitEditFields, MAX_EDIT_CHARACTERS } from "../lib/edit-limits.js";
 
 test("edit fields preserve 6k and exact-limit text and report larger values", () => {
   for (const length of [6000, MAX_EDIT_CHARACTERS, MAX_EDIT_CHARACTERS + 1, 250000]) {

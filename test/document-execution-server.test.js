@@ -8,7 +8,7 @@ import http from "node:http";
 const root = path.resolve(`.execution-api-tests-${process.pid}`);
 fs.mkdirSync(root, { recursive: true });
 process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
-const { start } = await import("../src/server.js");
+const { start } = await import("../lib/server.js");
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 const hash = (source) => crypto.createHash("sha1").update(source).digest("hex");
 

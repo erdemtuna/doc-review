@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { captureSemanticSnapshot, SEMANTIC_SNAPSHOT_SOURCE } from "../src/semantic-snapshot.js";
-import { normalizeSemanticSnapshot } from "../src/revision-schema.js";
-import { compareSemanticSnapshots } from "../src/revision-diff.js";
+import { captureSemanticSnapshot, SEMANTIC_SNAPSHOT_SOURCE } from "../lib/semantic-snapshot.js";
+import { normalizeSemanticSnapshot } from "../lib/revision-schema.js";
+import { compareSemanticSnapshots } from "../lib/revision-diff.js";
 
 let JSDOM;
 try { ({ JSDOM } = await import("jsdom")); } catch {}

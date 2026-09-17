@@ -13,7 +13,7 @@ export const test = base.extend({
       fs.rmSync(root, { recursive: true, force: true });
       fs.mkdirSync(root, { recursive: true });
       process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
-      const { start } = await import("../src/server.js");
+      const { start } = await import("../lib/server.js");
       const server = await start();
       try {
         await use({ ...server, root });

@@ -8,7 +8,7 @@ import {
   ownEdit,
   ownMenu,
   reconcileCommentUi,
-} from "../src/chrome-session.js";
+} from "../lib/chrome-session.js";
 
 test("one comment owns menu, confirmation, or edit state", () => {
   const ui = createCommentUi();

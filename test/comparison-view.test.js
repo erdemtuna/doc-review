@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { createComparisonView } from "../src/comparison-view.js";
-import { compareSemanticSnapshots, compareSources } from "../src/revision-diff.js";
+import { createComparisonView } from "../lib/comparison-view.js";
+import { compareSemanticSnapshots, compareSources } from "../lib/revision-diff.js";
 import { readFileSync } from "node:fs";
 
 const block = (text, tag = "p", extra = {}) => ({
@@ -146,7 +146,7 @@ test("changed rows have non-color labels and unchanged mobile context has a sing
 });
 
 test("shell keeps recovery and diagnostics secondary and preserves accessible destinations", () => {
-  const dom = new JSDOM(readFileSync(new URL("../src/chrome.html", import.meta.url), "utf8"));
+  const dom = new JSDOM(readFileSync(new URL("../lib/chrome.html", import.meta.url), "utf8"));
   const document = dom.window.document;
   const byId = (id) => document.getElementById(id);
   assert.equal(byId("latestVersion").textContent, "Review");

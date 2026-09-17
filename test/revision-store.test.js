@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { RevisionStore } from "../src/revision-store.js";
-import { atomicWrite } from "../src/atomic-write.js";
+import { RevisionStore } from "../lib/revision-store.js";
+import { atomicWrite } from "../lib/atomic-write.js";
 
 const fixture = path.join(process.cwd(), `.revision-store-test-${crypto.randomUUID()}`);
 fs.mkdirSync(fixture);

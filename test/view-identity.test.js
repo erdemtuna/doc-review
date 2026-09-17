@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { observeView, normalizeView, compareCapturedViews, sameObservedView } from "../src/view-identity.js";
+import { observeView, normalizeView, compareCapturedViews, sameObservedView } from "../lib/view-identity.js";
 
 test.beforeEach((t) => t.mock.method(Date, "now", () => 1000));
 

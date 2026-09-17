@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeReviewMode, reviewConfiguration, savePolicyForPage } from "../src/review-mode.js";
+import { normalizeReviewMode, reviewConfiguration, savePolicyForPage } from "../lib/review-mode.js";
 
 test("new reviews default to View and source kind composes with save policy", () => {
   assert.equal(normalizeReviewMode(), "view");

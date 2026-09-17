@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createCaptureCoordinator, createHistoryController, deliverFeedback, historyPresentation,
-  requireCaptureSuccess, transientCaptureError } from "../src/history-coordinator.js";
+  requireCaptureSuccess, transientCaptureError } from "../lib/history-coordinator.js";
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => {

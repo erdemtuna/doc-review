@@ -14,6 +14,32 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.10.0 release checklist
+
+This release containing issues #8/#9 intentionally raises the minimum Node
+version to **24.21.0**, dropping Node 20, Node 22, and earlier Node 24 patches.
+Call this out prominently in its release notes. Development and release
+preparation use npm **12.0.2**.
+
+Use `version=0.10.0` and `previous_tag=v0.9.0` for both workflow phases.
+Merge the version update only after required CI passes, then prepare from the
+current `main` commit. Publish only that verified candidate through the
+protected `npm-release` environment. When using the existing token fallback,
+select `authentication=token`; never copy the token into the checkout or logs.
+
+The package now ships compiler-produced ESM under `lib`, not authored `src`;
+`doc-review` points to `lib/cli.js`. Consumers do not run a compiler or install
+TypeScript. Build/typecheck are enforced before unit/browser tests and by
+`prepack`. The explicit runtime assets are `chrome.html`, `chrome.css`, and
+`SKILL.md`; generated `lib` and immutable-candidate `dist` remain separate.
+
+Preparation reuses `npm run test:package:browser -- "$PWD/dist/$FILENAME"`
+against the exact packed candidate, without repacking. It verifies production-only
+installation, CLI help/version, isolated global/project setup, installed server
+and module serving, and Chromium review readiness. Existing branch, provenance,
+artifact digest, environment approval, OIDC/token and immutable-publish controls
+are unchanged.
+
 ## v0.8.1 release checklist
 
 This release combines opt-in skill activation with Markdown feedback preservation,
@@ -39,8 +65,9 @@ UX and exact batch-ID acknowledgement contract.
 - Keep OIDC as the default; approval still happens in `npm-release`. Publication
   is not authorized by a passing local test run or by creating a draft PR.
 - Verify `@erdemtuna/doc-review@0.8.1`, its integrity, the `v0.8.1` tag, release
-  assets and notes. Follow the README upgrade steps without deleting pending
-  review state or automatically overwriting users' global installations.
+  assets and notes. Follow the [upgrade steps](docs/usage.md#upgrading-and-troubleshooting)
+  without deleting pending review state or automatically overwriting users'
+  global installations.
 
 ## Prerequisites
 
@@ -80,8 +107,8 @@ git commit -am "Release 0.7.0"
 - `npm version --no-git-tag-version` updates `package.json` and
   `package-lock.json` without creating a tag; the release workflow owns tagging.
 - Open a pull request and let the `test` workflow finish. Required before merge:
-  unit tests on Node 20/24 (Ubuntu) and Node 24 (Windows), plus the Chromium
-  browser job.
+  unit and installed-package tests on Node 24.21.0, latest Node 24, and Node 26
+  (Ubuntu), plus latest Node 24 (Windows) and the Chromium browser/package job.
 - Label the pull request so the generated release notes categorise it
   (see [`.github/release.yml`](.github/release.yml)).
 - Merge to `main`. Every release runs from the current head of `main`.
@@ -98,11 +125,11 @@ Actions → **release** → **Run workflow** on `main`:
 | `authentication` | `oidc` (ignored during prepare) |
 | `previous_tag` | `v0.6.1` (use the previous released tag for later versions) |
 
-The prepare job runs on a GitHub-hosted Ubuntu runner with Node 24 and a pinned
-npm 11 CLI, with package-manager caching disabled and all actions pinned by
-commit SHA. It runs `npm ci`, the unit tests, Chromium browser tests with one
-worker, `npm pack --json`, strict package-content validation and an isolated
-packed-tarball smoke test (`--version`, `--help`, `setup --global`).
+The prepare job runs on a GitHub-hosted Ubuntu runner with Node 24.21.0 and
+npm 12.0.2, with package-manager caching disabled and all actions pinned by
+commit SHA. It runs `npm ci`, compiler/typecheck-backed unit tests, Chromium
+browser tests with one worker, `npm pack --json`, strict compiled-package-content
+validation and the shared installed-tarball smoke helper with Chromium enabled.
 
 **Record the run ID.** It appears in the run URL
 (`.../actions/runs/<prepare_run_id>`) and in the job summary. You need it

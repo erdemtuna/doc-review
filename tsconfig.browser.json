@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": true
+  },
+  "include": [
+    "src/contracts/**/*.ts",
+    "src/chrome-*.ts",
+    "src/*-controller.ts",
+    "src/frame-host.ts",
+    "src/frame-channel.ts",
+    "src/frame-policy.ts",
+    "src/review-mode.ts",
+    "test/types/**/*.ts"
+  ]
+}

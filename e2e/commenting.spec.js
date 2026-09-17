@@ -553,7 +553,8 @@ test("desktop composer pins to nested clipping edges, never sheets, and reveals 
   await openReview(page, review, file);
   const frame = await waitForSdk(page);
   await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 260; });
-  await frame.locator("#target").dispatchEvent("mouseover");
+  await frame.locator("#target").hover();
+  await expect(frame.locator("#commentAction")).toBeVisible();
   await frame.locator("#commentAction").click();
   await expect(page.locator("#compose")).toBeVisible();
   await page.evaluate(() => {
@@ -1285,8 +1286,10 @@ test("actual dark spec keeps multiple saved block comments visible and cycles ac
   await expect.poll(() => frame.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor)).toBe("rgb(23, 23, 15)");
   const originalBody = await frame.locator("body").innerHTML();
   for (const feedback of ["First block feedback", "Second block feedback"]) {
-    await frame.locator("h1.title").click();
-    await frame.locator("body").press("Control+Alt+m");
+    await frame.locator("h1.title").hover();
+    await expect(frame.locator("#commentAction")).toBeVisible();
+    await frame.locator("#commentAction").click();
+    await expect(page.locator("#compose")).toBeVisible();
     await expect(page.locator("#composeKind")).toHaveText("Element");
     await page.locator("#composeText").fill(feedback);
     await page.locator("#composeAdd").click();

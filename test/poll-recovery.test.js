@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { SERVER_PROTOCOL } from "../src/paths.js";
+import { SERVER_PROTOCOL } from "../lib/paths.js";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -52,7 +52,7 @@ async function fixture(t, poll, { protocol = SERVER_PROTOCOL, health } = {}) {
   return {
     record, server, state, lock, dispose,
     cli(...args) {
-      const child = spawn(process.execPath, [path.join(project, "src", "cli.js"), ...args], {
+      const child = spawn(process.execPath, [path.join(project, "lib", "cli.js"), ...args], {
         cwd: dir,
         env: { ...process.env, DOC_REVIEW_STATE_DIR: state },
         stdio: ["ignore", "pipe", "pipe"],

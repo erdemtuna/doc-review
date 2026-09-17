@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { framePolicy } from "../src/frame-policy.js";
+import { framePolicy } from "../lib/frame-policy.js";
 
 const artifactOrigin = "http://127.0.0.1:4321";
 

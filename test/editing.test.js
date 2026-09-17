@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "../src/editing.js";
+import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "../lib/editing.js";
 
 test("list markers typed at the start of a line convert to the right list", () => {
   assert.equal(listCommandFor("-"), "insertUnorderedList");

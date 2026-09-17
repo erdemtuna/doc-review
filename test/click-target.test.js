@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hashClickAction, navigationHref } from "../src/click-target.js";
+import { hashClickAction, navigationHref } from "../lib/click-target.js";
 
 function target({ link = null, control = null } = {}) {
   return {
