@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { atomicWrite, createAtomicWriter } from "../src/atomic-write.js";
+import { atomicWrite, createAtomicWriter } from "../lib/atomic-write.js";
 
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-atomic-"));

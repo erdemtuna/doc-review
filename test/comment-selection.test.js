@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSelectionRange, pointInCommentApproach, sameRange } from "../src/comment-target.js";
+import { normalizeSelectionRange, pointInCommentApproach, sameRange } from "../lib/comment-target.js";
 
 let JSDOM = null;
 try {

@@ -171,7 +171,13 @@ export function createHistoryController({ request, changed = () => {}, refreshed
   };
 }
 
-/** Optional capture cannot veto delivery; a failed refresh cannot masquerade as failed Send. */
+/**
+ * Optional capture cannot veto delivery; a failed refresh cannot masquerade as failed Send.
+ * @template T
+ * @param {{save: () => Promise<unknown>, capture: () => Promise<T>,
+ * deliver: (snapshot: T | null) => Promise<unknown>, committed: () => void,
+ * refresh: () => Promise<unknown>}} options
+ */
 export async function deliverFeedback({ save, capture, deliver, committed, refresh }) {
   await save();
   let snapshot = null;

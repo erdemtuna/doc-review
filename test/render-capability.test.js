@@ -10,7 +10,7 @@ fs.rmSync(root, { recursive: true, force: true });
 fs.mkdirSync(root, { recursive: true });
 process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
 
-const { start } = await import("../src/server.js");
+const { start } = await import("../lib/server.js");
 
 function request(port, token, { method = "GET", route = "/", body } = {}) {
   return new Promise((resolve, reject) => {
@@ -175,7 +175,7 @@ test("parent execution and capture modules are explicitly served", async (t) => 
     const response = await request(review.port, "", { route: `/${name}` });
     assert.equal(response.status, 200, name);
     assert.match(response.headers["content-type"], /text\/javascript/);
-    assert.equal(response.raw, fs.readFileSync(path.join(process.cwd(), "src", name), "utf8"));
+    assert.equal(response.raw, fs.readFileSync(path.join(process.cwd(), "lib", name), "utf8"));
   }
 });
 

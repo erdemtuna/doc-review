@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lastVisibleRect, placeContextualSurface } from "../src/positioning.js";
+import { lastVisibleRect, placeContextualSurface } from "../lib/positioning.js";
 
 const viewport = { left: 0, top: 0, width: 1200, height: 800 };
 const frameRect = { left: 0, top: 48, right: 1200, bottom: 800 };

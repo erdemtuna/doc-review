@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { captureSemanticSnapshot } from "../src/semantic-snapshot.js";
-import { serializeDocument, UI_ATTR } from "../src/serialize.js";
+import { captureSemanticSnapshot } from "../lib/semantic-snapshot.js";
+import { serializeDocument, UI_ATTR } from "../lib/serialize.js";
 
 test("shadow block markers never enter source or semantic content", () => {
   const { document } = new JSDOM("<!doctype html><p>Original paragraph</p><button>Authored control</button>").window;

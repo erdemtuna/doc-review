@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { Store } from "../src/state.js";
-import { statePath } from "../src/paths.js";
+import { Store } from "../lib/state.js";
+import { statePath } from "../lib/paths.js";
 
 const fixture = path.join(process.cwd(), `.history-state-test-${crypto.randomUUID()}`);
 fs.mkdirSync(fixture);

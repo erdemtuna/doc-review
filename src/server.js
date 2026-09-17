@@ -663,6 +663,13 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (route === "/chrome.css") return serveFile(res, path.join(here, "chrome.css"));
       if (route === "/chrome.js") return serveFile(res, path.join(here, "chrome-client.js"));
       if (route === "/chrome-session.js") return serveFile(res, path.join(here, "chrome-session.js"));
+      if (route === "/chrome-api.js") return serveFile(res, path.join(here, "chrome-api.js"));
+      if (route === "/contracts/page.js") return serveFile(res, path.join(here, "contracts", "page.js"));
+      if (route === "/frame-host.js") return serveFile(res, path.join(here, "frame-host.js"));
+      if (route === "/frame-controller.js") return serveFile(res, path.join(here, "frame-controller.js"));
+      if (route === "/save-controller.js") return serveFile(res, path.join(here, "save-controller.js"));
+      if (route === "/feedback-controller.js") return serveFile(res, path.join(here, "feedback-controller.js"));
+      if (route === "/review-controller.js") return serveFile(res, path.join(here, "review-controller.js"));
       if (route === "/icons.js") return serveFile(res, path.join(here, "icons.js"), opaqueModuleCors(req));
       if (route === "/positioning.js") return serveFile(res, path.join(here, "positioning.js"), opaqueModuleCors(req));
       if (route === "/review-mode.js") return serveFile(res, path.join(here, "review-mode.js"), opaqueModuleCors(req));

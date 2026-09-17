@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasSdk, injectSdk, stripSdk } from "../src/html-transform.js";
+import { hasSdk, injectSdk, stripSdk } from "../lib/html-transform.js";
 
 const PAGE = `<!DOCTYPE html>
 <html><head><title>Spec</title></head>

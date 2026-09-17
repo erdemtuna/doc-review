@@ -28,17 +28,46 @@ import { createExecutionControls } from "./execution-client.js";
 import { alignedCardPosition, placeContextualSurface, visibleViewport } from "./positioning.js";
 import { normalizeReviewMode, reviewConfiguration } from "./review-mode.js";
 import { createCaptureRequests, captureError, sameRender, draftCount, excerpt, changeKind, pendingCaptureTarget, comparisonFreshness } from "./history-client.js";
-import { createCaptureCoordinator, createHistoryController, deliverFeedback, historyPresentation, requireCaptureSuccess } from "./history-coordinator.js";
+import { createCaptureCoordinator, createHistoryController, historyPresentation, requireCaptureSuccess } from "./history-coordinator.js";
+
+import { createReviewApi, decodePage } from "./chrome-api.js";
+import { createFrameHost } from "./frame-host.js";
+import { createFrameController } from "./frame-controller.js";
+import { createSaveController } from "./save-controller.js";
+import { createFeedbackController } from "./feedback-controller.js";
+import { createReviewController } from "./review-controller.js";
 
 const $ = (id) => document.getElementById(id);
-let frame = $("frame");
-let previousFrame = null;
-let replacementTimer = null;
+const ARTIFACT_HOST = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+const ARTIFACT_ORIGIN = `${location.protocol}//${ARTIFACT_HOST}:${location.port}`;
+const frameHost = createFrameHost($("frame"), ARTIFACT_ORIGIN);
+const uiLifetime = new AbortController();
+const uiTimers = new Set();
+const uiFrames = new Set();
+function afterPaint(callback) {
+  const id = requestAnimationFrame(() => {
+    uiFrames.delete(id);
+    if (!uiLifetime.signal.aborted) callback();
+  });
+  uiFrames.add(id);
+}
+function afterDelay(callback, milliseconds) {
+  const id = setTimeout(() => {
+    uiTimers.delete(id);
+    if (!uiLifetime.signal.aborted) callback();
+  }, milliseconds);
+  uiTimers.add(id);
+}
+function listen(target, type, handler, options = {}) {
+  target.addEventListener(type, handler, {
+    ...(typeof options === "boolean" ? { capture: options } : options),
+    signal: uiLifetime.signal,
+  });
+}
 
 const state = {
   sessionId: document.body.dataset.session,
   token: document.body.dataset.token,
-  key: null,
   page: null,
   compose: null,
   composeLifecycle: "closed",
@@ -54,36 +83,12 @@ const state = {
   modeMenuOpen: false,
   drawerOpen: false,
   agent: "idle",
-  save: "idle",
-  savedAt: "",
-  sent: false,
   orphans: new Set(),
   pollCommand: "",
   editsExpanded: false,
   others: [],
   scroll: { x: 0, y: 0 },
-  reloading: false,
-  dynamic: false,
-  framePolicy: null,
-  renderGeneration: 0,
-  renderId: null,
-  frameCapability: null,
-  frameLoading: true,
-  frameFailure: null,
-  pendingInitialLoad: false,
-  readyGeneration: null,
-  frameReadyTimer: null,
-  frameReadyRetries: 0,
-  configurationGeneration: null,
-  saveConflict: false,
   comparing: false,
-  sending: false,
-  domDirty: false,
-  pendingReload: false,
-  renderSourceHash: null,
-  frameReadyAt: 0,
-  cleanObservation: null,
-  renderExecution: null,
   executionPreference: null,
   ended: false,
 };
@@ -140,7 +145,7 @@ function restoreTransientFocus(editWasFocused = false) {
   const focusId = requestedFocus;
   requestedFocus = null;
   const shouldFocusEdit = editWasFocused || editFocusRequested;
-  requestAnimationFrame(() => {
+  afterPaint(() => {
     if (focusId) {
       document.getElementById(focusId)?.focus();
       return;
@@ -170,7 +175,7 @@ function moveTransientSurface(surface) {
 function announce(message) {
   const region = $("liveRegion");
   region.textContent = "";
-  requestAnimationFrame(() => {
+  afterPaint(() => {
     region.textContent = message;
   });
 }
@@ -216,7 +221,7 @@ function openDrawer() {
   moveTransientSurface("drawer");
   editFocusRequested = !!state.commentUi.edit;
   render();
-  if (!state.commentUi.edit) requestAnimationFrame(() => $("commentsSection").focus());
+  if (!state.commentUi.edit) afterPaint(() => $("commentsSection").focus());
 }
 
 function closeDrawer() {
@@ -271,21 +276,89 @@ function handoffPrompt(pollCommand) {
 
 // ------------------------------------------------------------------- server
 
-async function api(path, options) {
-  const res = await fetch(path, {
-    ...options,
-    headers: { "content-type": "application/json", "x-doc-review-token": state.token, ...(options && options.headers) },
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    const error = new Error(detail.error || `Request failed (${res.status})`);
-    error.status = res.status;
-    error.code = detail.code;
-    error.targets = detail.targets || [];
-    throw error;
-  }
-  return res.json();
-}
+const transport = createReviewApi({ token: state.token });
+const api = transport.request;
+const frameController = createFrameController({
+  sessionId: state.sessionId, host: frameHost, request: api,
+  suspended() {
+    captures.cancel();
+    captureCoordinator.reset();
+    manualCaptureController?.abort();
+  },
+  transitioning() {
+    reviewController.invalidate();
+    if (state.compose) {
+      state.compose.unresolved = true;
+      state.compose.relation = "unavailable";
+      state.compose.rects = [];
+      state.compose.generation = -1;
+    }
+    state.target = null;
+    state.activeGeometry.clear();
+    saveController.baseline(null);
+  },
+  failed(message) {
+    $("reloadNotice").hidden = false;
+    $("reloadMessage").textContent = `${message} Reload keeps your comment drafts.`;
+    toast(message);
+  },
+});
+const saveController = createSaveController({
+  sessionId: state.sessionId, current: () => frameController.identity(),
+  policy: () => state.savePolicy, request: api,
+  flush: (strict) => frameController.flush(strict), send: (message) => frameController.send(message),
+  sourceHash: (hash) => frameController.setSourceHash(hash),
+  pageChanged(page) { state.page = page; feedbackController.clearSent(); render(); },
+  conflict() { holdReload(); announce("Save conflict. Edit mode remains active so you can reload safely."); },
+  failed(message) { toast(message); announce("An edit could not be saved. Retry before leaving the page or sending feedback."); },
+  diagnostic, sending: () => feedbackController.sending,
+});
+const feedbackController = createFeedbackController({
+  sessionId: state.sessionId, current: () => frameController.identity(),
+  sourceHash: () => frameController.state.sourceHash, save: saveController,
+  policy: () => state.savePolicy, request: api,
+  capture: () => captureStablePage({ timeout: 500 }), refresh: () => refreshHistory(),
+  note: () => $("note").value,
+  clearNote(sent) { if ($("note").value === sent) $("note").value = ""; },
+  pauseCapture() {
+    if ($("captureWarning")) $("captureWarning").hidden = true;
+    captureCoordinator.reset();
+    manualCaptureController?.abort();
+  },
+  resumeCapture: () => scheduleResultCapture(),
+  failed(message) { toast(message); announce(message); },
+  warning: toast, announce,
+});
+const reviewController = createReviewController({
+  sessionId: state.sessionId, key: () => frameController.state.key,
+  generation: () => frameController.state.generation, request: api,
+  beforeRefresh: () => advancePageEpoch("acknowledgement"),
+  refreshPage(page) {
+    reconcilePage(page, { syncAnchors: true, reason: "acknowledgement", advance: false });
+    feedbackController.clearSent();
+    render();
+  },
+  load: async (key) => { state.scroll = { x: 0, y: 0 }; await loadPage(key); },
+  reload: () => reloadLatest(), history: () => refreshHistory(),
+  save: () => saveController.barrier(), suspend: () => frameController.suspend(),
+  hasDrafts: () => !!draftCount(state),
+  agent(value) { state.agent = value; render(); },
+  ended: showEnded, failed: (error) => { toast(error.message || String(error)); },
+});
+reviewController.own(frameController.subscribe(renderExecution));
+reviewController.own(saveController.subscribe(renderSave));
+reviewController.own(feedbackController.subscribe(render));
+reviewController.own(() => uiLifetime.abort());
+reviewController.own(() => {
+  for (const id of uiTimers) clearTimeout(id);
+  for (const id of uiFrames) cancelAnimationFrame(id);
+  uiTimers.clear();
+  uiFrames.clear();
+});
+reviewController.own(() => frameController.dispose());
+reviewController.own(() => saveController.dispose());
+reviewController.own(() => feedbackController.dispose());
+reviewController.own(() => transport.dispose());
 
 const executionControls = createExecutionControls({
   api,
@@ -296,12 +369,12 @@ const executionControls = createExecutionControls({
     editDescription: $("modeMenu").querySelector('[data-mode="edit"] small'),
   },
   changed(page) {
-    if (!page || page.key !== state.key) return;
+    if (!page || page.key !== frameController.state.key) return;
     state.executionPreference = page.executionPreference || null;
     state.page = {
       ...state.page,
       executionPreference: page.executionPreference,
-      ...state.renderExecution,
+      ...frameController.state.execution,
     };
     state.savePolicy = reviewConfiguration(state.page, state.reviewMode).savePolicy;
     render();
@@ -310,102 +383,22 @@ const executionControls = createExecutionControls({
 });
 
 const toolbar = document.querySelector(".toolbar");
-new ResizeObserver(() => {
+const toolbarObserver = new ResizeObserver(() => {
   document.documentElement.style.setProperty("--toolbar-h", `${toolbar.getBoundingClientRect().height}px`);
-}).observe(toolbar);
+});
+toolbarObserver.observe(toolbar);
+reviewController.own(() => toolbarObserver.disconnect());
 
 function renderExecution() {
-  const visibleFrame = previousFrame || frame;
-  const rendered = visibleFrame.dataset.savePolicy ? {
-    executionMode: visibleFrame.dataset.executionMode,
-    savePolicy: visibleFrame.dataset.savePolicy,
-    executionNotice: visibleFrame.dataset.executionNotice || null,
-  } : null;
-  executionControls.render(state.page, rendered, {
-    pendingReload: state.pendingReload || !!previousFrame,
-    loading: state.frameLoading,
-    error: state.frameFailure,
+  executionControls.render(state.page, frameHost.visibleExecution, {
+    pendingReload: frameController.state.pendingReload || !!frameHost.previous,
+    loading: frameController.loading,
+    error: frameController.state.phase.kind === "failed" ? frameController.state.phase.message : null,
   });
 }
 
-const editPipelines = new Map();
-const editBacklogs = new Map();
-const editErrors = new Map();
-let editMutationSequence = 0;
-
-function editIdentity(payload) {
-  return `${String(payload.label || "")}\u0000${String(payload.kind || "")}`;
-}
-
-function editBacklog(key) {
-  let backlog = editBacklogs.get(key);
-  if (!backlog) {
-    backlog = new Map();
-    editBacklogs.set(key, backlog);
-  }
-  return backlog;
-}
-
-function persistEdit(key, payload) {
-  if (!payload.renderId && key === state.key && state.renderId) {
-    payload = {
-      ...payload,
-      sessionId: state.sessionId, renderId: state.renderId, generation: state.renderGeneration,
-      savePolicy: state.renderExecution?.savePolicy || "feedback-only",
-    };
-  }
-  const identity = editIdentity(payload);
-  const backlog = editBacklog(key);
-  backlog.set(identity, payload);
-  const previous = editPipelines.get(key) || Promise.resolve();
-  const current = previous
-    .catch(() => {})
-    .then(async () => {
-      try {
-        const result = await api(`/api/page/${key}/edit`, {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        if (backlog.get(identity) === payload) backlog.delete(identity);
-        editErrors.delete(key);
-        if (state.key === key) {
-          state.page = result.page;
-          state.sent = false;
-          render();
-        }
-        return true;
-      } catch (err) {
-        editErrors.set(key, err);
-        if (state.key === key) {
-          toast(`${err.message}. Your edit is still queued locally.`);
-          announce("An edit could not be saved. Retry before leaving the page or sending feedback.");
-        }
-        return false;
-      }
-    });
-  editPipelines.set(key, current);
-  void current.finally(() => {
-    if (editPipelines.get(key) === current) editPipelines.delete(key);
-    applyCleanObservation();
-  });
-  return current;
-}
-
-async function settleEditPersistence(key) {
-  const inFlight = editPipelines.get(key);
-  if (inFlight) await inFlight;
-  const backlog = editBacklogs.get(key);
-  if (backlog?.size) {
-    const retry = [...backlog.values()];
-    editErrors.delete(key);
-    for (const payload of retry) persistEdit(key, payload);
-    const retried = editPipelines.get(key);
-    if (retried) await retried;
-  }
-  if (editBacklogs.get(key)?.size) {
-    throw editErrors.get(key) || new Error("An edit could not be saved");
-  }
-}
+const persistEdit = (key, payload) => saveController.persistEdit(key, payload);
+const settleEditPersistence = (key) => saveController.settleEdits(key);
 
 function reconcilePage(page, { syncAnchors = false, reason = "mutation", advance = reason !== "mutation" } = {}) {
   const previousIds = new Set((state.page?.comments || []).map((comment) => comment.id));
@@ -420,199 +413,32 @@ function reconcilePage(page, { syncAnchors = false, reason = "mutation", advance
   }
   const removedTransient = reconcileCommentUi(state.commentUi, page.comments || []);
   state.orphans = new Set([...state.orphans].filter((id) => commentIds.has(id)));
-  if (syncAnchors && !state.frameLoading) {
+  if (syncAnchors && !frameController.loading) {
     toFrame({ type: "eh:anchors", comments: page.comments || [] });
   }
   if (reason === "acknowledgement") {
     const removed = [...previousIds].filter((id) => !commentIds.has(id));
     if (removed.length) {
       announce(`${removed.length === 1 ? "Comment" : "Comments"} delivered and removed`);
-      if (removedTransient.size) requestAnimationFrame(() => (state.drawerOpen ? $("commentsSection") : frame).focus());
+      if (removedTransient.size) afterPaint(() => (state.drawerOpen ? $("commentsSection") : frameHost.current).focus());
     }
   }
   diagnostic("page-reconciled", { reason, epoch: state.pageEpoch });
 }
 
-// Keep the reviewed app on a different loopback origin from the review shell.
-// This gives route-aware frameworks a real origin without exposing the parent UI.
-const ARTIFACT_HOST = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
-const ARTIFACT_ORIGIN = `${location.protocol}//${ARTIFACT_HOST}:${location.port}`;
-const FRAME_READY_TIMEOUT_MS = 5000;
-
-// URL reviews keep a real origin. File reviews use an opaque sandbox origin,
-// so postMessage requires "*" while the source-window check remains exact.
-const toFrame = (message) => {
-  if (state.frameLoading || !state.frameCapability || !frame.contentWindow) return;
-  frame.contentWindow.postMessage(
-    {
-      ...message,
-      capability: state.frameCapability,
-      generation: state.renderGeneration,
-      pageKey: state.key,
-    },
-    state.framePolicy?.targetOrigin || ARTIFACT_ORIGIN
-  );
-};
-
-function suspendFrame() {
-  captures.cancel();
-  captureCoordinator.reset();
-  manualCaptureController?.abort();
-  for (const request of flushRequests.values()) request.settle(false);
-  clearTimeout(state.frameReadyTimer);
-  state.frameReadyTimer = null;
-  state.frameCapability = null;
-  state.renderId = null;
-  state.frameLoading = true;
-  state.readyGeneration = null;
-  state.configurationGeneration = null;
-  state.renderExecution = null;
-  frame.removeAttribute("data-sdk-ready");
+const toFrame = (message) => frameController.send(message);
+function beginFrameTransition(key = frameController.state.key) {
+  return frameController.begin(key);
 }
-
-function beginFrameTransition() {
-  state.frameFailure = null;
-  if (state.compose) {
-    state.compose.unresolved = true;
-    state.compose.relation = "unavailable";
-    state.compose.rects = [];
-    state.compose.generation = -1;
-  }
-  state.target = null;
-  state.activeGeometry.clear();
-  state.baseHash = null;
-  state.renderSourceHash = null;
-  state.frameReadyAt = 0;
-  state.renderGeneration += 1;
-  suspendFrame();
-  return state.renderGeneration;
-}
-
-async function registerFrame(key, generation) {
-  const registered = await api(`/api/session/${state.sessionId}/render`, {
-    method: "POST",
-    body: JSON.stringify({ key, generation }),
-  });
-  if (state.key !== key || state.renderGeneration !== generation) return false;
-  state.renderId = registered.renderId;
-  state.renderSourceHash = registered.sourceHash || null;
-  state.frameCapability = registered.capability;
-  state.frameLoading = true;
-  state.pendingInitialLoad = true;
-  if (state.reloading && frame.hasAttribute("src")) {
-    const next = frame.cloneNode(false);
-    next.src = `${ARTIFACT_ORIGIN}${registered.path}`;
-    next.removeAttribute("data-sdk-ready");
-    delete next.dataset.executionMode;
-    delete next.dataset.savePolicy;
-    delete next.dataset.executionNotice;
-    if (previousFrame) frame.remove();
-    else {
-      previousFrame = frame;
-      previousFrame.id = "previousFrame";
-      previousFrame.inert = true;
-      previousFrame.setAttribute("aria-hidden", "true");
-      previousFrame.tabIndex = -1;
-    }
-    frame = next;
-    frame.dataset.replacing = "true";
-    attachFrameEvents(frame);
-    previousFrame.after(frame);
-  }
-  if (frame.src !== `${ARTIFACT_ORIGIN}${registered.path}`) frame.src = `${ARTIFACT_ORIGIN}${registered.path}`;
-  renderExecution();
-  state.frameReadyTimer = setTimeout(() => {
-    if (state.key !== key || state.renderGeneration !== generation || !state.frameLoading) return;
-    if (state.frameReadyRetries < 1) {
-      state.frameReadyRetries += 1;
-      rotateCurrentFrame();
-      return;
-    }
-    failFrame("The reviewed page did not finish loading. Fix the source or local server, then reload.");
-  }, FRAME_READY_TIMEOUT_MS);
-  return true;
-}
-
-function finishFrameReplacement() {
-  clearTimeout(replacementTimer);
-  replacementTimer = null;
-  previousFrame?.remove();
-  previousFrame = null;
-  delete frame.dataset.replacing;
-  renderExecution();
-}
-
-function failFrame(message) {
-  suspendFrame();
-  state.frameFailure = message;
-  state.pendingReload = true;
-  finishFrameReplacement();
-  $("reloadNotice").hidden = false;
-  $("reloadMessage").textContent = `${message} Reload keeps your comment drafts.`;
-  toast(message);
-}
-
-function rotateCurrentFrame() {
-  if (!state.key) return;
-  const key = state.key;
-  const generation = beginFrameTransition();
-  void registerFrame(key, generation).catch((err) => {
-    if (state.key !== key || state.renderGeneration !== generation) return;
-    failFrame(err.message);
-  });
-}
-
-/**
- * Ask the SDK to ship anything still sitting in its debounce windows, and
- * wait until it has. Navigating away without this drops the last moments of
- * typing. The timeout covers a torn-down or never-booted frame.
- */
-const flushRequests = new Map();
-let flushSequence = 0;
-let configurationWaiter = null;
-async function flushFrame({ strict = false } = {}) {
-  const key = state.key;
-  if (!state.frameLoading && state.frameCapability) {
-    await new Promise((resolve, reject) => {
-      const requestId = `flush-${++flushSequence}`;
-      const settle = (confirmed = true) => {
-        if (!flushRequests.has(requestId)) return;
-        flushRequests.delete(requestId);
-        clearTimeout(timer);
-        if (!confirmed && strict) reject(new Error("The page did not finish saving. Wait for it to load, then retry."));
-        else resolve();
-      };
-      const timer = setTimeout(() => settle(false), strict ? 6000 : 400);
-      flushRequests.set(requestId, { settle, strict });
-      toFrame({ type: "eh:flush", requestId });
-    });
-  } else if (strict) throw new Error("The page is not ready. Wait for it to load, then retry.");
-  if (key) await settleEditPersistence(key);
-}
-
+const registerFrame = (key, generation) => frameController.register(key, generation);
+const failFrame = (message) => frameController.fail(message);
+const flushFrame = ({ strict = false } = {}) => saveController.flush(strict);
 function configureFrame() {
-  if (state.frameLoading || !state.frameCapability || !state.renderExecution) return Promise.resolve(false);
-  Object.assign(state.page, state.renderExecution);
+  if (!frameController.state.execution) return Promise.resolve(false);
+  Object.assign(state.page, frameController.state.execution);
   const configuration = reviewConfiguration(state.page, state.reviewMode);
   state.savePolicy = configuration.savePolicy;
-  return new Promise((resolve) => {
-    const settle = (applied) => {
-      if (configurationWaiter?.settle !== settle) return;
-      configurationWaiter = null;
-      resolve(applied);
-    };
-    configurationWaiter = { ...configuration, settle };
-    toFrame({ type: "eh:configureReview", ...configuration });
-    if (previousFrame) {
-      clearTimeout(replacementTimer);
-      const configuringFrame = frame;
-      replacementTimer = setTimeout(() => {
-        if (frame !== configuringFrame || !previousFrame) return;
-        failFrame("The page did not confirm its review settings. Reload before continuing.");
-      }, FRAME_READY_TIMEOUT_MS);
-    }
-    setTimeout(() => settle(false), 3000);
-  });
+  return frameController.configure(configuration.mode, configuration.savePolicy);
 }
 
 async function setReviewMode(nextMode) {
@@ -624,7 +450,7 @@ async function setReviewMode(nextMode) {
   try {
     if (state.reviewMode === "edit" && next === "view") {
       await fullSaveBarrier();
-      if (state.saveConflict) {
+      if (saveController.state.conflict) {
         toast("Resolve the save conflict before leaving Edit");
         announce("Save conflict. Edit mode remains active.");
         return;
@@ -647,16 +473,14 @@ async function setReviewMode(nextMode) {
 async function loadPage(key, { reload = true } = {}) {
   const returning = state.page;
   advancePageEpoch(returning ? "navigation" : "reload");
-  const generation = beginFrameTransition();
-  state.frameReadyRetries = 0;
-  state.key = key;
-  const page = await api(pageUrl(key, state.sessionId));
-  if (state.key !== key || state.renderGeneration !== generation) return;
+  const generation = beginFrameTransition(key);
+  frameController.resetRetries();
+  const page = await api(pageUrl(key, state.sessionId), undefined, decodePage);
+  if (frameController.state.key !== key || frameController.state.generation !== generation) return;
   state.executionPreference = page.executionPreference || null;
   reconcilePage(page, { reason: "reload", advance: false });
   state.savePolicy = reviewConfiguration(state.page, state.reviewMode).savePolicy;
-  state.framePolicy = framePolicy(state.page, ARTIFACT_ORIGIN);
-  frame.setAttribute("sandbox", state.framePolicy.sandbox);
+  frameController.setPolicy(framePolicy(state.page, ARTIFACT_ORIGIN));
   state.orphans = new Set();
   state.compose = null;
   setComposeLifecycle("closed", "page-change");
@@ -665,14 +489,10 @@ async function loadPage(key, { reload = true } = {}) {
   state.activeSavedCommentId = null;
   state.activeGeometry.clear();
   state.commentUi = createCommentUi();
-  state.sent = false;
-  state.dynamic = false;
-  state.baseHash = null;
-  state.saveConflict = false;
-  state.domDirty = false;
-  clearTimeout(retryTimer);
+  feedbackController.clearSent();
+  saveController.reset();
   if (reload) {
-    state.reloading = true;
+    frameController.startReload();
     await registerFrame(key, generation);
   }
   render();
@@ -696,15 +516,14 @@ function ago(ts) {
   return `${Math.round(hours / 24)}d`;
 }
 
-const clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
 // -------------------------------------------------------------------- render
 
 function render() {
+  if (state.ended) return;
   const page = state.page;
   if (!page) return;
   // Source updates cannot change the policy of a frame awaiting draft-safe reload.
-  if (state.renderExecution) Object.assign(page, state.renderExecution);
+  if (frameController.state.execution) Object.assign(page, frameController.state.execution);
   if (state.executionPreference) page.executionPreference = state.executionPreference;
   renderExecution();
   syncFrameInteraction();
@@ -720,7 +539,7 @@ function render() {
   $("empty").hidden = comments.length > 0 || !!state.compose;
   $("modeLabel").textContent = state.reviewMode === "edit" ? "Edit" : "View";
   replaceIcon($("modeIcon"), state.reviewMode === "edit" ? "pencil" : "eye");
-  $("modeButton").disabled = state.modeApplying || state.comparing || state.sending || !state.renderExecution;
+  $("modeButton").disabled = state.modeApplying || state.comparing || feedbackController.sending || !frameController.state.execution;
   for (const item of $("modeMenu").querySelectorAll("[data-mode]")) {
     const checked = item.dataset.mode === state.reviewMode;
     item.setAttribute("aria-checked", String(checked));
@@ -739,7 +558,7 @@ function render() {
     composeWrap.hidden = false;
     $("composeKind").textContent = state.compose.kind === "element" ? "Element" : "Selection";
     $("composeQuote").textContent = tidyMiddle(state.compose.quote, 260);
-    requestAnimationFrame(positionCompose);
+    afterPaint(positionCompose);
   } else {
     composeWrap.hidden = true;
     $("composeText").value = "";
@@ -812,15 +631,7 @@ function render() {
       row.append(label, count);
       row.addEventListener("click", async () => {
         try {
-          if (draftCount(state)) throw new Error("Save or cancel open comment drafts before changing pages");
-          await fullSaveBarrier();
-          suspendFrame();
-          await api(`/api/session/${state.sessionId}/goto`, {
-            method: "POST",
-            body: JSON.stringify({ key: other.key }),
-          });
-          state.scroll = { x: 0, y: 0 };
-          await loadPage(other.key);
+          await reviewController.navigate({ key: other.key });
         } catch (err) {
           toast(`${err.message}. Stay on this page and retry.`);
         }
@@ -838,13 +649,13 @@ function render() {
   const send = $("send");
   const delivered = state.agent === "working";
   const stranded = state.agent === "stranded";
-  const busy = delivered || stranded || state.sent;
-  send.disabled = (total === 0 && !hasNote) || busy || state.sending;
-  send.textContent = state.sending ? "Sending feedback…" : delivered
+  const busy = delivered || stranded || feedbackController.sent;
+  send.disabled = (total === 0 && !hasNote) || busy || feedbackController.sending;
+  send.textContent = feedbackController.sending ? "Sending feedback…" : delivered
     ? "Feedback delivered"
     : stranded
       ? "Sent — agent is not listening"
-      : state.sent
+      : feedbackController.sent
         ? "Sent — waiting for agent"
         : total
           ? `Send ${total} to agent`
@@ -880,7 +691,7 @@ function positionCompose() {
     return;
   }
   const viewport = visibleViewport();
-  const frameRect = frame.getBoundingClientRect();
+  const frameRect = frameHost.current.getBoundingClientRect();
   const surface = $("compose");
   if (state.compose.relation !== "unavailable") surface.hidden = false;
   const placement = placeContextualSurface(state.compose, {
@@ -1195,7 +1006,7 @@ function positionAlignedCard() {
   }
   const viewport = visibleViewport();
   const position = alignedCardPosition(geometry.rects, {
-    frameRect: frame.getBoundingClientRect(),
+    frameRect: frameHost.current.getBoundingClientRect(),
     viewport,
   });
   if (!position) {
@@ -1230,7 +1041,7 @@ async function deleteComment(id) {
   const startEpoch = state.pageEpoch;
   const flight = (async () => {
     try {
-      const result = await api(`/api/page/${state.key}/comment/${id}`, { method: "DELETE" });
+      const result = await api(`/api/page/${frameController.state.key}/comment/${id}`, { method: "DELETE" });
       if (!mutationIsCurrent(startEpoch, state.pageEpoch, state.page?.comments, id)) return false;
       reconcilePage(result.page, { reason: "mutation" });
       toFrame({ type: "eh:remove", id });
@@ -1276,7 +1087,7 @@ function startCommentEdit(comment, surface) {
 function focusCurrentCommentEdit() {
   editFocusRequested = true;
   announce("Save or cancel the current comment edit first");
-  requestAnimationFrame(() => {
+  afterPaint(() => {
     const edit = state.commentUi.edit;
     editTextarea(edit?.commentId)?.focus();
   });
@@ -1331,7 +1142,7 @@ async function executeCommentPatch(edit, startEpoch) {
     const previousGeometry = state.activeGeometry.get(id);
     const wasOrphaned = state.orphans.has(id);
     const remainsActive = state.activeSavedCommentId === id;
-    const result = await api(`/api/page/${state.key}/comment/${id}`, {
+    const result = await api(`/api/page/${frameController.state.key}/comment/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ feedback: edit.draft }),
     });
@@ -1348,13 +1159,13 @@ async function executeCommentPatch(edit, startEpoch) {
     if (result.delivery === "updated-pending") {
       toast("Updated the feedback waiting for your agent");
     } else if (result.delivery === "correction") {
-      state.sent = false;
+      feedbackController.clearSent();
       toFrame({ type: "eh:remove", id });
       toFrame({ type: "eh:anchors", comments: state.page.comments });
       if (remainsActive && replacement) toFrame({ type: "eh:activate", id: replacement.id, scroll: false });
       toast("Saved as a correction — send it after the current batch is acknowledged");
     } else {
-      state.sent = false;
+      feedbackController.clearSent();
     }
     render();
     return true;
@@ -1375,7 +1186,7 @@ async function executeCommentPatch(edit, startEpoch) {
 
 function renderSave() {
   const line = $("saveLine");
-  if (state.saveConflict) {
+  if (saveController.state.conflict) {
     line.className = "save-line failed";
     $("saveText").textContent = "Source changed — reload latest before saving. Your page edits remain in this tab.";
     return;
@@ -1390,18 +1201,18 @@ function renderSave() {
     $("saveText").textContent = "Markdown source — edits go to the agent as feedback";
     return;
   }
-  if (state.dynamic) {
+  if (saveController.state.dynamic) {
     // The page's own scripts render it, so writing the live DOM back would
     // corrupt the file. Edits still reach the agent as feedback.
     line.className = "save-line dynamic";
     $("saveText").textContent = "Live page — edits go to the agent, the file is left alone";
     return;
   }
-  line.className = `save-line ${state.save === "saving" ? "saving" : state.save === "failed" ? "failed" : ""}`;
+  line.className = `save-line ${saveController.state.status === "saving" ? "saving" : saveController.state.status === "failed" ? "failed" : ""}`;
   const name = state.page ? state.page.filename : "";
-  if (state.save === "saving") $("saveText").textContent = `Saving to ${name}…`;
-  else if (state.save === "failed") $("saveText").textContent = "Couldn't save — retry before sending";
-  else $("saveText").textContent = state.savedAt ? `Saved to ${name} · ${state.savedAt}` : `Saved to ${name}`;
+  if (saveController.state.status === "saving") $("saveText").textContent = `Saving to ${name}…`;
+  else if (saveController.state.status === "failed") $("saveText").textContent = "Couldn't save — retry before sending";
+  else $("saveText").textContent = saveController.state.savedAt ? `Saved to ${name} · ${saveController.state.savedAt}` : `Saved to ${name}`;
 }
 
 function toast(message) {
@@ -1409,7 +1220,7 @@ function toast(message) {
   el.className = "toast";
   el.textContent = message;
   document.body.append(el);
-  setTimeout(() => el.remove(), 3200);
+  afterDelay(() => el.remove(), 3200);
 }
 
 function setActive(id, scroll) {
@@ -1427,7 +1238,7 @@ function dismissActiveComment(reason, { restoreFocus = false } = {}) {
   render();
   announce("Comment card closed");
   diagnostic("saved-card-deactivated", { reason });
-  if (restoreFocus) frame.focus();
+  if (restoreFocus) frameHost.current.focus();
   return true;
 }
 
@@ -1455,7 +1266,7 @@ async function openCompose(detail) {
   $("composeError").hidden = true;
   $("composeAddLabel").textContent = "Comment";
   render();
-  requestAnimationFrame(() => {
+  afterPaint(() => {
     positionCompose();
     $("composeText").focus();
   });
@@ -1506,7 +1317,7 @@ async function executeComposeSubmit() {
   diagnostic("comment-submit-executed");
   $("composeError").hidden = true;
   try {
-    const result = await api(`/api/page/${state.key}/comment`, {
+    const result = await api(`/api/page/${frameController.state.key}/comment`, {
       method: "POST",
       body: JSON.stringify({ kind: compose.kind, quote: compose.quote, anchor: compose.unresolved ? null : compose.anchor, feedback }),
     });
@@ -1520,7 +1331,7 @@ async function executeComposeSubmit() {
     setComposeLifecycle("closed", "submitted");
     setComposePlacement("hidden");
     state.page = result.page;
-    state.sent = false;
+    feedbackController.clearSent();
     render();
     announce("Comment added");
     return true;
@@ -1532,7 +1343,7 @@ async function executeComposeSubmit() {
     announce("Comment could not be saved. Your draft is still here.");
     setComposeLifecycle("open", "submit-failed");
     $("compose").classList.remove("pass-through");
-    requestAnimationFrame(() => $("composeText").focus());
+    afterPaint(() => $("composeText").focus());
     return false;
   } finally {
     button.disabled = false;
@@ -1541,10 +1352,7 @@ async function executeComposeSubmit() {
 
 // ------------------------------------------------------------ review history
 
-const currentRender = () => ({
-  key: state.key, renderId: state.renderId, generation: state.renderGeneration,
-  loading: state.frameLoading,
-});
+const currentRender = () => frameController.identity();
 const captures = createCaptureRequests({ send: toFrame, current: currentRender });
 const comparisonView = createComparisonView($("changeDetail"));
 const historyUrl = (suffix = "") => `/api/session/${state.sessionId}/history${suffix}`;
@@ -1554,54 +1362,21 @@ const historyController = createHistoryController({
 const history = historyController.state;
 let manualCaptureController = null;
 const captureCoordinator = createCaptureCoordinator({
-  ready: () => !state.ended && !state.frameLoading && !state.pendingReload && !state.domDirty &&
-    !state.saveConflict && !state.sending && !history.captureBusy && !history.finalizing &&
-    (state.page?.kind === "url" || !!state.baseHash),
+  ready: () => !state.ended && !frameController.loading && !frameController.state.pendingReload && !saveController.state.dirty &&
+    !saveController.state.conflict && !feedbackController.sending && !history.captureBusy && !history.finalizing &&
+    (state.page?.kind === "url" || !!saveController.state.baseHash),
   candidates: () => [...history.rounds].reverse().flatMap((round) => {
-    const target = pendingCaptureTarget(round, state.key, state.frameReadyAt);
-    return target ? [{ id: `${roundId(round)}:${state.renderId}:${state.renderGeneration}`, round, target }] : [];
+    const target = pendingCaptureTarget(round, frameController.state.key, frameController.state.readyAt);
+    return target ? [{ id: `${roundId(round)}:${frameController.state.renderId}:${frameController.state.generation}`, round, target }] : [];
   }),
   capture: ({ round, target }, signal) => captureResult(round, target, true, signal),
 });
 
-async function fullSaveBarrier() {
-  const identity = currentRender();
-  await flushFrame({ strict: true });
-  await activeSavePromise;
-  if (state.save === "failed" && !state.saveConflict && lastSave?.key === state.key && lastSave.generation === state.renderGeneration) {
-    await saveNow(lastSave.html);
-  }
-  await settleEditPersistence(identity.key);
-  applyCleanObservation();
-  if (!sameRender(identity, currentRender())) throw new Error("The page changed while saving. Retry on the latest page.");
-  if (state.saveConflict) throw new Error("Resolve the save conflict: the source changed outside this review. Reload latest; your comment drafts will be kept.");
-  if (state.save === "failed" || (state.savePolicy === "writable" && !state.dynamic && state.domDirty)) {
-    throw new Error("Your page edits have not finished saving. They have not been sent.");
-  }
-  if (state.savePolicy !== "writable" || state.dynamic) state.domDirty = false;
-}
-
-async function captureStablePage(options) {
-  const identity = currentRender();
-  const captured = await captures.request(options);
-  const capturedSaveSequence = saveSequence;
-  const capturedEditSequence = editMutationSequence;
-  // The SDK flushes its debounces before capture; their server writes must finish too.
-  await activeSavePromise;
-  await settleEditPersistence(identity.key);
-  applyCleanObservation();
-  if (options?.signal?.aborted) throw captureError("CAPTURE_CANCELLED", "Capture cancelled");
-  if (!sameRender(identity, currentRender()) || state.saveConflict || state.save === "failed") {
-    throw new Error("The page changed or could not be saved during capture. Recapture the latest version.");
-  }
-  if (saveSequence !== capturedSaveSequence || editMutationSequence !== capturedEditSequence) {
-    throw new Error("The page changed while its captured edits were saving. Recapture the latest version.");
-  }
-  return captured;
-}
+const fullSaveBarrier = () => saveController.barrier();
+const captureStablePage = (options) => saveController.captureStable(() => captures.request(options), options?.signal);
 
 function syncFrameInteraction() {
-  frame.inert = state.comparing || state.sending;
+  frameHost.current.inert = state.comparing || feedbackController.sending;
 }
 
 function roundId(round) { return round?.id || round?.roundId; }
@@ -1620,6 +1395,7 @@ function comparisonItems() {
 const refreshHistory = () => state.ended ? Promise.resolve(false) : historyController.refresh();
 
 function renderHistory() {
+  if (state.ended) return;
   syncFrameInteraction();
   const focusedMode = document.activeElement?.dataset.comparisonMode;
   const picker = $("roundPicker");
@@ -1685,10 +1461,10 @@ function renderHistory() {
     : "This result snapshot predates acknowledgment. It is not proof of the page state at acknowledgment.";
   $("historyCurrentStatus").hidden = !target?.resultRevisionId && !displayedComparison.afterCapturedAt;
   $("historyCurrentStatus").textContent = comparisonFreshness(displayedComparison, target?.key, {
-    key: state.key, kind: state.page?.kind, ready: !state.frameLoading && !!state.frameReadyAt,
-    pendingReload: state.pendingReload, dirty: state.domDirty || state.saveConflict,
-    sourceHash: state.renderSourceHash || state.baseHash,
-    sessionId: state.sessionId, generation: state.renderGeneration,
+    key: frameController.state.key, kind: state.page?.kind, ready: !frameController.loading && !!frameController.state.readyAt,
+    pendingReload: frameController.state.pendingReload, dirty: saveController.state.dirty || saveController.state.conflict,
+    sourceHash: frameController.state.sourceHash || saveController.state.baseHash,
+    sessionId: state.sessionId, generation: frameController.state.generation,
   });
   const viewComparison = history.mode === "content" ? displayedComparison.viewComparison : null;
   $("historyViewCoverage").hidden = !viewComparison?.message;
@@ -1716,7 +1492,7 @@ function renderHistory() {
   $("historyError").textContent = detail || "";
   const captureAllowed = target && !target.resultRevisionId && target.capture?.status !== "unavailable" && history.round?.feedbackStatus === "acknowledged";
   $("captureResult").hidden = !captureAllowed;
-  $("captureResult").disabled = history.captureBusy || history.finalizing || target?.key !== state.key || state.frameLoading;
+  $("captureResult").disabled = history.captureBusy || history.finalizing || target?.key !== frameController.state.key || frameController.loading;
   $("captureResult").textContent = history.captureBusy ? "Capturing result…" : "Capture result";
   const canFinalize = target && !target.resultRevisionId && history.round?.feedbackStatus === "acknowledged" &&
     ["pending", "failed"].includes(target.capture?.status || target.captureStatus || "pending");
@@ -1767,7 +1543,7 @@ function renderHistory() {
 }
 
 async function captureResult(round, target, automatic = false, signal) {
-  if (history.captureBusy || !round || target?.key !== state.key) return;
+  if (history.captureBusy || !round || target?.key !== frameController.state.key) return;
   const manualController = automatic ? null : new AbortController();
   if (manualController) {
     manualCaptureController = manualController;
@@ -1789,7 +1565,7 @@ async function captureResult(round, target, automatic = false, signal) {
       body: JSON.stringify({
         sessionId: state.sessionId, roundId: roundId(round), key: captured.key,
         renderId: captured.renderId, generation: captured.generation,
-        semantic: captured.semantic, expectedSourceHash: captured.sourceHash || state.baseHash || state.renderSourceHash,
+        semantic: captured.semantic, expectedSourceHash: captured.sourceHash || saveController.state.baseHash || frameController.state.sourceHash,
         semanticCapturedAt: captured.semanticCapturedAt, view: captured.view,
         manual: !automatic,
       }),
@@ -1801,7 +1577,7 @@ async function captureResult(round, target, automatic = false, signal) {
   } catch (err) {
     if (signal?.aborted || state.ended || !sameRender(identity, currentRender()) || err.code === "CAPTURE_CANCELLED") return;
     history.failures.set(`${roundId(round)}:${target.key}`, err.message);
-    if (phase === "snapshot" && sameRender(identity, currentRender()) && !state.frameLoading) {
+    if (phase === "snapshot" && sameRender(identity, currentRender()) && !frameController.loading) {
       await api(historyUrl(`/${roundId(round)}/capture`), {
         method: "POST",
         signal,
@@ -1809,7 +1585,9 @@ async function captureResult(round, target, automatic = false, signal) {
           key: identity.key, renderId: identity.renderId, generation: identity.generation,
           manual: !automatic, error: String(err.message).slice(0, 500),
         }),
-      }).catch(() => {});
+      }).catch((reportError) => {
+        if (!state.ended) diagnostic("capture-failure-report-failed", { message: reportError.message });
+      });
     }
     $("historyError").hidden = false;
     $("historyError").textContent = `${err.message} Use Capture result to retry; existing captures are unchanged.`;
@@ -1832,31 +1610,31 @@ function setHistoryView(comparing) {
   closeModeMenu("history-switch");
   document.body.classList.toggle("comparing", comparing);
   syncFrameInteraction();
-  frame.setAttribute("aria-hidden", String(comparing));
+  frameHost.current.setAttribute("aria-hidden", String(comparing));
   $("historyPanel").hidden = !comparing;
   $("latestVersion").setAttribute("aria-pressed", String(!comparing));
   $("seeChanges").setAttribute("aria-pressed", String(comparing));
-  if (!comparing && state.pendingReload) $("reloadNotice").hidden = false;
+  if (!comparing && frameController.state.pendingReload) $("reloadNotice").hidden = false;
   if (comparing) {
     closeDrawer();
     void refreshHistory();
   }
   render();
 }
-$("latestVersion").addEventListener("click", () => setHistoryView(false));
-$("seeChanges").addEventListener("click", () => setHistoryView(true));
-$("roundPicker").addEventListener("change", () => void historyController.selectRound($("roundPicker").value));
-$("historyTarget").addEventListener("change", () => void historyController.selectTarget($("historyTarget").value));
+listen($("latestVersion"), "click", () => setHistoryView(false));
+listen($("seeChanges"), "click", () => setHistoryView(true));
+listen($("roundPicker"), "change", () => void historyController.selectRound($("roundPicker").value));
+listen($("historyTarget"), "change", () => void historyController.selectTarget($("historyTarget").value));
 function jumpToChange(index) {
   history.index = index;
   renderHistory();
   comparisonView.select(history.index, { scroll: true });
 }
-$("previousChange").addEventListener("click", () => jumpToChange(history.index - 1));
-$("nextChange").addEventListener("click", () => jumpToChange(history.index + 1));
-$("changeJump").addEventListener("change", (event) => jumpToChange(Number(event.target.value)));
-$("captureResult").addEventListener("click", () => void captureResult(history.round, selectedTarget()));
-$("finishCapture").addEventListener("click", async () => {
+listen($("previousChange"), "click", () => jumpToChange(history.index - 1));
+listen($("nextChange"), "click", () => jumpToChange(history.index + 1));
+listen($("changeJump"), "change", (event) => jumpToChange(Number(event.target.value)));
+listen($("captureResult"), "click", () => void captureResult(history.round, selectedTarget()));
+listen($("finishCapture"), "click", async () => {
   const target = selectedTarget();
   const round = history.round;
   if (!target || !round || history.finalizing || history.captureBusy) return;
@@ -1881,103 +1659,7 @@ $("finishCapture").addEventListener("click", async () => {
 
 // -------------------------------------------------------------------- saving
 
-let retryTimer = null;
-let saveAttempts = 0;
-let activeSavePromise = Promise.resolve(true);
-let saveSequence = 0;
-let savePending = 0;
-let lastSave = null;
-
-function applyCleanObservation() {
-  const clean = state.cleanObservation;
-  if (!clean || clean.key !== state.key || clean.generation !== state.renderGeneration ||
-      clean.saveSequence !== saveSequence || clean.editSequence !== editMutationSequence ||
-      savePending || state.save === "failed" || state.saveConflict ||
-      editBacklogs.get(state.key)?.size || editPipelines.has(state.key)) return;
-  state.domDirty = false;
-  state.save = state.savedAt ? "saved" : "idle";
-  renderSave();
-}
-
-/** A fresh serialization from the SDK always starts a fresh attempt budget. */
-function saveNow(html) {
-  const sequence = ++saveSequence;
-  const key = state.key;
-  const generation = state.renderGeneration;
-  lastSave = { html, key, generation };
-  savePending += 1;
-  state.domDirty = true;
-  saveAttempts = 0;
-  activeSavePromise = activeSavePromise.catch(() => false).then(async () => {
-    if (state.saveConflict || key !== state.key || generation !== state.renderGeneration) return false;
-    const saved = await saveHtml(html, key, generation);
-    if (saved && saveSequence === sequence) state.domDirty = false;
-    return saved;
-  }).finally(() => {
-    savePending -= 1;
-    applyCleanObservation();
-  });
-  return activeSavePromise;
-}
-
-async function saveHtml(html, key, generation = state.renderGeneration) {
-  clearTimeout(retryTimer);
-  // A retry that outlived a page switch must never write into the new page.
-  if (key !== state.key || generation !== state.renderGeneration || state.saveConflict) return false;
-  if (!state.baseHash) {
-    // The on-disk baseline hasn't arrived yet; wait for it rather than write blind.
-    saveAttempts += 1;
-    if (saveAttempts <= 10) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return saveHtml(html, key, generation);
-    }
-    else {
-      state.save = "failed";
-      renderSave();
-    }
-    return false;
-  }
-  try {
-    const result = await api(`/api/page/${key}/save`, {
-      method: "POST",
-      body: JSON.stringify({
-        html, baseHash: state.baseHash, renderId: state.renderId,
-        generation, sessionId: state.sessionId,
-      }),
-    });
-    if (key !== state.key || generation !== state.renderGeneration) return false;
-    state.baseHash = result.hash || null;
-    state.renderSourceHash = result.hash || state.renderSourceHash;
-    state.save = "saved";
-    state.savedAt = clock();
-    saveAttempts = 0;
-    renderSave();
-    return true;
-  } catch (err) {
-    if (key !== state.key || generation !== state.renderGeneration) return false;
-    if (err.status === 409) {
-      // Someone else — usually the agent — wrote the file first. Their version
-      // arrives via the reload event; this save is abandoned, not retried.
-      state.baseHash = null;
-      state.save = "idle";
-      state.saveConflict = true;
-      saveAttempts = 0;
-      renderSave();
-      holdReload();
-      announce("Save conflict. Edit mode remains active so you can reload safely.");
-      diagnostic("save-conflict");
-      return false;
-    }
-    saveAttempts += 1;
-    state.save = "failed";
-    if (saveAttempts < 3) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      return saveHtml(html, key, generation);
-    }
-    else if (!state.sending) toast("Couldn't save. Retry before sending feedback; your edits remain on this page.");
-    return false;
-  }
-}
+const saveNow = (html) => saveController.save(html);
 
 // ------------------------------------------------------------ frame messages
 
@@ -2006,106 +1688,49 @@ function targetPayload(msg) {
   };
 }
 
-window.addEventListener("message", async (event) => {
-  if (!frame.contentWindow || event.source !== frame.contentWindow) return;
-  if (!state.framePolicy || event.origin !== state.framePolicy.incomingOrigin) return;
-  const msg = event.data || {};
-  if (
-    !state.frameCapability ||
-    msg.capability !== state.frameCapability ||
-    msg.generation !== state.renderGeneration ||
-    msg.pageKey !== state.key
-  ) return;
-  if (state.frameLoading && msg.type !== "eh:ready") return;
+listen(window, "message", async (event) => {
+  if (!frameController.accepts(event)) return;
+  const msg = event.data;
 
   switch (msg.type) {
     case "eh:ready": {
-      if (state.readyGeneration === state.renderGeneration) return;
-      clearTimeout(state.frameReadyTimer);
-      state.frameReadyTimer = null;
-      state.frameReadyRetries = 0;
-      state.readyGeneration = state.renderGeneration;
-      state.frameReadyAt = Date.now();
-      const readyCapability = state.frameCapability;
       const readyIdentity = currentRender();
-      const readySaveSequence = saveSequence;
-      const ready = api(`/api/session/${state.sessionId}/render/${state.renderId}/ready`, {
-        method: "POST",
-        body: JSON.stringify({
-          capability: readyCapability,
-          generation: state.renderGeneration,
-          pageKey: state.key,
-        }),
-      }).then((result) => {
-        if (!sameRender(readyIdentity, currentRender())) return null;
-        if (saveSequence === readySaveSequence) state.renderSourceHash = result.sourceHash || null;
-        return result;
-      }).catch(() => null);
-      const readyState = await ready;
-      if (!sameRender(readyIdentity, currentRender())) return;
-      if (!readyState || !["static", "interactive", "application"].includes(readyState.executionMode) ||
-        !["writable", "feedback-only"].includes(readyState.savePolicy)) {
-        failFrame("The review could not confirm this document's execution policy. Reload before editing.");
-        return;
-      }
-      state.renderExecution = {
-        executionMode: readyState.executionMode,
-        savePolicy: readyState.savePolicy,
-        feedbackOnly: readyState.savePolicy === "feedback-only",
-        executionNotice: readyState.executionNotice || null,
-      };
-      state.page = { ...state.page, ...state.renderExecution };
-      state.frameLoading = false;
-      frame.dataset.sdkReady = "true";
-      frame.dataset.executionMode = readyState.executionMode;
-      frame.dataset.savePolicy = readyState.savePolicy;
-      frame.dataset.executionNotice = readyState.executionNotice || "";
+      const readyState = await frameController.ready();
+      if (!readyState || !sameRender(readyIdentity, currentRender())) return;
+      state.page = { ...state.page, ...readyState };
       toFrame({ type: "eh:anchors", comments: state.page ? state.page.comments : [] });
-      if (state.reloading) {
+      if (frameController.state.reloading) {
         toFrame({ type: "eh:restoreScroll", x: state.scroll.x, y: state.scroll.y });
-        state.reloading = false;
+        frameController.restoredScroll();
       }
       const configuration = reviewConfiguration(state.page, state.reviewMode);
       state.savePolicy = configuration.savePolicy;
-      toFrame({ type: "eh:configureReview", ...configuration });
+      void frameController.configure(configuration.mode, configuration.savePolicy, false);
       render();
       if (state.page?.kind !== "url") {
-        // Hand the SDK the on-disk HTML so it can spot self-rendering pages.
         const rawIdentity = currentRender();
-        ready.then(() => {
-          if (!sameRender(rawIdentity, currentRender())) return null;
-          return api(`/api/page/${state.key}/raw`);
-        })
-          .then((raw) => {
-            if (!raw || !sameRender(rawIdentity, currentRender()) || state.pendingReload) return;
-            if (state.renderSourceHash && state.renderSourceHash !== raw.hash) {
-              state.saveConflict = true;
-              holdReload();
-              return;
-            }
-            state.baseHash = raw.hash || null;
-            if (configuration.savePolicy === "writable") toFrame({ type: "eh:raw", html: raw.html });
-            scheduleResultCapture();
-          })
-          .catch(() => {});
+        void api(`/api/page/${frameController.state.key}/raw`).then((raw) => {
+          if (!sameRender(rawIdentity, currentRender()) || frameController.state.pendingReload) return;
+          if (frameController.state.sourceHash && frameController.state.sourceHash !== raw.hash) {
+            saveController.markConflict();
+            holdReload();
+            return;
+          }
+          saveController.baseline(raw.hash || null);
+          if (configuration.savePolicy === "writable") toFrame({ type: "eh:raw", html: raw.html });
+          scheduleResultCapture();
+        }).catch((error) => {
+          if (sameRender(rawIdentity, currentRender()) && !state.ended) {
+            toast(`Source could not be loaded: ${error.message}. Reload before saving.`);
+          }
+        });
       }
-      void ready.then(() => refreshHistory());
+      void refreshHistory();
       break;
     }
     case "eh:configurationApplied":
-      state.configurationGeneration = state.renderGeneration;
-      if (previousFrame) {
-        const configuredFrame = frame;
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          if (frame === configuredFrame && !state.frameLoading) finishFrameReplacement();
-        }));
-      }
+      if (!frameController.configured(msg.mode, msg.savePolicy)) break;
       scheduleResultCapture();
-      if (
-        configurationWaiter &&
-        msg.mode === configurationWaiter.mode &&
-        msg.savePolicy === configurationWaiter.savePolicy
-      ) configurationWaiter.settle(true);
       announce(`${state.reviewMode === "edit" ? "Edit" : "View"} mode active`);
       break;
     case "eh:target": {
@@ -2201,8 +1826,8 @@ window.addEventListener("message", async (event) => {
       toast(String(msg.reason || "This form cannot be submitted from View mode"));
       break;
     case "eh:edit":
-      editMutationSequence += 1;
-      void persistEdit(state.key, {
+      saveController.markEdit();
+      void persistEdit(frameController.state.key, {
         label: msg.label,
         kind: msg.kind,
         before: msg.before,
@@ -2219,17 +1844,15 @@ window.addEventListener("message", async (event) => {
       const query = new URLSearchParams({
         type: msg.assetType || "", sessionId: state.sessionId,
         renderId: identity.renderId, generation: String(identity.generation),
-        savePolicy: state.renderExecution?.savePolicy || "feedback-only",
+        savePolicy: frameController.state.execution?.savePolicy || "feedback-only",
       });
       try {
-        const saved = await fetch(`/api/page/${identity.key}/asset?${query}`, {
+        const data = await api(`/api/page/${identity.key}/asset?${query}`, {
           method: "POST",
-          headers: { "content-type": "application/octet-stream", "x-doc-review-token": state.token },
+          headers: { "content-type": "application/octet-stream" },
           body: msg.bytes,
         });
-        const data = await saved.json();
         if (!sameRender(identity, currentRender())) break;
-        if (!saved.ok) throw new Error(data.error || "could not save the pasted image");
         toFrame({ type: "eh:assetSaved", id: msg.id, src: data.src, stagedId: data.stagedId });
       } catch (err) {
         if (!sameRender(identity, currentRender())) break;
@@ -2239,20 +1862,14 @@ window.addEventListener("message", async (event) => {
       break;
     }
     case "eh:saving":
-      state.domDirty = true;
-      state.save = "saving";
+      saveController.markSaving();
       renderSave();
       break;
     case "eh:html":
       await saveNow(msg.html);
       break;
     case "eh:clean":
-      // SDK equality is not a server acknowledgement: prior saves may still be failing.
-      state.cleanObservation = {
-        key: state.key, generation: state.renderGeneration,
-        saveSequence, editSequence: editMutationSequence,
-      };
-      applyCleanObservation();
+      saveController.observeClean();
       break;
     case "eh:snapshot":
       captures.receive(msg);
@@ -2266,14 +1883,11 @@ window.addEventListener("message", async (event) => {
       break;
     }
     case "eh:dynamic":
-      state.dynamic = true;
+      saveController.markDynamic();
       renderSave();
       break;
     case "eh:flushed":
-      if (typeof msg.requestId === "string") flushRequests.get(msg.requestId)?.settle(true);
-      else for (const request of flushRequests.values()) {
-        if (!request.strict) request.settle(true);
-      }
+      frameController.flushed(msg.requestId);
       break;
     case "eh:scroll":
       state.scroll = { x: msg.x, y: msg.y };
@@ -2288,14 +1902,7 @@ window.addEventListener("message", async (event) => {
     }
     case "eh:navigate":
       try {
-        if (draftCount(state)) throw new Error("Save or cancel open comment drafts before changing pages");
-        await fullSaveBarrier();
-        const result = await api(`/api/session/${state.sessionId}/navigate`, {
-          method: "POST",
-          body: JSON.stringify({ href: msg.href }),
-        });
-        state.scroll = { x: 0, y: 0 };
-        await loadPage(result.key);
+        await reviewController.navigate({ href: msg.href });
       } catch (err) {
         toast(err.message);
       }
@@ -2309,27 +1916,27 @@ window.addEventListener("message", async (event) => {
 
 let composeComposing = false;
 
-$("composeAdd").addEventListener("click", commitCompose);
-$("composeCancel").addEventListener("click", cancelCompose);
-$("composeClose").addEventListener("click", cancelCompose);
-$("composeReveal").addEventListener("click", () => {
+listen($("composeAdd"), "click", commitCompose);
+listen($("composeCancel"), "click", cancelCompose);
+listen($("composeClose"), "click", cancelCompose);
+listen($("composeReveal"), "click", () => {
   if (!state.compose) return;
   diagnostic("reveal-target-requested");
   toFrame({ type: "eh:revealTarget", targetGeneration: state.compose.generation });
 });
 
-$("compose").addEventListener("mousedown", (event) => {
+listen($("compose"), "mousedown", (event) => {
   if (event.target.closest("button")) return;
   if (event.target !== $("composeText")) $("composeText").focus();
 });
 
-$("composeText").addEventListener("compositionstart", () => {
+listen($("composeText"), "compositionstart", () => {
   composeComposing = true;
 });
-$("composeText").addEventListener("compositionend", () => {
+listen($("composeText"), "compositionend", () => {
   composeComposing = false;
 });
-$("composeText").addEventListener("keydown", (event) => {
+listen($("composeText"), "keydown", (event) => {
   if (event.key === "Enter") {
     event.stopPropagation();
     if (composeComposing || event.isComposing || event.shiftKey) return;
@@ -2343,15 +1950,15 @@ $("composeText").addEventListener("keydown", (event) => {
   }
 });
 
-$("modeButton").addEventListener("click", () => {
+listen($("modeButton"), "click", () => {
   if ($("modeMenu").hidden) openModeMenu();
   else closeModeMenu("trigger", { restoreFocus: true });
 });
-$("modeMenu").addEventListener("click", (event) => {
+listen($("modeMenu"), "click", (event) => {
   const item = event.target.closest("[data-mode]");
   if (item) void setReviewMode(item.dataset.mode);
 });
-$("modeMenu").addEventListener("keydown", (event) => {
+listen($("modeMenu"), "keydown", (event) => {
   const items = [...$("modeMenu").querySelectorAll("[data-mode]")];
   const current = items.indexOf(document.activeElement);
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -2364,16 +1971,16 @@ $("modeMenu").addEventListener("keydown", (event) => {
     closeModeMenu("escape", { restoreFocus: true });
   }
 });
-$("commentsButton").addEventListener("click", openDrawer);
-$("drawerClose").addEventListener("click", closeDrawer);
-$("drawerBackdrop").addEventListener("click", closeDrawer);
+listen($("commentsButton"), "click", openDrawer);
+listen($("drawerClose"), "click", closeDrawer);
+listen($("drawerBackdrop"), "click", closeDrawer);
 
 const dismissModeMenuOutside = (event) => {
   if (!state.modeMenuOpen || event.target.closest(".mode-control")) return;
   closeModeMenu(event.type === "focusin" ? "parent-focus" : "parent-pointer");
 };
-document.addEventListener("pointerdown", dismissModeMenuOutside, true);
-document.addEventListener("focusin", dismissModeMenuOutside, true);
+listen(document, "pointerdown", dismissModeMenuOutside, true);
+listen(document, "focusin", dismissModeMenuOutside, true);
 
 function closeCommentMenu({ restoreFocus = false } = {}) {
   const menu = state.commentUi.menu;
@@ -2393,101 +2000,17 @@ const dismissCommentMenuOutside = (event) => {
   if (menuElement?.contains(event.target) || trigger?.contains(event.target)) return;
   closeCommentMenu();
 };
-document.addEventListener("pointerdown", dismissCommentMenuOutside, true);
-document.addEventListener("focusin", dismissCommentMenuOutside, true);
+listen(document, "pointerdown", dismissCommentMenuOutside, true);
+listen(document, "focusin", dismissCommentMenuOutside, true);
 
-async function sendFeedback() {
-  if (state.sending || state.ended) return;
-  const identity = currentRender();
-  const sentNote = $("note").value;
-  state.sending = true;
-  if ($("captureWarning")) $("captureWarning").hidden = true;
-  captureCoordinator.reset();
-  manualCaptureController?.abort();
-  render();
-  let phase = "saving";
-  let delivered = false;
-  try {
-    const outcome = await deliverFeedback({
-      save: fullSaveBarrier,
-      capture: () => captureStablePage({ timeout: 500 }),
-      deliver: async (snapshot) => {
-        // A snapshot flush can reveal more queued writes. Those are still required.
-        await activeSavePromise;
-        await settleEditPersistence(state.key);
-        if (state.ended || !sameRender(identity, currentRender())) throw new Error("The page changed before sending. Retry on the current page.");
-        if (state.saveConflict || state.save === "failed" ||
-          (state.savePolicy === "writable" && !state.dynamic && state.domDirty)) {
-          throw new Error("Your page edits have not finished saving.");
-        }
-        phase = "delivery";
-        const result = await api(`/api/page/${state.key}/send`, {
-          method: "POST",
-          body: JSON.stringify({
-            sessionId: state.sessionId, note: sentNote.trim(),
-            history: {
-              renderId: state.renderId, generation: state.renderGeneration,
-              semantic: snapshot?.semantic || null,
-              semanticCapturedAt: snapshot?.semanticCapturedAt, view: snapshot?.view,
-              expectedSourceHash: snapshot?.sourceHash || state.baseHash || state.renderSourceHash,
-              allowUnavailable: true,
-            },
-          }),
-        });
-        if (result.ok === false) throw new Error(result.error || "Feedback delivery was not confirmed");
-      },
-      committed() {
-        delivered = true;
-        if ($("note").value === sentNote) $("note").value = "";
-        state.sent = true;
-      },
-      refresh: refreshHistory,
-    });
-    if (outcome.refreshFailure) toast("Feedback sent. History could not be refreshed; your feedback does not need to be sent again.");
-    else if (outcome.captureFailure) announce("Feedback sent. Content comparison may be incomplete.");
-  } catch (err) {
-    const message = delivered ? "Feedback sent. History is temporarily unavailable; do not send it again."
-      : phase === "saving" ? `Feedback not sent: ${err.message} Your feedback and drafts are still here.`
-        : `Feedback delivery was not confirmed: ${err.message} No automatic retry was made. Check the agent before sending again.`;
-    toast(message);
-    announce(message);
-  } finally {
-    state.sending = false;
-    render();
-    scheduleResultCapture();
-  }
-}
-$("send").addEventListener("click", () => void sendFeedback());
+const sendFeedback = () => feedbackController.send();
+listen($("send"), "click", () => void sendFeedback());
 
-$("revert").addEventListener("click", async () => {
+listen($("revert"), "click", async () => {
   const count = state.page.edits.length;
   if (!window.confirm(`Discard all ${count} of your edits?`)) return;
-  const identity = currentRender();
-  // Stop the SDK's debounced save and our own retries first, so a queued save
-  // can't land after the revert and write the edits straight back.
-  toFrame({ type: "eh:abortSave" });
-  clearTimeout(retryTimer);
-  try {
-    await activeSavePromise;
-    await settleEditPersistence(identity.key).catch(() => {});
-    if (!sameRender(identity, currentRender())) throw new Error("The page changed before reverting. Retry on the current page.");
-    const baseHash = state.baseHash;
-    editBacklogs.delete(identity.key);
-    editErrors.delete(identity.key);
-    const result = await api(`/api/page/${identity.key}/revert`, {
-      method: "POST",
-      body: JSON.stringify({
-        sessionId: state.sessionId, renderId: identity.renderId, generation: identity.generation, baseHash,
-      }),
-    });
-    if (state.key !== identity.key) return;
-    state.page = result.page;
-    state.save = "idle";
-    state.savedAt = "";
-    render();
-  } catch (err) {
-    toast(err.message);
-  }
+  try { await saveController.revert(); }
+  catch (err) { toast(err.message); }
 });
 
 /** The session is over: freeze the page and say so. Feedback is already safe. */
@@ -2498,8 +2021,7 @@ function showEnded() {
   manualCaptureController?.abort();
   captures.cancel("Review ended");
   historyController.cancel();
-  if (events) events.close();
-  clearTimeout(retryTimer);
+  reviewController.dispose();
   const overlay = document.createElement("div");
   overlay.className = "ended";
   const title = document.createElement("h2");
@@ -2510,7 +2032,7 @@ function showEnded() {
   document.body.append(overlay);
 }
 
-$("endReview").addEventListener("click", async () => {
+listen($("endReview"), "click", async () => {
   const page = state.page;
   const otherTotal = (state.others || []).reduce((sum, o) => sum + o.count, 0);
   const unsent = page ? (page.comments || []).length + (page.edits || []).length + otherTotal : 0;
@@ -2528,12 +2050,12 @@ $("endReview").addEventListener("click", async () => {
   }
 });
 
-$("handoffCopy").addEventListener("click", async (event) => {
+listen($("handoffCopy"), "click", async (event) => {
   const button = event.currentTarget;
   try {
     await navigator.clipboard.writeText($("handoffCmd").textContent);
     button.textContent = "Copied";
-    setTimeout(() => {
+    afterDelay(() => {
       button.textContent = "Copy prompt";
     }, 1600);
   } catch {
@@ -2541,14 +2063,14 @@ $("handoffCopy").addEventListener("click", async (event) => {
   }
 });
 
-$("note").addEventListener("input", (event) => {
+listen($("note"), "input", (event) => {
   const el = event.target;
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight + 2, window.innerHeight * 0.4)}px`;
   render(); // keep the send button in step with note-only feedback
 });
 
-$("theme").addEventListener("click", () => {
+listen($("theme"), "click", () => {
   const dark = document.documentElement.dataset.theme !== "dark";
   applyTheme(dark);
   try {
@@ -2564,7 +2086,7 @@ function applyTheme(dark) {
   replaceIcon(button, dark ? "sun" : "moon");
 }
 
-document.addEventListener("keydown", (event) => {
+listen(document, "keydown", (event) => {
   const meta = event.metaKey || event.ctrlKey;
   // ⌘S is reassurance only: flush pending keystrokes, never a state change.
   if (meta && event.key.toLowerCase() === "s") {
@@ -2604,16 +2126,11 @@ document.addEventListener("keydown", (event) => {
 
 // ------------------------------------------------------------------ events
 
-let events = null;
-
 function holdReload() {
-  state.pendingReload = true;
-  state.baseHash = null;
-  clearTimeout(retryTimer);
-  toFrame({ type: "eh:abortSave" });
-  if (state.domDirty) state.saveConflict = true;
+  frameController.holdReload();
+  saveController.hold();
   $("reloadNotice").hidden = false;
-  $("reloadMessage").textContent = state.domDirty || state.saveConflict
+  $("reloadMessage").textContent = saveController.state.dirty || saveController.state.conflict
     ? "The source changed. This page has unsaved edits; reload discards those page edits, but keeps open comment drafts. Stale edits will not overwrite the new source."
     : "The source changed. Reload keeps your comment drafts as unresolved excerpts so they cannot attach to the wrong content.";
   captureCoordinator.reset();
@@ -2624,11 +2141,11 @@ function holdReload() {
 }
 
 async function reloadLatest({ explicit = false } = {}) {
-  if (!explicit && (draftCount(state) || state.domDirty || state.saveConflict || state.sending)) {
+  if (!explicit && (draftCount(state) || saveController.state.dirty || saveController.state.conflict || feedbackController.sending)) {
     holdReload();
     return;
   }
-  const key = state.key;
+  const key = frameController.state.key;
   advancePageEpoch("reload");
   captureEditState();
   if (state.compose) {
@@ -2638,23 +2155,17 @@ async function reloadLatest({ explicit = false } = {}) {
     state.compose.generation = -1;
   }
   const generation = beginFrameTransition();
-  state.frameReadyRetries = 0;
-  state.reloading = true;
-  state.dynamic = false;
-  state.baseHash = null;
-  clearTimeout(retryTimer);
-  state.pendingReload = false;
-  state.saveConflict = false;
-  state.domDirty = false;
+  frameController.resetRetries();
+  frameController.startReload();
+  saveController.reset();
   $("reloadNotice").hidden = true;
   try {
-    const page = await api(pageUrl(key, state.sessionId));
-    if (state.key !== key || state.renderGeneration !== generation) return;
+    const page = await api(pageUrl(key, state.sessionId), undefined, decodePage);
+    if (frameController.state.key !== key || frameController.state.generation !== generation) return;
     state.executionPreference = page.executionPreference || null;
     // Keep parent-owned drafts rather than replacing their text on a source update.
     replacePage(state, page);
-    state.save = "idle";
-    state.savedAt = "";
+    saveController.reset();
     render();
     if (state.compose) {
       $("compose").hidden = false;
@@ -2664,41 +2175,27 @@ async function reloadLatest({ explicit = false } = {}) {
     }
     await registerFrame(key, generation);
   } catch (err) {
-    if (state.key === key && state.renderGeneration === generation) failFrame(err.message);
+    if (frameController.state.key === key && frameController.state.generation === generation) failFrame(err.message);
   }
 }
-$("safeReload").addEventListener("click", () => void reloadLatest({ explicit: true }));
-$("keepCurrent").addEventListener("click", () => { $("reloadNotice").hidden = true; announce("Keeping the current page. Return to Latest version to reload when ready."); });
-window.addEventListener("beforeunload", (event) => {
-  if (!state.domDirty && !draftCount(state, $("note").value) && !editBacklogs.get(state.key)?.size) return;
+listen($("safeReload"), "click", () => void reloadLatest({ explicit: true }));
+listen($("keepCurrent"), "click", () => { $("reloadNotice").hidden = true; announce("Keeping the current page. Return to Latest version to reload when ready."); });
+listen(window, "beforeunload", (event) => {
+  if (!saveController.state.dirty && !draftCount(state, $("note").value) && !saveController.queued(frameController.state.key)) return;
   event.preventDefault();
   event.returnValue = "";
 });
+listen(window, "pagehide", (event) => {
+  if (event.persisted) return;
+  state.ended = true;
+  captureCoordinator.stop();
+  manualCaptureController?.abort();
+  captures.cancel("Review closed");
+  historyController.cancel();
+  reviewController.dispose();
+});
 
-function connect() {
-  const source = new EventSource(`/events/${state.sessionId}`);
-  events = source;
-  // Another window on this session hit End review.
-  source.addEventListener("ended", () => showEnded());
-  source.addEventListener("reload", () => void reloadLatest());
-  source.addEventListener("history", () => void refreshHistory());
-  source.addEventListener("agent", (event) => {
-    state.agent = JSON.parse(event.data).state;
-    render();
-  });
-  source.addEventListener("refresh", async () => {
-    const key = state.key;
-    advancePageEpoch("acknowledgement");
-    const page = await api(pageUrl(key, state.sessionId));
-    if (state.key !== key) return;
-    reconcilePage(page, { syncAnchors: true, reason: "acknowledgement", advance: false });
-    state.sent = false;
-    render();
-  });
-  source.onerror = () => {
-    /* EventSource reconnects on its own. */
-  };
-}
+const connect = () => reviewController.connect();
 
 // -------------------------------------------------------------------- start
 
@@ -2708,40 +2205,28 @@ function connect() {
     applyTheme(localStorage.getItem("doc-review:theme") === "dark");
   } catch {}
 
-  const bootstrap = await api(`/api/session/${state.sessionId}/page`).catch(() => null);
+  const bootstrap = await api(`/api/session/${state.sessionId}/page`);
   if (bootstrap && bootstrap.page) state.pollCommand = bootstrap.page.pollCommand;
-  if (bootstrap && Number.isSafeInteger(bootstrap.generation)) state.renderGeneration = bootstrap.generation;
+  if (bootstrap && Number.isSafeInteger(bootstrap.generation)) frameController.seedGeneration(bootstrap.generation);
   const key = bootstrap ? bootstrap.key : new URLSearchParams(location.search).get("key");
   await loadPage(key);
   connect();
   void refreshHistory();
-})();
+})().catch((error) => {
+  failFrame(`Review could not start: ${error.message}`);
+});
 
-window.addEventListener("resize", () => {
+listen(window, "resize", () => {
   positionCompose();
   if (state.activeSavedCommentId) positionAlignedCard();
 });
 if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", positionCompose);
-  window.visualViewport.addEventListener("scroll", positionCompose);
+  listen(window.visualViewport, "resize", positionCompose);
+  listen(window.visualViewport, "scroll", positionCompose);
 }
 
-function attachFrameEvents(target) {
-  target.addEventListener("load", () => {
-    if (target !== frame) return;
-    if (!state.renderId || !state.frameCapability) return;
-    if (state.pendingInitialLoad) {
-      state.pendingInitialLoad = false;
-      return;
-    }
-    rotateCurrentFrame();
-  });
-
-  target.addEventListener("focus", () => {
-    if (target !== frame) return;
-    closeCommentMenu();
-    if (state.compose) $("compose").classList.add("pass-through");
-  });
-}
-attachFrameEvents(frame);
-$("compose").addEventListener("focusin", () => $("compose").classList.remove("pass-through"));
+reviewController.own(frameHost.onFocus(() => {
+  closeCommentMenu();
+  if (state.compose) $("compose").classList.add("pass-through");
+}));
+listen($("compose"), "focusin", () => $("compose").classList.remove("pass-through"));

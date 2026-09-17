@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { modePresentation, newestComments, pageUrl, replacePage } from "../src/chrome-session.js";
+import { modePresentation, newestComments, pageUrl, replacePage } from "../lib/chrome-session.js";
 
 test("page refreshes keep session context and clear stale cross-page counts", () => {
   assert.equal(pageUrl("abc123", "session with spaces"), "/api/page/abc123?session=session%20with%20spaces");

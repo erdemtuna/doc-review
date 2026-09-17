@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { createExecutionControls, executionPresentation } from "../src/execution-client.js";
+import { createExecutionControls, executionPresentation } from "../lib/execution-client.js";
 
 test("actual displayed frame policy wins over newly classified source", () => {
   const page = { key: "a", kind: "file", savePolicy: "writable", executionMode: "static" };

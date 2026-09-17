@@ -5,8 +5,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
-import { SERVER_PROTOCOL, serverLockPath, serverPath } from "../src/paths.js";
-import { requestRaw } from "../src/poll-transport.js";
+import { SERVER_PROTOCOL, serverLockPath, serverPath } from "../lib/paths.js";
+import { requestRaw } from "../lib/poll-transport.js";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tmp = fs.mkdtempSync(path.join(project, ".doc-review-loop-"));
@@ -38,13 +38,13 @@ function collect(child) {
 
 const cliChildren = [];
 function cli(...args) {
-  const child = spawn(process.execPath, ["src/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, ["lib/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
   cliChildren.push(child);
   return child;
 }
 
 function spawnServer() {
-  return spawn(process.execPath, ["src/server-entry.js"], { cwd: project, env, stdio: "ignore" });
+  return spawn(process.execPath, ["lib/server-entry.js"], { cwd: project, env, stdio: "ignore" });
 }
 
 async function waitForServer(notPid) {

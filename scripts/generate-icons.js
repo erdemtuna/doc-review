@@ -11,7 +11,7 @@ const icons = {
   messageSquarePlus: "message-square-plus",
   messages: "messages-square",
   send: "send",
-  trash: "trash-2",
+  trash: "trash",
   moreHorizontal: "ellipsis",
   x: "x",
   check: "check",

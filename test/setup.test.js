@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { GUIDANCE_BEGIN, GUIDANCE_END, LEGACY_GUIDANCE } from "../src/setup-guidance.js";
+import { GUIDANCE_BEGIN, GUIDANCE_END, LEGACY_GUIDANCE } from "../lib/setup-guidance.js";
 
 import {
   COMMAND_NAME,
@@ -13,7 +13,7 @@ import {
   invocation,
   isNpxCachePath,
   skillFor,
-} from "../src/setup.js";
+} from "../lib/setup.js";
 
 test("skill activation requires an explicit interactive review request", () => {
   const contents = skillFor(COMMAND_NAME);

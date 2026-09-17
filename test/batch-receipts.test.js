@@ -8,9 +8,9 @@ import path from "node:path";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-receipts-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { start } = await import("../src/server.js");
-const { atomicWrite } = await import("../src/state.js");
-const { ensureStateDir, statePath, targetKey } = await import("../src/paths.js");
+const { start } = await import("../lib/server.js");
+const { atomicWrite } = await import("../lib/state.js");
+const { ensureStateDir, statePath, targetKey } = await import("../lib/paths.js");
 
 function request(review, { method = "GET", route = "/", body } = {}) {
   return new Promise((resolve, reject) => {

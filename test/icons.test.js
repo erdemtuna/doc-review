@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { ICON_NODES, iconMarkup } from "../src/icons.js";
+import { ICON_NODES, iconMarkup } from "../lib/icons.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

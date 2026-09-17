@@ -8,8 +8,8 @@ import path from "node:path";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-lifecycle-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { start } = await import("../src/server.js");
-const { serverLockPath, serverPath } = await import("../src/paths.js");
+const { start } = await import("../lib/server.js");
+const { serverLockPath, serverPath } = await import("../lib/paths.js");
 
 const within = (promise, ms, label) =>
   Promise.race([

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { keepBodyInReviewMode } from "../src/review-mode.js";
-import { serializeDocument, UI_ATTR, MARK_ATTR } from "../src/serialize.js";
+import { keepBodyInReviewMode } from "../lib/review-mode.js";
+import { serializeDocument, UI_ATTR, MARK_ATTR } from "../lib/serialize.js";
 
 // jsdom (a dev dependency) needs Node 22+; the library itself supports Node 20.
 // On older Node these DOM tests skip rather than fail the whole suite.

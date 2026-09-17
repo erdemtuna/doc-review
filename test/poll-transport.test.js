@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import {
   createDeadline, DEFAULT_POLL_SECONDS, pollUntilDeadline, requestRaw,
-} from "../src/poll-transport.js";
+} from "../lib/poll-transport.js";
 
 function fakeClock({ automatic = false } = {}) {
   let now = 0;

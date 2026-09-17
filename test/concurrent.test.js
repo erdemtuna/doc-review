@@ -8,9 +8,9 @@ import path from "node:path";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-lock-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { start } = await import("../src/server.js");
-const { acquireServerLock, readServerLock, releaseServerLock } = await import("../src/server-lock.js");
-const { ensureStateDir, serverLockPath, serverPath } = await import("../src/paths.js");
+const { start } = await import("../lib/server.js");
+const { acquireServerLock, readServerLock, releaseServerLock } = await import("../lib/server-lock.js");
+const { ensureStateDir, serverLockPath, serverPath } = await import("../lib/paths.js");
 
 const listen = (server) =>
   new Promise((resolve, reject) => {

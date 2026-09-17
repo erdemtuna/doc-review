@@ -7,8 +7,8 @@ import path from "node:path";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-test-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { atomicWrite, Store, resolveAsset } = await import("../src/state.js");
-const { canonicalTarget, localUrl, targetKey } = await import("../src/paths.js");
+const { atomicWrite, Store, resolveAsset } = await import("../lib/state.js");
+const { canonicalTarget, localUrl, targetKey } = await import("../lib/paths.js");
 
 function page(name, body) {
   const file = path.join(tmp, name);

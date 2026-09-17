@@ -11,7 +11,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-safety-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const { start } = await import("../src/server.js");
+const { start } = await import("../lib/server.js");
 
 function request(port, token, { method = "GET", route = "/", body = null } = {}) {
   return new Promise((resolve, reject) => {
@@ -331,7 +331,7 @@ test("poll --timeout rejects malformed values instead of waiting forever", async
   const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
   const run = (args) =>
     new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ["src/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(process.execPath, ["lib/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
       let stderr = "";
       child.stderr.on("data", (chunk) => {
         stderr += chunk;
@@ -356,7 +356,7 @@ test("poll requires an explicit batch ID after --ack", async () => {
   const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
   const run = (args) =>
     new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ["src/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(process.execPath, ["lib/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
       let stderr = "";
       child.stderr.on("data", (chunk) => {
         stderr += chunk;

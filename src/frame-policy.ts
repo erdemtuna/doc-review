@@ -11,7 +11,7 @@ export const TRUSTED_SDK_MODULE_PATHS = Object.freeze([
   "/revision-schema.js", "/view-identity.js",
 ]);
 
-export function interactiveFileCsp(sdkOrigin) {
+export function interactiveFileCsp(sdkOrigin: string | URL): string {
   const origin = new URL(sdkOrigin);
   if (!["http:", "https:"].includes(origin.protocol) || origin.username || origin.password ||
       origin.pathname !== "/" || origin.search || origin.hash) {
@@ -44,8 +44,9 @@ export const trustedFileCsp = interactiveFileCsp;
  * Files and rendered Markdown do not: An opaque iframe origin prevents them
  * from reading sibling files served by the artifact route.
  */
-export function framePolicy(page, artifactOrigin) {
-  const keepsOrigin = page?.kind === "url";
+export function framePolicy(page: unknown, artifactOrigin: string) {
+  const keepsOrigin = page !== null && (typeof page === "object" || typeof page === "function") &&
+    "kind" in page && page.kind === "url";
   return {
     sandbox: keepsOrigin ? LOCALHOST_SANDBOX : BASE_SANDBOX,
     incomingOrigin: keepsOrigin ? artifactOrigin : "null",

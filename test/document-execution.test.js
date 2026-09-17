@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeDocumentExecution, documentExecutionPolicy, transformInteractiveHtml } from "../src/document-execution.js";
+import { analyzeDocumentExecution, documentExecutionPolicy, transformInteractiveHtml } from "../lib/document-execution.js";
 import { parse } from "parse5";
-import { framePolicy, interactiveFileCsp, trustedFileCsp, TRUSTED_SDK_MODULE_PATHS } from "../src/frame-policy.js";
-import { transformTrustedHtml } from "../src/document-trust.js";
+import { framePolicy, interactiveFileCsp, trustedFileCsp, TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
+import { transformTrustedHtml } from "../lib/document-trust.js";
 
 test("plain source, escaped examples, data scripts and dormant templates keep autosave", () => {
   for (const source of [

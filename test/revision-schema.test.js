@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSemanticSnapshot, normalizeCaptureProvenance, normalizeHistoryTargets, normalizeRevisionLimits, REVISION_LIMITS } from "../src/revision-schema.js";
+import { normalizeSemanticSnapshot, normalizeCaptureProvenance, normalizeHistoryTargets, normalizeRevisionLimits, REVISION_LIMITS } from "../lib/revision-schema.js";
 
 const block = (extra = {}) => ({ id: "p1", tag: "p", text: "Readable text", path: "main > p", ...extra });
 
@@ -99,7 +99,7 @@ test("the live extractor's semantic output survives shared validation", async (t
     t.skip("jsdom unavailable on this Node version");
     return;
   }
-  const { captureSemanticSnapshot } = await import("../src/semantic-snapshot.js");
+  const { captureSemanticSnapshot } = await import("../lib/semantic-snapshot.js");
   const dom = new JSDOM('<body><address>Office</address><fieldset><p><del>Before</del> <ins>After</ins></p>' +
     '<button type="button">Action</button><ol><li value="3"><a href="/docs">Docs</a></li></ol></fieldset></body>',
   { url: "http://localhost:3000/review" });

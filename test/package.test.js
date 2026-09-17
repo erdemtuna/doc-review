@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { SERVER_PROTOCOL, serverProtocolMatches, stateDir } from "../src/paths.js";
+import { SERVER_PROTOCOL, serverProtocolMatches, stateDir } from "../lib/paths.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -11,7 +11,10 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
 test("package metadata identifies the fork release", () => {
   assert.equal(pkg.name, "@erdemtuna/doc-review");
   assert.match(pkg.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
-  assert.deepEqual(pkg.bin, { "doc-review": "src/cli.js" });
+  assert.deepEqual(pkg.bin, { "doc-review": "lib/cli.js" });
+  assert.deepEqual(pkg.files, ["lib", "README.md", "LICENSE"]);
+  assert.equal(pkg.engines.node, ">=24.21.0");
+  assert.equal(pkg.packageManager, "npm@12.0.2");
   assert.equal(pkg.repository.url, "git+https://github.com/erdemtuna/doc-review.git");
   assert.equal(pkg.publishConfig.access, "public");
   assert.equal(pkg.publishConfig.registry, "https://registry.npmjs.org");

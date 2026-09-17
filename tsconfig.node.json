@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": [
+    "src/contracts/**/*.ts",
+    "src/server*.js",
+    "src/cli.js",
+    "src/setup.js",
+    "src/frame-policy.ts"
+  ]
+}

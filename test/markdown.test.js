@@ -9,8 +9,8 @@ import { JSDOM } from "jsdom";
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-markdown-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { start } = await import("../src/server.js");
-const { isMarkdown, renderMarkdownPage } = await import("../src/markdown.js");
+const { start } = await import("../lib/server.js");
+const { isMarkdown, renderMarkdownPage } = await import("../lib/markdown.js");
 
 function request(port, token, { method = "GET", route = "/", body = null } = {}) {
   return new Promise((resolve, reject) => {

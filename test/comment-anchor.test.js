@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeCommentAnchor } from "../src/comment-anchor.js";
+import { normalizeCommentAnchor } from "../lib/comment-anchor.js";
 
 test("persisted anchors allow semantic fields only", () => {
   assert.deepEqual(normalizeCommentAnchor("selection", {

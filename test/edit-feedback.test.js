@@ -7,11 +7,11 @@ import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { MAX_EDIT_CHARACTERS } from "../src/edit-limits.js";
+import { MAX_EDIT_CHARACTERS } from "../lib/edit-limits.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-edit-feedback-"));
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
-const { start } = await import("../src/server.js");
+const { start } = await import("../lib/server.js");
 
 function request(review, route, body) {
   return new Promise((resolve, reject) => {
@@ -68,7 +68,7 @@ test("long feedback is bounded, explicitly flagged, and durable across delivery/
   assert.match(delivered.next_step, /Never apply incomplete text or HTML/);
   assert.match(delivered.next_step, /Do not acknowledge this batch until all feedback is handled/);
   const output = await promisify(execFile)(process.execPath, [
-    fileURLToPath(new URL("../src/cli.js", import.meta.url)), "poll", opened.file, "--timeout", "5",
+    fileURLToPath(new URL("../lib/cli.js", import.meta.url)), "poll", opened.file, "--timeout", "5",
   ], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
   assert.deepEqual(JSON.parse(output.stdout), delivered, "large CLI stdout carries the complete immutable batch");
 

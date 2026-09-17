@@ -50,10 +50,11 @@ concurrency:
 permissions: {}
 
 env:
-  NODE_VERSION: "24"
+  NODE_VERSION: "24.21.0"
   # npm >= 11.5.1 is required for trusted publishing (OIDC).
-  NPM_VERSION: "11.19.0"
+  NPM_VERSION: "12.0.2"
   NPM_REGISTRY: "https://registry.npmjs.org"
+  NPM_CONFIG_REGISTRY: "https://registry.npmjs.org"
   ARTIFACT_RETENTION_DAYS: "30"
 
 jobs:
@@ -220,10 +221,10 @@ jobs:
         run: npm run test:unit
 
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: npm run browser:install:ci
 
       - name: Run browser tests
-        run: npm run test:browser -- --workers=1
+        run: npm run test:browser
 
       - name: Pack the release candidate
         run: |
@@ -234,7 +235,7 @@ jobs:
           jq -e '. | length == 1' dist/pack.json > /dev/null \
             || { echo "::error::npm pack produced an unexpected number of tarballs"; cat dist/pack.json; exit 1; }
 
-          PACKED_FILENAME="$(jq -r '.[0].filename' dist/pack.json)"
+          PACKED_FILENAME="$(jq -r 'to_entries[0].value.filename' dist/pack.json)"
           [ "$PACKED_FILENAME" = "$FILENAME" ] \
             || { echo "::error::npm pack produced '$PACKED_FILENAME', expected '$FILENAME'"; exit 1; }
           test -f "dist/$FILENAME" || { echo "::error::dist/$FILENAME is missing"; exit 1; }
@@ -254,7 +255,7 @@ jobs:
             fail "Tarball contains entries outside the package/ root."
           fi
 
-          if grep -Eqi '(^|/)node_modules/|^package/test/|^package/e2e/|(^|/)[^/]*\.(test|spec)\.[cm]?[jt]s$|(^|/)\.env($|\.)|(^|/)\.git($|/)|(^|/)\.npmrc$|(^|/)\.github/|^package/playwright\.config\.' dist/contents.txt; then
+          if grep -Eqi '(^|/)node_modules/|^package/(src|test|e2e|scripts|dist)/|\.tsx?$|(^|/)[^/]*\.(test|spec)\.[cm]?[jt]s$|(^|/)\.env($|\.)|(^|/)\.git($|/)|(^|/)\.npmrc$|(^|/)\.github/|^package/playwright\.config\.' dist/contents.txt; then
             fail "Tarball contains forbidden content (node_modules, tests, e2e or environment files)."
           fi
 
@@ -276,7 +277,7 @@ jobs:
             [ "$ok" = 1 ] || fail "Unexpected packed file '$entry'."
           done < dist/contents.txt
 
-          for required in package/package.json package/README.md package/LICENSE; do
+          for required in package/package.json package/README.md package/LICENSE package/lib/cli.js package/lib/server-entry.js package/lib/chrome.html package/lib/chrome.css package/lib/SKILL.md; do
             grep -qx "$required" dist/contents.txt || fail "Tarball is missing $required."
           done
 
@@ -285,6 +286,8 @@ jobs:
           PACKED_VERSION="$(jq -r '.version' dist/packed-package.json)"
           [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Packed name '$PACKED_NAME' != '$PKG_NAME'."
           [ "$PACKED_VERSION" = "$VERSION" ] || fail "Packed version '$PACKED_VERSION' != '$VERSION'."
+          jq -e '.bin["doc-review"] == "lib/cli.js" and .engines.node == ">=24.21.0"' dist/packed-package.json > /dev/null \
+            || fail "Packed runtime must use compiled lib and the supported Node floor."
 
           EXPECTED_BIN="${PKG_NAME##*/}"
           jq -e --arg bin "$EXPECTED_BIN" '(.bin | type) == "object" and (.bin | keys) == [$bin]' \
@@ -301,48 +304,7 @@ jobs:
             || fail "Packed publishConfig.registry must be $NPM_REGISTRY."
 
       - name: Smoke test the packed tarball
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-
-          TGZ="$PWD/dist/$FILENAME"
-          SMOKE="$RUNNER_TEMP/smoke"
-          rm -rf "$SMOKE"
-          mkdir -p "$SMOKE/prefix" "$SMOKE/home" "$SMOKE/project"
-
-          cd "$SMOKE/prefix"
-          npm init --yes > /dev/null
-          npm install --no-audit --no-fund --no-package-lock "$TGZ"
-
-          BIN="${PKG_NAME##*/}"
-          CLI="$SMOKE/prefix/node_modules/.bin/$BIN"
-          test -x "$CLI" || fail "Installed tarball did not expose an executable '$BIN'."
-
-          ACTUAL_VERSION="$("$CLI" --version | tr -d '[:space:]')"
-          [ "$ACTUAL_VERSION" = "$VERSION" ] || fail "'$BIN --version' printed '$ACTUAL_VERSION', expected '$VERSION'."
-
-          "$CLI" --help > "$SMOKE/help.txt"
-          grep -q "$BIN" "$SMOKE/help.txt" || fail "'$BIN --help' does not mention '$BIN'."
-          if grep -qi 'human-review' "$SMOKE/help.txt"; then fail "'$BIN --help' still mentions the pre-fork command."; fi
-
-          cd "$SMOKE/project"
-          HOME="$SMOKE/home" "$CLI" setup --global
-          for ROOT in .claude .codex .agents; do
-            SKILL="$SMOKE/home/$ROOT/skills/$BIN/SKILL.md"
-            test -f "$SKILL" || fail "setup --global did not create $SKILL."
-            if grep -qi 'human-review' "$SKILL"; then fail "Installed skill still mentions the pre-fork command."; fi
-            grep -Fq 'Use only when the user explicitly invokes /doc-review' "$SKILL" || fail "Installed skill is not opt-in."
-            grep -Fq 'truncated_fields' "$SKILL" || fail "Installed skill omits truncation guidance."
-            grep -Fq '12 hours' "$SKILL" || fail "Installed skill omits the default poll deadline."
-            grep -Fq -- '--ack b_0123456789abcdef' "$SKILL" || fail "Installed skill omits exact receipt acknowledgement."
-          done
-          HOME="$SMOKE/home" "$CLI" setup
-          grep -Fxq '<!-- BEGIN doc-review -->' AGENTS.md || fail "Project guidance has no ownership marker."
-          grep -Fq 'Start only when the user explicitly invokes /doc-review' AGENTS.md || fail "Project guidance is not opt-in."
-          grep -Fq 'truncated_fields' AGENTS.md || fail "Project guidance omits truncation handling."
-          cp AGENTS.md "$SMOKE/agents-first.md"
-          HOME="$SMOKE/home" "$CLI" setup
-          cmp -s AGENTS.md "$SMOKE/agents-first.md" || fail "Repeated project setup is not idempotent."
+        run: npm run test:package:browser -- "$PWD/dist/$FILENAME"
 
       - name: Build release metadata
         run: |
@@ -354,7 +316,7 @@ jobs:
           sha256sum "$FILENAME" > "$FILENAME.sha256"
           sha256sum --check --status "$FILENAME.sha256" || fail "SHA-256 checksum file does not verify."
 
-          PACK_INTEGRITY="$(jq -r '.[0].integrity' pack.json)"
+          PACK_INTEGRITY="$(jq -r 'to_entries[0].value.integrity' pack.json)"
           CALC_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
           [ "$PACK_INTEGRITY" = "$CALC_INTEGRITY" ] \
             || fail "npm pack integrity '$PACK_INTEGRITY' does not match recomputed '$CALC_INTEGRITY'."

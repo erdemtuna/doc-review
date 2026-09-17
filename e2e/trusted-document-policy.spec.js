@@ -2,9 +2,9 @@ import { test, expect } from "@playwright/test";
 import http from "node:http";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { transformInteractiveHtml } from "../src/document-execution.js";
-import { interactiveFileCsp, framePolicy, TRUSTED_SDK_MODULE_PATHS } from "../src/frame-policy.js";
-import { injectSdk } from "../src/html-transform.js";
+import { transformInteractiveHtml } from "../lib/document-execution.js";
+import { interactiveFileCsp, framePolicy, TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
+import { injectSdk } from "../lib/html-transform.js";
 
 test("automatic self-contained scripts and handlers run with real SDK but arbitrary dependencies remain blocked", async ({ page }) => {
   const requests = [];
@@ -44,7 +44,7 @@ test("automatic self-contained scripts and handlers run with real SDK but arbitr
       res.end(injectSdk(interactive ? transformInteractiveHtml(source).html : source, "test-key", { src: `${origin}/sdk.js`, nonce: "frame-correlation-only", generation: 1 }));
     } else if (TRUSTED_SDK_MODULE_PATHS.includes(req.url)) {
       res.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" });
-      res.end(fs.readFileSync(fileURLToPath(new URL(`../src${req.url}`, import.meta.url))));
+      res.end(fs.readFileSync(fileURLToPath(new URL(`../lib${req.url}`, import.meta.url))));
     } else {
       res.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" });
       res.end("window.externalRan = true");

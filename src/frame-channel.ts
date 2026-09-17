@@ -1,6 +1,8 @@
-let channel = null;
+import type { FrameIdentity } from "./contracts/frame.js";
 
-export function initializeChannel(capability, generation, pageKey) {
+let channel: FrameIdentity | null = null;
+
+export function initializeChannel(capability: unknown, generation: unknown, pageKey: unknown): void {
   if (channel) throw new Error("Doc Review frame channel is already initialized.");
   channel = {
     capability: String(capability),
@@ -9,8 +11,8 @@ export function initializeChannel(capability, generation, pageKey) {
   };
 }
 
-export function initializeChannelFromDocument() {
-  const script = document.querySelector("script[data-eh-sdk][data-eh-bootstrap]");
+export function initializeChannelFromDocument(): void {
+  const script = document.querySelector<HTMLScriptElement>("script[data-eh-sdk][data-eh-bootstrap]");
   if (!script) throw new Error("Doc Review frame bootstrap is missing.");
   const capability = script.nonce;
   const generation = Number(script.dataset.generation);
@@ -22,7 +24,12 @@ export function initializeChannelFromDocument() {
   initializeChannel(capability, generation, pageKey);
 }
 
-export function frameMessage(type, payload = {}) {
+export function frameMessage<Type>(type: Type, payload?: undefined): { type: Type } & FrameIdentity;
+export function frameMessage<Type, Payload extends object>(
+  type: Type,
+  payload: Payload,
+): Omit<Payload, "type" | keyof FrameIdentity> & { type: Type } & FrameIdentity;
+export function frameMessage(type: unknown, payload: object = {}) {
   if (!channel) throw new Error("Doc Review frame channel is not initialized.");
   return {
     ...payload,
@@ -33,10 +40,11 @@ export function frameMessage(type, payload = {}) {
   };
 }
 
-export function matchesFrameMessage(message) {
+export function matchesFrameMessage(message: unknown): boolean {
   return !!(
     channel &&
-    message &&
+    message && (typeof message === "object" || typeof message === "function") &&
+    "capability" in message && "generation" in message && "pageKey" in message &&
     message.capability === channel.capability &&
     message.generation === channel.generation &&
     message.pageKey === channel.pageKey

@@ -8,7 +8,7 @@ const tmp = path.resolve(`.doc-review-security-${process.pid}`);
 fs.mkdirSync(tmp, { recursive: true });
 process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
 
-const { start } = await import("../src/server.js");
+const { start } = await import("../lib/server.js");
 
 function request(port, { method = "GET", route = "/", headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
