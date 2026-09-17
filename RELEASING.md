@@ -14,12 +14,18 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
-## Compiled-runtime compatibility change
+## v0.10.0 release checklist
 
-The next release containing issues #8/#9 intentionally raises the minimum Node
+This release containing issues #8/#9 intentionally raises the minimum Node
 version to **24.21.0**, dropping Node 20, Node 22, and earlier Node 24 patches.
 Call this out prominently in its release notes. Development and release
-preparation use npm **12.0.2**. Do not publish as part of implementing this change.
+preparation use npm **12.0.2**.
+
+Use `version=0.10.0` and `previous_tag=v0.9.0` for both workflow phases.
+Merge the version update only after required CI passes, then prepare from the
+current `main` commit. Publish only that verified candidate through the
+protected `npm-release` environment. When using the existing token fallback,
+select `authentication=token`; never copy the token into the checkout or logs.
 
 The package now ships compiler-produced ESM under `lib`, not authored `src`;
 `doc-review` points to `lib/cli.js`. Consumers do not run a compiler or install

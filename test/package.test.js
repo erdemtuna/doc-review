@@ -40,6 +40,18 @@ test("CLI help and version use the doc-review identity", async () => {
   assert.doesNotMatch(help.stdout, /exact-version trust|scripts are blocked by default|Latest version \/ See changes/);
 });
 
+test("release preparation and publication accept the exact pinned Node version", () => {
+  const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8");
+  const pin = workflow.match(/^\s+NODE_VERSION: "([^"]+)"/m)?.[1];
+  assert.equal(`>=${pin}`, pkg.engines.node);
+  const checks = [...workflow.matchAll(/case "\$\(node --version\)" in([\s\S]*?)esac/g)];
+  assert.equal(checks.length, 2);
+  for (const [, branches] of checks) {
+    assert.ok(branches.includes('"v${NODE_VERSION}") ;;'));
+    assert.ok(!branches.includes("v${NODE_VERSION}.*"));
+  }
+});
+
 test("state discovery uses only the doc-review namespace", () => {
   const previousDocReview = process.env.DOC_REVIEW_STATE_DIR;
   const previousHumanReview = process.env.HUMAN_REVIEW_STATE_DIR;

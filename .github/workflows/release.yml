@@ -182,7 +182,7 @@ jobs:
           ACTUAL_NPM="$(npm --version)"
           [ "$ACTUAL_NPM" = "$NPM_VERSION" ] || { echo "::error::Expected npm $NPM_VERSION, got $ACTUAL_NPM"; exit 1; }
           case "$(node --version)" in
-            v${NODE_VERSION}.*) ;;
+            "v${NODE_VERSION}") ;;
             *) echo "::error::Expected Node $NODE_VERSION, got $(node --version)"; exit 1 ;;
           esac
           node --version
@@ -519,7 +519,7 @@ jobs:
           ACTUAL_NPM="$(npm --version)"
           [ "$ACTUAL_NPM" = "$NPM_VERSION" ] || fail "Expected npm $NPM_VERSION, got $ACTUAL_NPM."
           case "$(node --version)" in
-            v${NODE_VERSION}.*) ;;
+            "v${NODE_VERSION}") ;;
             *) fail "Expected Node $NODE_VERSION, got $(node --version)." ;;
           esac
 
