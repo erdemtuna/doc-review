@@ -148,7 +148,8 @@
     background: var(--card);
   }
   #toolbarRoot { display: contents; }
-  .shell-destinations { grid-area: destinations; }
+  .shell-destinations { grid-area: destinations; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+  .brand-mark { display: block; width: 32px; height: 32px; flex: 0 0 32px; }
   .segmented-control {
     display: flex;
     flex-wrap: wrap;
@@ -171,6 +172,7 @@
     max-height: min(45dvh, 20rem);
     overflow: auto;
   }
+
   .recovery-notices { padding: 8px 12px; background: var(--background); }
   .recovery-notice {
     margin: 0;
@@ -225,5 +227,28 @@
     body.comparing .shell-toolbar {
       grid-template-areas: "destinations destinations actions";
     }
+  }
+}
+
+@layer utilities {
+  .shell-destinations .segmented-control {
+    min-height: 32px; max-width: 100%; padding: 0; border: 0; gap: 0;
+    border-radius: 8px; background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--border); isolation: isolate;
+  }
+  .shell-destinations .segmented-control > button {
+    position: relative; isolation: isolate; height: auto; min-height: 32px;
+    padding: 0 12px; border: 0; border-radius: 8px;
+    background: transparent; box-shadow: none; white-space: normal;
+  }
+  .shell-destinations .segmented-control > button::before {
+    content: ""; position: absolute; inset: 3px; border-radius: 5px;
+    z-index: -1; pointer-events: none;
+  }
+  .shell-destinations .segmented-control > button:hover::before { background: var(--secondary); }
+  .shell-destinations .segmented-control > button[aria-pressed="true"] { color: var(--accent-foreground); }
+  .shell-destinations .segmented-control > button[aria-pressed="true"]::before { background: var(--accent); }
+  .shell-destinations .segmented-control > button:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px; z-index: 1;
   }
 }

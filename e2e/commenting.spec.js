@@ -1356,7 +1356,13 @@ test("actual dark spec keeps multiple saved block comments visible and cycles ac
   }
   const badge = frame.getByRole("button", { name: /^2 block comments on/ });
   await expect(badge).toBeVisible();
-  await expect(badge).toHaveAttribute("data-dark", "true");
+  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "light");
+  await expect(badge).not.toHaveAttribute("data-dark");
+  await expect(badge).toHaveCSS("background-color", "rgb(255, 241, 217)");
+  await page.locator("#theme").click();
+  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "dark");
+  await expect(badge).toHaveCSS("background-color", "rgb(61, 48, 32)");
+  await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(23, 23, 15)");
   await expect(badge).toHaveAttribute("aria-pressed", "false");
   await expect(frame.locator(".block-marker")).toHaveCount(1);
   expect(await frame.locator("body").innerHTML()).toBe(originalBody);
@@ -1379,7 +1385,12 @@ test("actual dark spec keeps multiple saved block comments visible and cycles ac
   await frame.getByRole("button", { name: /^2 block comments on/ }).click();
   await expect(page.locator("#alignedCard")).toContainText("First block feedback");
   await page.emulateMedia({ colorScheme: "light" });
-  await expect(frame.locator(".block-badge")).toHaveAttribute("data-dark", "false");
+  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "dark");
+  await expect(frame.locator(".block-badge")).toHaveCSS("background-color", "rgb(61, 48, 32)");
+  await expect(frame.locator(".block-badge")).not.toHaveAttribute("data-dark");
+  await page.locator("#theme").click();
+  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "light");
+  await expect(frame.locator(".block-badge")).toHaveCSS("background-color", "rgb(255, 241, 217)");
   await page.screenshot({ path: testInfo.outputPath("light-block-comments.png") });
   await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
   await page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true }).click();

@@ -95,6 +95,20 @@ included until you explicitly save them. Supporting messages and the handoff
 prompt scroll separately between the note and actions. **End review** is on
 the left; **Send to agent** is on the right. End still asks for confirmation.
 
+## Appearance
+
+The theme button switches the review shell and in-page annotation tools
+together. It remembers the light/dark preference in this browser; it does not
+change the document's own colors or saved source. The rounded teal brand tile
+stays the same in both themes.
+
+If annotation tools cannot confirm a theme change, an explicit notice offers
+**Retry theme**. This retries the latest preference without reloading the page,
+changing editing mode, or discarding drafts. On initial loading, annotation
+tools stay hidden until the theme is applied; after a live toggle, their last
+applied appearance remains until recovery. **Reload latest** remains a separate
+recovery action for document/render problems, not a theme-retry mechanism.
+
 ## Files, scripts, and local apps
 
 | Target | Save behavior |
@@ -249,7 +263,7 @@ comparisons or zero changes.
 This version requires Node **24.21.0 or newer**; Node 20, Node 22, and earlier
 Node 24 patches are not supported by the compiled runtime.
 
-The current CLI requires server protocol **17**. End active reviews and stop the
+The current CLI requires server protocol **18**. End active reviews and stop the
 specific old server, or let it exit when idle, before restarting. Older servers
 are not silently reused or forcibly replaced. Keep `.doc-review`: pending
 batches and exact receipt IDs survive a controlled restart.

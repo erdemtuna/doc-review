@@ -21,10 +21,10 @@ for (const theme of ["light", "dark"]) {
     await page.locator("#seeChanges").click();
     await expect(page.getByRole("img", { name: "1 modified changes" })).toBeVisible();
     const palette = theme === "light"
-      ? { surface: "rgb(255, 255, 255)", text: "rgb(35, 38, 46)", border: "rgb(220, 224, 231)",
-        icons: ["rgb(4, 120, 87)", "rgb(37, 99, 235)", "rgb(190, 18, 60)"], added: "rgb(237, 247, 240)", removed: "rgb(255, 240, 240)" }
-      : { surface: "rgb(28, 31, 38)", text: "rgb(231, 234, 240)", border: "rgb(55, 62, 75)",
-        icons: ["rgb(52, 211, 153)", "rgb(96, 165, 250)", "rgb(251, 113, 133)"], added: "rgb(28, 53, 40)", removed: "rgb(62, 37, 43)" };
+      ? { surface: "rgb(255, 253, 247)", text: "rgb(41, 46, 43)", border: "rgb(216, 216, 204)",
+        icons: ["rgb(77, 107, 36)", "rgb(145, 91, 19)", "rgb(180, 60, 72)"], added: "rgb(239, 243, 226)", removed: "rgb(252, 236, 239)" }
+      : { surface: "rgb(34, 42, 38)", text: "rgb(238, 239, 230)", border: "rgb(60, 72, 65)",
+        icons: ["rgb(187, 205, 135)", "rgb(231, 187, 114)", "rgb(242, 162, 171)"], added: "rgb(43, 53, 34)", removed: "rgb(64, 39, 44)" };
     await page.locator("#historyDiagnostics > summary").click();
     for (const [index, kind] of ["added", "modified", "removed"].entries()) {
       const badge = page.getByRole("img", { name: `1 ${kind} changes` });
@@ -179,7 +179,12 @@ for (const width of [320, 390, 768, 814, 1440]) {
       };
       await expect(async () => {
         expect(await page.locator("#comparisonModes").evaluate(segmentShape))
-          .toEqual(await page.locator(".shell-destinations").evaluate(segmentShape));
+          .toEqual({
+            padding: "2px", radius: "10px",
+            border: `1px solid ${theme === "light" ? "rgb(216, 216, 204)" : "rgb(60, 72, 65)"}`,
+            gap: "2px", itemHeight: "32px", itemRadius: "10px", itemPadding: "1px 10px",
+            itemBackground: theme === "light" ? "rgb(236, 237, 229)" : "rgb(48, 58, 51)",
+          });
       }).toPass({ timeout: 5000 });
       expect(viewShape).toMatchObject({ height: "32px", radius: "10px", paddingLeft: "10px", paddingRight: "10px" });
       for (const selector of ["#roundPicker", "#historyTarget", "#changeJump", "#previousChange", "#nextChange"]) {

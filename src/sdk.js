@@ -61,6 +61,9 @@ let disposed = false;
 let viewObserver = null;
 let viewChangeTimer = null;
 let lastObservedView = null;
+let reviewTheme = null;
+let themeRevision = 0;
+let themeWarnings = 0;
 const blockTargets = new Map();
 const blockMarkers = new Map();
 /** True when the page's own scripts rewrote the DOM before any user edit. */
@@ -78,22 +81,115 @@ const shadow = host.attachShadow({ mode: "open" });
 shadow.innerHTML = `
   <style>
     :host { all: initial; }
+    :host(:not([data-review-theme])) { visibility: hidden !important; }
+    :host(:not([data-review-theme])) * { visibility: hidden !important; pointer-events: none !important; }
+    /* REVIEW_THEME_SHADOW_START */
+    :host([data-review-theme="light"]) {
+      color-scheme: light;
+      --review-background: #F5F2EA;
+      --review-foreground: #292E2B;
+      --review-card: #FFFDF7;
+      --review-card-foreground: #292E2B;
+      --review-popover: #FFFDF7;
+      --review-popover-foreground: #292E2B;
+      --review-primary: #17685F;
+      --review-primary-foreground: #FFFDF7;
+      --review-secondary: #ECEDE5;
+      --review-secondary-foreground: #626B65;
+      --review-muted: #ECEDE5;
+      --review-muted-foreground: #626B65;
+      --review-accent: #E1EEEA;
+      --review-accent-foreground: #17685F;
+      --review-destructive: #B43C48;
+      --review-destructive-foreground: #FFFDF7;
+      --review-border: #D8D8CC;
+      --review-input: #7C877D;
+      --review-ring: #17685F;
+      --review-review-added: #EFF3E2;
+      --review-review-added-foreground: #4D6B24;
+      --review-review-added-border: #82945E;
+      --review-review-removed: #FCECEF;
+      --review-review-removed-foreground: #B43C48;
+      --review-review-removed-border: #C88791;
+      --review-review-modified: #FFF1D9;
+      --review-review-modified-foreground: #915B13;
+      --review-review-modified-border: #B99157;
+      --review-review-count-added: #4D6B24;
+      --review-review-count-removed: #B43C48;
+      --review-review-count-modified: #915B13;
+      --review-review-insert: #DCE7C5;
+      --review-review-delete: #FAE2E7;
+      --review-review-overlay: #191F1D80;
+      --review-review-shadow-color: #191F1D26;
+      --review-annotation-foreground: #75470E;
+      --review-annotation-background: #FFF1D9;
+      --review-annotation-active: #F5D6A3;
+      --review-annotation-border: #915B13;
+      --review-annotation-tint: #915B131A;
+      --review-annotation-active-tint: #915B132E;
+      --review-halo-light: #FFFDF7;
+      --review-halo-dark: #191F1D;
+    }
+    :host([data-review-theme="dark"]) {
+      color-scheme: dark;
+      --review-background: #191F1D;
+      --review-foreground: #EEEFE6;
+      --review-card: #222A26;
+      --review-card-foreground: #EEEFE6;
+      --review-popover: #222A26;
+      --review-popover-foreground: #EEEFE6;
+      --review-primary: #85C7B8;
+      --review-primary-foreground: #102F29;
+      --review-secondary: #303A33;
+      --review-secondary-foreground: #AFB9AF;
+      --review-muted: #303A33;
+      --review-muted-foreground: #AFB9AF;
+      --review-accent: #293F37;
+      --review-accent-foreground: #85C7B8;
+      --review-destructive: #F2A2AB;
+      --review-destructive-foreground: #40272C;
+      --review-border: #3C4841;
+      --review-input: #77877B;
+      --review-ring: #85C7B8;
+      --review-review-added: #2B3522;
+      --review-review-added-foreground: #BBCD87;
+      --review-review-added-border: #6F8347;
+      --review-review-removed: #40272C;
+      --review-review-removed-foreground: #F2A2AB;
+      --review-review-removed-border: #A96572;
+      --review-review-modified: #3D3020;
+      --review-review-modified-foreground: #E7BB72;
+      --review-review-modified-border: #9C7A46;
+      --review-review-count-added: #BBCD87;
+      --review-review-count-removed: #F2A2AB;
+      --review-review-count-modified: #E7BB72;
+      --review-review-insert: #3E4D2D;
+      --review-review-delete: #633944;
+      --review-review-overlay: #191F1DB3;
+      --review-review-shadow-color: #00000066;
+      --review-annotation-foreground: #F1CC8E;
+      --review-annotation-background: #3D3020;
+      --review-annotation-active: #594325;
+      --review-annotation-border: #E7BB72;
+      --review-annotation-tint: #E7BB721A;
+      --review-annotation-active-tint: #E7BB722E;
+      --review-halo-light: #FFFDF7;
+      --review-halo-dark: #191F1D;
+    }
+/* REVIEW_THEME_SHADOW_END */
     .box { position: fixed; pointer-events: none; z-index: 2147483646; border-radius: 3px; display: none; }
-    .outline { border: 1px dashed #96938c; animation: outline-in 90ms ease-out; }
+    .outline { border: 1px dashed var(--review-input); animation: outline-in 90ms ease-out; }
     @keyframes outline-in { from { opacity: .2; } to { opacity: 1; } }
-    .active { border: 2px solid #b46a00; box-shadow: 0 0 0 1px #fff9; }
+    .active { border: 2px solid var(--review-annotation-border); }
     .block-marker { position: fixed; pointer-events: none; z-index: 2147483644;
-      box-sizing: border-box; border-left: 3px solid #a96100; background: #d58b0012; }
-    .block-marker[data-active="true"] { border-left-width: 6px; background: #d58b0026; }
-    .block-marker[data-dark="true"] { border-left-color: #ffcb66; background: #ffcb6617; }
-    .block-marker[data-dark="true"][data-active="true"] { background: #ffcb6630; }
+      box-sizing: border-box; border-left: 3px solid var(--review-annotation-border); background: var(--review-annotation-tint); }
+    .block-marker[data-active="true"] { border-left-width: 6px; background: var(--review-annotation-active-tint); }
     .block-badge { position: fixed; z-index: 2147483647; pointer-events: auto;
       height: 24px; min-width: 32px; box-sizing: border-box; padding: 2px 6px;
-      border: 1px solid #965900; border-radius: 5px; background: #fff3d3; color: #663b00;
+      border: 1px solid var(--review-annotation-border); border-radius: 5px; background: var(--review-annotation-background); color: var(--review-annotation-foreground);
       font: 600 12px/18px system-ui, sans-serif; cursor: pointer; }
-    .block-badge[data-dark="true"] { background: #493517; color: #ffe0a0; border-color: #ffcb66; }
     .block-badge[aria-pressed="true"] { border-width: 2px; text-decoration: underline; }
-    .block-badge:focus-visible { outline: 3px solid #718cff; outline-offset: 2px; }
+    .block-badge:focus-visible { outline: 3px solid var(--review-ring); outline-offset: 2px; }
     .chips {
       position: fixed; z-index: 2147483647; display: none; gap: 4px;
       pointer-events: auto;
@@ -101,60 +197,66 @@ shadow.innerHTML = `
     .chip {
       width: 23px; height: 23px; display: flex;
       align-items: center; justify-content: center; padding: 0;
-      border: 1px solid #e4e2db; border-radius: 50%; background: #fff; color: #6b6862;
+      border: 1px solid var(--review-input); border-radius: 50%; background: var(--review-card); color: var(--review-muted-foreground);
       font: 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      cursor: pointer; box-shadow: 0 2px 8px rgba(27,26,22,.14);
+      cursor: pointer;
     }
-    .chip:hover { background: #1b1a16; color: #fff; border-color: #1b1a16; }
-    .chip.danger { color: #b23b2e; }
-    .chip.danger:hover { background: #b23b2e; color: #fff; border-color: #b23b2e; }
-    .chips .chip, .mover { opacity: .6; transition: opacity 100ms ease; }
-    .chips .chip:hover, .chips .chip:focus-visible, .mover:hover, .mover:focus-visible { opacity: 1; }
+    .chip:hover { background: var(--review-accent); color: var(--review-accent-foreground); border-color: var(--review-primary); }
+    .chip.danger { color: var(--review-destructive); }
+    .chip.danger:hover { background: var(--review-destructive); color: var(--review-destructive-foreground); border-color: var(--review-destructive); }
+    .chips .chip, .mover { transition: background-color 100ms ease; }
+    button:disabled { background: var(--review-muted); color: var(--review-muted-foreground); cursor: not-allowed; }
     .grip {
       position: fixed; z-index: 2147483647; width: 13px; height: 13px;
-      display: none; border: 1px solid #1b1a16; border-radius: 3px;
-      background: #fff; cursor: nwse-resize; pointer-events: auto;
-      box-shadow: 0 1px 4px rgba(27,26,22,.2);
+      display: none; border: 1px solid var(--review-primary); border-radius: 3px;
+      background: var(--review-card); cursor: nwse-resize; pointer-events: auto;
     }
     .hint {
       position: fixed; z-index: 2147483647; display: none; padding: 3px 7px;
-      border-radius: 5px; background: #1b1a16; color: #fbfaf7; white-space: nowrap;
+      border-radius: 5px; background: var(--review-card); color: var(--review-foreground); white-space: nowrap;
       font: 11px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       pointer-events: none;
     }
     .linkbox {
       position: fixed; z-index: 2147483647; display: none; gap: 4px; align-items: center;
-      padding: 5px; border: 1px solid #e4e2db; border-radius: 9px; background: #fff;
-      box-shadow: 0 4px 16px rgba(27,26,22,.16); pointer-events: auto;
+      padding: 5px; border: 1px solid var(--review-input); border-radius: 9px; background: var(--review-card);
+      pointer-events: auto;
     }
     .linkbox input {
       width: 224px; padding: 4px 7px; border: none; outline: none; background: none;
-      font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1b1a16;
+      font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--review-foreground);
     }
-    .linkbox input::placeholder { color: #a29f95; }
+    .linkbox input::placeholder { color: var(--review-muted-foreground); opacity: 1; }
     .mover {
       position: fixed; z-index: 2147483647; width: 18px; height: 24px;
       display: none; align-items: center; justify-content: center;
-      border: 1px solid #e4e2db; border-radius: 6px; background: #fff; color: #a29f95;
+      border: 1px solid var(--review-input); border-radius: 6px; background: var(--review-card); color: var(--review-muted-foreground);
       font: 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       cursor: grab; pointer-events: auto; user-select: none;
-      box-shadow: 0 2px 8px rgba(27,26,22,.14);
     }
-    .mover:hover { color: #1b1a16; border-color: #c2beb4; }
+    .mover:hover { color: var(--review-accent-foreground); background: var(--review-accent); border-color: var(--review-primary); }
     .mover:active { cursor: grabbing; }
     .dropline {
       position: fixed; z-index: 2147483646; height: 0; display: none;
-      border-top: 2px solid #1b1a16; border-radius: 1px; pointer-events: none;
+      border-top: 2px solid var(--review-primary); border-radius: 1px; pointer-events: none;
     }
     .comment-action {
       position: fixed; z-index: 2147483647; width: 30px; height: 30px;
       display: none; align-items: center; justify-content: center; padding: 0;
-      border: 1px solid #d9d5c9; border-radius: 999px; background: #1b1a16; color: #fff;
-      cursor: pointer; pointer-events: auto; box-shadow: 0 5px 16px rgba(27,26,22,.24);
+      border: 1px solid var(--review-primary); border-radius: 999px; background: var(--review-primary); color: var(--review-primary-foreground);
+      cursor: pointer; pointer-events: auto;
     }
-    .comment-action:hover, .comment-action:focus-visible { background: #34312b; outline: 3px solid rgba(90,99,216,.32); }
+    .comment-action:hover { background: var(--review-accent); color: var(--review-accent-foreground); }
+    button:focus-visible, input:focus-visible, .mover:focus-visible, .grip:focus-visible {
+      outline: 3px solid var(--review-ring); outline-offset: 2px;
+    }
+    .box, .block-marker, .block-badge, .chip, .grip, .hint, .linkbox, .mover, .dropline, .comment-action {
+      box-shadow: 0 0 0 1px var(--review-halo-light), 0 0 0 2px var(--review-halo-dark), 0 3px 10px var(--review-review-shadow-color);
+    }
     .selection-cues { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; }
-    .selection-cue { position: fixed; border-radius: 2px; background: rgba(245,196,0,.2); }
+    .selection-cue { position: fixed; border-radius: 2px; background: var(--review-annotation-tint);
+      box-shadow: inset 0 -2px var(--review-annotation-border), 0 1px var(--review-halo-light), 0 2px var(--review-halo-dark); }
+    ::selection { background: var(--review-annotation-active); color: var(--review-annotation-foreground); }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>
   <div class="box outline" id="outline"></div>
@@ -195,16 +297,6 @@ const mountOverlay = () => {
   els.commentAction = shadow.getElementById("commentAction");
   els.blockAnnotations = shadow.getElementById("blockAnnotations");
 };
-
-function darkSurface(element) {
-  for (let probe = element; probe; probe = probe.parentElement) {
-    const color = getComputedStyle(probe).backgroundColor.match(/[\d.]+/g)?.map(Number);
-    if (color?.length >= 3 && (color.length < 4 || color[3] >= .5)) {
-      return color[0] * .2126 + color[1] * .7152 + color[2] * .0722 < 128;
-    }
-  }
-  return matchMedia("(prefers-color-scheme: dark)").matches;
-}
 
 function positionBlockBadge(badge, rect) {
   const width = badge.offsetWidth || 36;
@@ -265,9 +357,7 @@ function renderBlockAnnotations() {
     }
     const { marker, badge } = entry;
     const active = ids.includes(activeCommentId);
-    const dark = darkSurface(element);
     marker.dataset.active = String(active);
-    marker.dataset.dark = badge.dataset.dark = String(dark);
     badge.setAttribute("aria-pressed", String(active));
     const label = commentTargetFor(element)?.label || element.tagName.toLowerCase();
     const name = `${ids.length} block comment${ids.length === 1 ? "" : "s"} on ${label}${ids.length > 1 ? "; activate to open next comment" : ""}`;
@@ -641,7 +731,7 @@ function geometryWatchSignature() {
     blocks: [...groupCommentTargets(blockTargets).keys()].map((element) => {
       const rect = element.getBoundingClientRect();
       const clip = effectiveClipRect({ kind: "element", element });
-      return [rect.left, rect.top, rect.width, rect.height, clip, darkSurface(element)];
+      return [rect.left, rect.top, rect.width, rect.height, clip];
     }),
   });
 }
@@ -1303,7 +1393,7 @@ function setElementTarget(container) {
 
 function openPendingCompose() {
   hoverIntent?.cancel();
-  if (composing || disposed) return false;
+  if (composing || disposed || !themeRevision) return false;
   const selection = document.getSelection();
   if (selection && !selection.isCollapsed && selection.rangeCount) {
     if (!settleSelection()) return false;
@@ -1486,7 +1576,6 @@ function activate(id, scroll) {
   for (const mark of document.querySelectorAll(`mark[${MARK_ATTR}]`)) mark.classList.remove("eh-active");
   for (const mark of marks) mark.classList.add("eh-active");
   place(els.activeBox, target);
-  els.activeBox.style.borderColor = target && darkSurface(target) ? "#ffcb66" : "#a96100";
   renderBlockAnnotations();
   const rects = marks.length
     ? marks.map((mark) => rectData(mark.getBoundingClientRect()))
@@ -1532,19 +1621,55 @@ function activate(id, scroll) {
 
 // -------------------------------------------------------------------- boot
 
+/* REVIEW_THEME_DOCUMENT_START */
+const REVIEW_DOCUMENT_COLORS = {
+  light: `
+    mark[${MARK_ATTR}] { background: #FFF1D9; color: #75470E; text-decoration: underline #915B13; }
+    mark[${MARK_ATTR}]:hover, mark[${MARK_ATTR}].eh-active { background: #F5D6A3; }
+    mark[${MARK_ATTR}].eh-active { outline: 2px solid #915B13; outline-offset: 1px; }
+    ::selection { background: #F5D6A3; color: #75470E; }
+  `,
+  dark: `
+    mark[${MARK_ATTR}] { background: #3D3020; color: #F1CC8E; text-decoration: underline #E7BB72; }
+    mark[${MARK_ATTR}]:hover, mark[${MARK_ATTR}].eh-active { background: #594325; }
+    mark[${MARK_ATTR}].eh-active { outline: 2px solid #E7BB72; outline-offset: 1px; }
+    ::selection { background: #594325; color: #F1CC8E; }
+  `,
+};
+/* REVIEW_THEME_DOCUMENT_END */
+
 function boot() {
   mountOverlay();
 
   const style = document.createElement("style");
   style.setAttribute("data-eh-sdk", "");
-  style.textContent = `
-    mark[${MARK_ATTR}] { background: rgba(245,196,0,.32); border-radius: 2px; color: inherit; cursor: pointer; }
-    mark[${MARK_ATTR}]:hover { background: rgba(243,176,0,.5); }
-    mark[${MARK_ATTR}].eh-active { background: rgba(255,180,0,.55); }
+  const documentStyle = `
+    mark[${MARK_ATTR}] { background: transparent; border-radius: 2px; color: inherit; cursor: pointer; }
     body[contenteditable]:focus { outline: none; }
-    ::selection { background: rgba(245,196,0,.42); }
   `;
+  style.textContent = documentStyle;
   document.head.appendChild(style);
+
+  const applyReviewTheme = (message) => {
+    const allowedFields = ["type", "theme", "themeRevision", "capability", "generation", "pageKey"];
+    const malformed = !["light", "dark"].includes(message.theme) ||
+      !Number.isSafeInteger(message.themeRevision) || message.themeRevision <= 0 ||
+      Object.keys(message).some((field) => !allowedFields.includes(field));
+    const conflicting = message.themeRevision === themeRevision && message.theme !== reviewTheme;
+    if (malformed || conflicting) {
+      if (themeWarnings++ < 3) console.warn("[doc-review-frame] Rejected invalid theme command.");
+      return;
+    }
+    if (message.themeRevision < themeRevision) return;
+    if (message.themeRevision > themeRevision) {
+      // Only review-owned nodes change: keep the document, controls, focus and mode intact.
+      style.textContent = documentStyle + REVIEW_DOCUMENT_COLORS[message.theme];
+      host.dataset.reviewTheme = message.theme;
+      reviewTheme = message.theme;
+      themeRevision = message.themeRevision;
+    }
+    post("eh:themeApplied", { theme: reviewTheme, themeRevision });
+  };
 
   modeController = keepBodyInReviewMode(document.body, "view");
   baseline = serialize();
@@ -1582,7 +1707,7 @@ function boot() {
       const modified = event.metaKey || event.ctrlKey;
       const href = navigationHref(event.target);
       const mark = event.target.closest && event.target.closest(`mark[${MARK_ATTR}]`);
-      if (mark) {
+      if (mark && themeRevision) {
         event.preventDefault();
         post("eh:activate", { id: mark.getAttribute(MARK_ATTR) });
         return;
@@ -1701,7 +1826,7 @@ function boot() {
       !pending.element?.contains(document.activeElement)) clearPending();
   };
   hoverIntent = createHoverIntent((event) => {
-    if (disposed || pointerSelecting || composing || composeOpen || selectionIsActive()) return;
+    if (disposed || !themeRevision || pointerSelecting || composing || composeOpen || selectionIsActive()) return;
     if (!event) { clearHover(); return; }
     if (!event.target?.isConnected) { hoverIntent.reset(); clearHover(); return; }
     const target = commentTargetFor(event.target);
@@ -1724,7 +1849,7 @@ function boot() {
     showHint(reviewMode === "edit" && interactive ? "⌘-click to open" : reviewMode === "edit" && draggable ? "Drag to move" : "", event.clientX, event.clientY);
   });
   const updateHover = (event) => {
-    if (disposed || resizing || moving || pointerSelecting || composing || composeOpen ||
+    if (disposed || !themeRevision || resizing || moving || pointerSelecting || composing || composeOpen ||
       commentOpenRequestGeneration || selectionIsActive()) { hoverIntent.cancel(); return; }
     if (isOurs(event.target)) { hoverIntent.cancel(); return; }
     // The committed paragraph owns the entire trip to its action, including
@@ -1978,6 +2103,30 @@ function boot() {
     }
   }
 
+  function positionLinkbox() {
+    if (!linkState) return false;
+    const { range, anchor, blockEl, startNode, endNode } = linkState;
+    if (!startNode.isConnected || !endNode.isConnected || (anchor && !anchor.isConnected) ||
+      (blockEl && !blockEl.isConnected) || !document.body.contains(range.commonAncestorContainer)) {
+      closeLinkbox(false);
+      return false;
+    }
+    const rects = visibleRects([...range.getClientRects()].map(rectData), {
+      kind: "element", element: anchor || blockEl || startNode.parentElement,
+    });
+    if (!rects.length) {
+      closeLinkbox(false);
+      return false;
+    }
+    const r = rects[0];
+    const width = els.linkbox.offsetWidth || 320;
+    const height = els.linkbox.offsetHeight || 36;
+    const below = r.bottom + height + 8 < window.innerHeight;
+    els.linkbox.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - width - 8))}px`;
+    els.linkbox.style.top = `${Math.max(8, Math.min(below ? r.bottom + 8 : r.top - height - 8, window.innerHeight - height - 8))}px`;
+    return true;
+  }
+
   function openLinkbox() {
     const sel = document.getSelection();
     if (!sel || !sel.rangeCount) return false;
@@ -1999,6 +2148,8 @@ function boot() {
       anchor,
       blockEl: target ? target.el : null,
       label: target ? target.label : "Document body",
+      startNode: range.startContainer,
+      endNode: range.endContainer,
     };
     if (linkState.blockEl) captureOriginal(linkState.blockEl);
 
@@ -2006,12 +2157,9 @@ function boot() {
     clearPending();
     post("eh:dismiss", {});
 
-    const r = range.getBoundingClientRect();
-    const below = r.bottom + 44 < window.innerHeight;
     els.linkbox.style.display = "flex";
-    els.linkbox.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 320))}px`;
-    els.linkbox.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - 44)}px`;
     els.linkRemove.style.display = anchor ? "" : "none";
+    if (!positionLinkbox()) return false;
     els.linkInput.value = anchor ? anchor.getAttribute("href") || "" : "";
     els.linkInput.focus();
     els.linkInput.select();
@@ -2458,8 +2606,9 @@ function boot() {
     }
     scheduleTargetGeometry();
     if (activeCommentId) activate(activeCommentId, false);
-    // The popup is viewport-fixed; scrolled away from its text it just lies.
-    if (linkState) closeLinkbox(false);
+    // Recovery notices can resize the frame. Re-anchor without discarding the
+    // open editor's draft or focus; only a missing/invisible target invalidates it.
+    if (linkState) positionLinkbox();
   };
   // getBoundingClientRect on every scroll event forces layout mid-scroll;
   // one reposition per frame is plenty.
@@ -2497,6 +2646,9 @@ function boot() {
     const msg = event.data || {};
     if (!matchesFrameMessage(msg)) return;
     switch (msg.type) {
+      case "eh:setTheme":
+        applyReviewTheme(msg);
+        break;
       case "eh:anchors":
         reanchor(msg.comments || []);
         break;

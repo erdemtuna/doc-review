@@ -78,8 +78,8 @@ for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [
         element.setSelectionRange(5, 9);
         element.dispatchEvent(new Event("select", { bubbles: true }));
       });
-      await page.getByRole("button", { name: /Switch chrome to/ }).click();
-      await page.getByRole("button", { name: /Switch chrome to/ }).click();
+      await page.getByRole("button", { name: /Switch review tools to/ }).click();
+      await page.getByRole("button", { name: /Switch review tools to/ }).click();
       await page.locator("#drawerClose").click();
       await page.locator("#seeChanges").click();
       await page.locator("#latestVersion").click();

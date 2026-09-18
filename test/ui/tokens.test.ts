@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const css = readFileSync(resolve("src", "ui", "styles", "tokens.css"), "utf8");
+const css = readFileSync(resolve("src", "ui", "styles", "review-colors.css"), "utf8");
 
 function luminance(hex: string) {
   const channels = [1, 3, 5].map((index) => {

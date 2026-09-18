@@ -8,20 +8,24 @@ import {
   DropdownMenuRadioItem, DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Icon } from "./icon";
+import { Brand } from "./brand";
 
 export function Toolbar({ runtime }: { runtime: ToolbarController }) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const commands = runtime.commands;
   const modeTrigger = useRef<HTMLButtonElement>(null);
   return <>
-    <SegmentedControl className="shell-destinations" aria-label="Review destination">
-      <SegmentedControlItem id="latestVersion" selected={!state.comparing}
-        aria-controls="frame" disabled={state.ended}
-        onClick={() => commands.setComparing(false)}>Review</SegmentedControlItem>
-      <SegmentedControlItem id="seeChanges" selected={state.comparing}
-        aria-controls="historyPanel" disabled={state.ended}
-        onClick={() => commands.setComparing(true)}>Changes</SegmentedControlItem>
-    </SegmentedControl>
+    <div className="shell-destinations">
+      <Brand />
+      <SegmentedControl aria-label="Review destination">
+        <SegmentedControlItem id="latestVersion" selected={!state.comparing}
+          aria-controls="frame" disabled={state.ended}
+          onClick={() => commands.setComparing(false)}>Review</SegmentedControlItem>
+        <SegmentedControlItem id="seeChanges" selected={state.comparing}
+          aria-controls="historyPanel" disabled={state.ended}
+          onClick={() => commands.setComparing(true)}>Changes</SegmentedControlItem>
+      </SegmentedControl>
+    </div>
     <div className="shell-mode" role="group" aria-label="Page controls" hidden={state.comparing}>
       <DropdownMenu modal={false} open={state.modeMenuOpen} onOpenChange={commands.setModeMenu}>
         <DropdownMenuTrigger asChild>
@@ -71,8 +75,8 @@ export function Toolbar({ runtime }: { runtime: ToolbarController }) {
         <span id="feedbackCountDescription" className="sr-only">{state.feedbackCount} feedback items</span>
       </Button>
       <Button id="theme" variant="ghost" size="icon" disabled={state.ended}
-        title={`Switch chrome to ${state.theme === "dark" ? "light" : "dark"}`}
-        aria-label={`Switch chrome to ${state.theme === "dark" ? "light" : "dark"}`}
+        title={`Switch review tools to ${state.theme === "dark" ? "light" : "dark"}`}
+        aria-label={`Switch review tools to ${state.theme === "dark" ? "light" : "dark"}`}
         onClick={commands.toggleTheme}>
         <Icon name={state.theme === "dark" ? "sun" : "moon"} />
       </Button>

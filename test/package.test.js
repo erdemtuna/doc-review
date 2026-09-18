@@ -73,8 +73,9 @@ test("state discovery uses only the doc-review namespace", () => {
 });
 
 test("the reliability contract rejects pre-upgrade background servers", () => {
-  assert.equal(SERVER_PROTOCOL, 17);
-  assert.equal(serverProtocolMatches(17), true);
+  assert.equal(SERVER_PROTOCOL, 18);
+  assert.equal(serverProtocolMatches(18), true);
+  assert.equal(serverProtocolMatches(17), false);
   assert.equal(serverProtocolMatches(16), false);
   assert.equal(serverProtocolMatches(15), false);
   assert.equal(serverProtocolMatches(14), false);
