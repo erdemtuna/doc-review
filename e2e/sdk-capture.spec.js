@@ -1,11 +1,12 @@
 import { test, expect, enterEditMode, openReview, waitForSdk, writeFile } from "./helpers.js";
 
-async function connectSdk(page, frame) {
-  await page.evaluate(() => {
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
     window.sdkMessages = [];
     window.addEventListener("message", (event) => {
-      if (event.source !== document.querySelector("#frame").contentWindow) return;
-      if (event.data?.type === "eh:target") {
+      if (event.source !== document.querySelector("#frame")?.contentWindow) return;
+      if (event.data?.type === "eh:ready") {
         const { capability, generation, pageKey } = event.data;
         window.sdkEnvelope = { capability, generation, pageKey };
       }
@@ -14,8 +15,11 @@ async function connectSdk(page, frame) {
       }
     });
   });
-  await frame.locator("#copy").dispatchEvent("mouseover");
+});
+
+async function connectSdk(page) {
   await expect.poll(() => page.evaluate(() => !!window.sdkEnvelope)).toBe(true);
+  await page.evaluate(() => { window.sdkMessages = []; });
 }
 
 async function request(page, payload) {
@@ -35,7 +39,7 @@ async function response(page, requestId) {
 test("SDK flush echoes a bounded request ID without changing legacy flush replies", async ({ page, review }) => {
   await openReview(page, review, writeFile(review, "sdk-flush-id.html", '<!doctype html><p id="copy">Flush</p>'));
   const frame = await waitForSdk(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   await request(page, { type: "eh:flush", requestId: "send-flush-1" });
   await request(page, { type: "eh:flush" });
   await expect.poll(() => page.evaluate(() =>
@@ -51,7 +55,7 @@ test("SDK captures the current DOM, ignores review UI churn, and preserves selec
     <input type="password" value="private-password"><textarea>private-draft</textarea>`);
   await openReview(page, review, file);
   const frame = await waitForSdk(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   const before = await frame.locator("#copy").evaluate((element) => {
     element.textContent = "Actual browser DOM";
     const range = document.createRange();
@@ -81,7 +85,7 @@ test("SDK capture flushes pending edits before its snapshot without claiming dur
   const file = writeFile(review, "sdk-capture-edit.html", '<!doctype html><p id="copy">Before</p>');
   await openReview(page, review, file);
   const frame = await enterEditMode(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   await frame.locator("#copy").evaluate((element) => {
     element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
     element.textContent = "Queued browser edit";
@@ -99,7 +103,7 @@ test("SDK capture flushes pending edits before its snapshot without claiming dur
 test("changing DOM capture fails boundedly and explicit current-state capture remains available", async ({ page, review }) => {
   await openReview(page, review, writeFile(review, "sdk-changing.html", '<!doctype html><p id="copy">Changing</p>'));
   const frame = await waitForSdk(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   await frame.locator("#copy").evaluate((element) => {
     let tick = 0;
     window.contentChurn = setInterval(() => { element.textContent = `Changing ${++tick}`; }, 25);
@@ -116,7 +120,7 @@ test("changing DOM capture fails boundedly and explicit current-state capture re
 test("capture validates IDs and rejects concurrent requests and route changes", async ({ page, review }) => {
   await openReview(page, review, writeFile(review, "sdk-capture-validation.html", '<!doctype html><p id="copy">Capture validation</p>'));
   const frame = await waitForSdk(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   await request(page, { type: "eh:captureSnapshot", requestId: "x".repeat(129), requireStable: true });
   expect((await response(page, null)).error.code).toBe("CAPTURE_INVALID_REQUEST");
   await request(page, { type: "eh:captureSnapshot", requestId: "first", requireStable: true });
@@ -129,7 +133,7 @@ test("capture validates IDs and rejects concurrent requests and route changes", 
 test("an unready document returns an explicit bounded capture failure", async ({ page, review }) => {
   await openReview(page, review, writeFile(review, "sdk-not-ready.html", '<!doctype html><p id="copy">Not ready</p>'));
   const frame = await waitForSdk(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   await frame.locator("body").evaluate(() => {
     Object.defineProperty(document, "readyState", { configurable: true, value: "loading" });
   });
@@ -143,7 +147,7 @@ test("history jump requires one exact visible semantic target and never approxim
     <p id="copy">Top</p><div style="height:1200px"></div>
     <p id="destination">Exact destination</p><p hidden id="hidden">Hidden destination</p>`));
   const frame = await waitForSdk(page);
-  await connectSdk(page, frame);
+  await connectSdk(page);
   await request(page, { type: "eh:captureSnapshot", requestId: "jump-target", requireStable: false });
   const snapshot = (await response(page, "jump-target")).snapshot;
   const target = snapshot.blocks.find((block) => block.text === "Exact destination");
