@@ -56,14 +56,18 @@ changing the draft. Narrow screens use a full width composer.
 | Submit a comment or save a comment edit | `Enter` |
 | Add a line inside a comment | `Shift+Enter` |
 | Cancel a comment edit | `Escape` or **Cancel** |
-| Find a comment's target | **Jump to** in the Comments drawer |
-| Delete a comment | **More**, then confirm deletion |
+| Find a comment's target | **Jump to** in the Feedback panel's Comments section |
+| Delete a comment | **Delete comment** (trash icon), then confirm deletion |
 
 Submitting a comment adds its highlight and count without opening its card.
 Activate the highlight or choose **Jump to** to see it. Existing comments have
 explicit **Save** and **Cancel** controls; moving focus never saves a draft.
 Closing a card only hides it. Drafts and caret position follow the comment
 between the document and drawer.
+
+![An anchored comment beside highlighted Field Notes copy, asking what readers can collect and how it helps them](../assets/doc-review.png)
+
+*Feedback stays beside the passage it describes; the document remains in View.*
 
 In Edit you can change text and basic formatting, make lists, add links,
 resize or move images, rearrange blocks, and remove elements. Type `- ` or `1. `
@@ -72,8 +76,24 @@ adds or edits a link, and `Cmd+Shift+8` / `Cmd+Shift+7` creates lists.
 Pasted images are saved beside file reviews or staged for the agent in localhost
 reviews. Command clicking links lets you review multiple pages in one session.
 
-Open **Comments** for the feedback inventory, overall note, and **Send to agent**.
-The inventory scrolls independently of the note and Send controls.
+Open **Feedback** for the **Comments** and **Edits** sections, overall note, and
+**Send to agent**. The toolbar badge counts saved comments and edits across
+reviewed pages, matching Send's item count; the overall note and unsaved comment
+drafts are not numbered items. Each section shows the current page's count.
+Other-page feedback stays in its separate navigation list.
+
+Both sections start expanded. Collapse them independently; the choices survive
+closing the panel, switching pages, and Review/Changes in this tab, but reset
+after a full reload. Comments stays expanded until you save or cancel an active
+comment edit or finish its deletion confirmation. Save failures remain visible
+even with Edits collapsed. Edits is absent when there are no edits or save problems.
+
+The inventory scrolls independently of the note and bottom action row.
+The overall note can be sent on its own. It stays in this tab when you close
+Feedback, switch Review/Changes, or change theme. Open comment drafts are not
+included until you explicitly save them. Supporting messages and the handoff
+prompt scroll separately between the note and actions. **End review** is on
+the left; **Send to agent** is on the right. End still asks for confirmation.
 
 ## Files, scripts, and local apps
 
@@ -108,9 +128,24 @@ authorship.
 
 ## Sending feedback
 
+![Feedback showing collapsible Comments and Edits, an overall note, and End review to the left of Send to agent](../assets/doc-review-feedback.png)
+
+*Review the whole batch before sending. The overall note gives the agent direction
+across individual comments and edits.*
+
 Send waits for edit persistence and writable HTML saves, then attempts a short
 baseline capture for comparisons. Missing comparison data does not block
 delivery. Save or delivery failures are reported without discarding feedback.
+An incomplete comparison appears as a supporting notice after sending, not
+another confirmation gate. An unconfirmed delivery asks you to check the
+agent before retrying.
+
+**Revert all** and **End review** ask for confirmation with **Cancel** focused.
+Escape cancels just that confirmation. Revert keeps comments and the overall
+note. End retains persisted unsent items for next time, but open drafts and the
+overall note exist only in the current tab and are not sent by End. A source or
+feedback change invalidates an open confirmation; cancel it and review the
+latest state. Pending actions cannot be submitted a second time.
 
 The agent receives one batch covering the visited pages. It polls using the
 same target that opened the review:
@@ -154,7 +189,7 @@ normally comparing content captured when feedback was sent with the result
 captured after the agent acknowledged that batch. Previous rounds keep their
 own fixed endpoints instead of changing on each reload.
 
-![A completed review round comparing the original landing page copy with clearer wording and a revised link](../assets/doc-review-changes.png)
+![The same Field Notes review round in Changes, with centered navigation and before-and-after text for the revised description and call to action](../assets/doc-review-changes.png)
 
 *The same example after its feedback was applied and acknowledged.*
 

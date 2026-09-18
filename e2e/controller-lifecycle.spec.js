@@ -34,9 +34,9 @@ test("ending review disposes shell interaction without replacing the authored do
   await openReview(page, review, file);
   await waitForSdk(page);
   await page.locator("#frame").evaluate((element) => { window.reviewFrameBeforeEnd = element; });
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator("#commentsButton").click();
   await page.locator("#endReview").click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator(".ended")).toBeVisible();
   expect(await page.locator("#frame").evaluate((element) => element === window.reviewFrameBeforeEnd)).toBe(true);
   await page.locator("#seeChanges").evaluate((element) => element.click());

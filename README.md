@@ -6,7 +6,7 @@ Open an HTML file, a Markdown document, or a localhost page. Point to what needs
 changing, edit the small things yourself, and send your feedback to the agent
 in one batch.
 
-![A landing page in Doc Review with highlighted text and a comment asking for more specific wording](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review.png)
+![The Field Notes landing page in Review, with highlighted copy and an anchored comment asking for a concrete benefit](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review.png)
 
 *Feedback stays beside the work. Your agent gets the comments, edits, and overall note together.*
 
@@ -42,7 +42,7 @@ to open the page, wait for feedback, and apply the changes.
 2. **Point out what matters.** Select text or choose an element to leave a
    comment. Switch to **Edit** for direct changes to wording, formatting, images,
    or layout. Commenting works in either mode.
-3. **Send one batch.** Open **Comments**, add an overall note if needed, and
+3. **Send one batch.** Open **Feedback**, inspect Comments and Edits, add an overall note if needed, and
    choose **Send to agent**. No need to describe where every sentence lives.
 4. **Check the result.** Use **Changes** to compare a review round's captured
    before and after content, then continue reviewing. Comparisons show observed
@@ -50,6 +50,14 @@ to open the page, wait for feedback, and apply the changes.
 
 You can review a plan, refine a landing page, or walk through a local app without
 moving your feedback into a separate document.
+
+![The Feedback panel with separate Comments and Edits sections, an overall note, and End review beside Send to agent](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
+
+*One batch, with the context attached: comments, your edits, and the overall direction.*
+
+![The completed Field Notes review round in Changes, comparing the revised description and call to action with their originals](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-changes.png)
+
+*Check the result beside the original. Move between changes or switch to Source for the saved file text.*
 
 ## What happens to your edits?
 
@@ -73,6 +81,9 @@ setup options, comments, comparisons, limitations, and upgrades.
 
 [Development](https://github.com/erdemtuna/doc-review/blob/main/docs/development.md):
 build, test, architecture, and package checks.
+
+[Prepared review example](docs/migration-review.md):
+disposable HTML/Markdown sessions with saved comparison rounds and a shell review checklist.
 
 [Releasing](https://github.com/erdemtuna/doc-review/blob/main/RELEASING.md):
 the maintainers' release process.

@@ -1,5 +1,5 @@
 node_modules/
-lib/
+/lib/
 dist/
 .toolchain/
 .package-smoke-*/
@@ -21,3 +21,7 @@ output/
 .playwright-state/
 playwright-report/
 test-results/
+coverage/
+.ui-preview/
+.recovery-preview/
+.shell-preview-*/

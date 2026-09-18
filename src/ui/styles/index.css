@@ -1,0 +1,104 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@import "./tokens.css";
+@source "../";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant data-open (&[data-state="open"]);
+@custom-variant data-closed (&[data-state="closed"]);
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-review-added: var(--review-added);
+  --color-review-added-foreground: var(--review-added-foreground);
+  --color-review-removed: var(--review-removed);
+  --color-review-removed-foreground: var(--review-removed-foreground);
+  --color-review-modified: var(--review-modified);
+  --color-review-modified-foreground: var(--review-modified-foreground);
+  --font-sans: var(--review-font-sans);
+  --font-mono: var(--review-font-mono);
+  --text-xs: var(--review-text-xs);
+  --text-sm: var(--review-text-sm);
+  --text-base: var(--review-text-base);
+  --text-lg: var(--review-text-lg);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  .review-ui {
+    font-family: var(--review-font-sans);
+    font-size: var(--review-text-sm);
+    line-height: 1.5;
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :root.review-ui { font-size: 100%; }
+
+  .review-ui :where(*, *::before, *::after) {
+    box-sizing: border-box;
+    border: 0 solid var(--border);
+  }
+
+  .review-ui :where(button, input, select, textarea) {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+
+  .review-ui :where(button) {
+    cursor: pointer;
+    background-color: transparent;
+  }
+
+  .review-ui :where(button:disabled, input:disabled, select:disabled, textarea:disabled) {
+    cursor: not-allowed;
+  }
+
+  .review-ui :where(svg) { display: block; flex-shrink: 0; }
+  .review-ui :where([hidden]) { display: none !important; }
+  .review-ui :where(h1, h2, h3, p) { margin: 0; }
+  .review-ui :where(a) { color: inherit; text-decoration: inherit; }
+}
+
+@layer utilities {
+  .review-ui :where(button, select, input, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-ui,
+  .review-ui * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

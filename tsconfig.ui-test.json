@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.ui.json",
+  "compilerOptions": {
+    "types": ["vite/client", "@testing-library/jest-dom", "node"]
+  },
+  "include": ["test/ui/**/*.ts", "test/ui/**/*.tsx", "src/ui/**/*.test.ts", "src/ui/**/*.test.tsx"],
+  "exclude": []
+}

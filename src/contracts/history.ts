@@ -212,3 +212,32 @@ export interface UnavailableComparison extends Partial<ComparisonMetadata> {
   limits?: Record<string, number>;
 }
 export type RevisionComparison = AvailableComparison | UnavailableComparison;
+
+/** Read-only renderer input also accepts older persisted excerpt-only comparisons. */
+export interface SavedBlock {
+  text: string;
+  tag?: string;
+  selector?: string;
+  path?: string[];
+  attributes?: Record<string, string>;
+  runs?: { text: string; marks: string[]; href?: string }[];
+  startLine?: number;
+}
+export interface SavedChange extends Omit<Partial<ComparisonChange>, "beforeBlock" | "afterBlock"> {
+  beforeBlock?: SavedBlock | null;
+  afterBlock?: SavedBlock | null;
+}
+export interface SavedRow extends Pick<ComparisonRow, "id" | "kind"> {
+  beforeBlock?: SavedBlock | null;
+  afterBlock?: SavedBlock | null;
+  changeId?: string | null;
+  moveId?: string;
+  segments?: DiffSegment[];
+}
+export interface ComparisonInput {
+  version?: number;
+  status?: string;
+  available?: boolean;
+  rows?: readonly SavedRow[];
+  changes?: readonly SavedChange[];
+}

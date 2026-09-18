@@ -1,4 +1,5 @@
 import { decodePage, record } from "./chrome-api.js";
+import { createControllerStore } from "./controller-store.js";
 import type { RenderIdentity } from "./frame-controller.js";
 import type { PageResponse, SavePolicy } from "./contracts/page.js";
 
@@ -38,7 +39,7 @@ export function createSaveController({
   const state: SaveState = {
     status: "idle", savedAt: "", baseHash: null, conflict: false, dirty: false, dynamic: false,
   };
-  const listeners = new Set<() => void>();
+  const store = createControllerStore(() => state);
   const pipelines = new Map<string, Promise<boolean>>();
   const backlogs = new Map<string, Map<string, Record<string, unknown>>>();
   const errors = new Map<string, unknown>();
@@ -53,7 +54,7 @@ export function createSaveController({
   const matches = (identity: RenderIdentity) => !disposed && !!identity.renderId &&
     identity.key === current().key && identity.renderId === current().renderId &&
     identity.generation === current().generation;
-  const publish = () => { if (!disposed) for (const listener of listeners) listener(); };
+  const publish = () => { if (!disposed) store.publish(); };
   const delay = (milliseconds: number) => new Promise<void>((resolve) => {
     const timer = setTimer(() => { delays.delete(timer); resolve(); }, milliseconds);
     delays.set(timer, resolve);
@@ -175,10 +176,12 @@ export function createSaveController({
     lastSave = { html, identity };
     pending++;
     state.dirty = true;
+    publish();
     activeSave = activeSave.then(async () => {
       if (!matches(identity) || state.conflict) return false;
       const saved = await saveHtml(html, identity);
       if (saved && sequence === started) state.dirty = false;
+      publish();
       return saved;
     }).finally(() => { pending--; applyClean(); });
     return activeSave;
@@ -203,6 +206,7 @@ export function createSaveController({
       throw new Error("Your page edits have not finished saving. They have not been sent.");
     }
     if (policy() !== "writable" || state.dynamic) state.dirty = false;
+    publish();
   }
   async function captureStable<T>(capture: () => Promise<T>, signal?: AbortSignal) {
     const identity = current();
@@ -224,10 +228,8 @@ export function createSaveController({
 
   return {
     get state(): Readonly<SaveState> { return state; },
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => { listeners.delete(listener); };
-    },
+    getSnapshot: store.getSnapshot,
+    subscribe: store.subscribe,
     save, persistEdit, settleEdits, flush: flushEdits, barrier, captureStable,
     applyClean, queued, cancelRetries,
     async settled() { await activeSave; },
@@ -235,20 +237,22 @@ export function createSaveController({
     markSaving() { state.dirty = true; state.status = "saving"; publish(); },
     markDynamic() { state.dynamic = true; publish(); },
     observeClean() { clean = { identity: current(), sequence, editSequence }; applyClean(); },
-    baseline(hash: string | null) { state.baseHash = hash; },
+    baseline(hash: string | null) { state.baseHash = hash; publish(); },
     hold() {
       state.baseHash = null;
       cancelRetries();
       if (state.dirty) state.conflict = true;
       send({ type: "eh:abortSave" });
+      publish();
     },
-    markConflict() { state.conflict = true; },
+    markConflict() { state.conflict = true; publish(); },
     reset() {
       cancelRetries();
       clean = null;
       lastSave = null;
       sequence++;
       Object.assign(state, { status: "idle", savedAt: "", baseHash: null, conflict: false, dirty: false, dynamic: false });
+      publish();
     },
     async revert() {
       const identity = current();
@@ -284,7 +288,7 @@ export function createSaveController({
       if (disposed) return;
       disposed = true;
       cancelRetries();
-      listeners.clear();
+      store.dispose();
     },
   };
 }

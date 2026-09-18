@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "noEmit": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["vite.config.ts", "vite.preview.config.ts", "vitest.config.ts"]
+}
