@@ -6,7 +6,7 @@ Open an HTML file, a Markdown document, or a localhost page. Point to what needs
 changing, edit the small things yourself, and send your feedback to the agent
 in one batch.
 
-![A landing page in Doc Review with highlighted text and a comment asking for more specific wording](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review.png)
+![The Field Notes landing page in Review, with highlighted copy and an anchored comment asking for a concrete benefit](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review.png)
 
 *Feedback stays beside the work. Your agent gets the comments, edits, and overall note together.*
 
@@ -50,6 +50,14 @@ to open the page, wait for feedback, and apply the changes.
 
 You can review a plan, refine a landing page, or walk through a local app without
 moving your feedback into a separate document.
+
+![The same page with Comments open: two saved comments, one saved headline edit, an overall note, and Send to agent](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
+
+*One batch, with the context attached: comments, your edits, and the overall direction.*
+
+![The completed Field Notes review round in Changes, comparing the revised description and call to action with their originals](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-changes.png)
+
+*Check the result beside the original. Move between changes or switch to Source for the saved file text.*
 
 ## What happens to your edits?
 

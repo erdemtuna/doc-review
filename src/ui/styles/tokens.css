@@ -28,10 +28,14 @@
   --review-modified: #fff7e6;
   --review-modified-foreground: #805316;
   --review-modified-border: #d9be80;
+  --review-count-added: #047857;
+  --review-count-modified: #2563eb;
+  --review-count-removed: #be123c;
   --review-insert: #c7e8d2;
   --review-delete: #f6cdd2;
   --review-overlay: #12172380;
   --radius: 0.5rem;
+  --radius-md: var(--radius);
   --review-control-height: 2rem;
   --review-control-height-touch: 2.5rem;
   --review-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -82,6 +86,9 @@
   --review-modified: #392f1d;
   --review-modified-foreground: #e9ca8b;
   --review-modified-border: #7b6742;
+  --review-count-added: #34d399;
+  --review-count-modified: #60a5fa;
+  --review-count-removed: #fb7185;
   --review-insert: #31523c;
   --review-delete: #633943;
   --review-overlay: #070a10b3;

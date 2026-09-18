@@ -1,12 +1,22 @@
-import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { ChangesController } from "../../changes-controller.js";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Label } from "./ui/label";
-import { NativeSelect, NativeSelectOption } from "./ui/native-select";
+import { ChoiceMenu } from "./ui/choice-menu";
+import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import { ComparisonPortal } from "./comparison";
+import { Icon } from "./icon";
 
 type Props = { runtime: ChangesController };
+type Snapshot = ReturnType<ChangesController["getSnapshot"]>;
+type Menu = "round" | "page" | "jump";
+function inlineStatus(state: Snapshot) {
+  return state.status === "available" && !state.loading && !state.error;
+}
+function HistoryStatus({ state, quiet = false }: { state: Snapshot; quiet?: boolean }) {
+  return <p id="historyStatus" role="status" aria-busy={state.loading} className={quiet ? "sr-only" : undefined}
+    data-state={state.loading ? "loading" : state.status}>{state.message}</p>;
+}
 function ownEscape(event: KeyboardEvent<HTMLElement>) {
   if (event.key === "Escape") event.stopPropagation();
 }
@@ -21,15 +31,16 @@ export function ChangesDetail({ runtime, root, headingSlot, header }: Props & {
     root.classList.toggle("comparison-content", state.mode === "content");
     root.classList.toggle("comparison-source", state.mode === "source");
     root.hidden = !state.hasComparison;
-    header.hidden = !state.hasComparison;
-  }, [root, header, state.hasComparison, state.mode]);
+    headingSlot.hidden = !state.hasComparison;
+  }, [root, headingSlot, state.hasComparison, state.mode]);
   useLayoutEffect(() => {
     const request = state.scrollRequest;
     if (!request || consumedScroll.current === request.sequence || state.disabled || !state.hasComparison ||
       request.key !== state.key || request.mode !== state.mode || request.index !== state.index) return;
     consumedScroll.current = request.sequence;
+    root.style.setProperty("--comparison-header-height", `${header.getBoundingClientRect().height}px`);
     root.querySelector(".comparison-current")?.scrollIntoView({ block: "center", behavior: "instant" });
-  }, [root, state.scrollRequest, state.disabled, state.hasComparison, state.key, state.mode, state.index, state.detailVersion]);
+  }, [root, header, state.scrollRequest, state.disabled, state.hasComparison, state.key, state.mode, state.index, state.detailVersion]);
   return <ComparisonPortal root={root} headingSlot={headingSlot}
     comparison={state.hasComparison ? { ...detail.value, changes: detail.items } : null}
     mode={state.mode} comparisonKey={state.key} selectedIndex={state.index} />;
@@ -37,44 +48,13 @@ export function ChangesDetail({ runtime, root, headingSlot, header }: Props & {
 
 export function ChangesControls({ runtime }: Props) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
-  return <div className="changes-controls" onKeyDown={ownEscape}>
-    <div className="changes-selectors">
-      <div className="changes-field">
-        <Label htmlFor="roundPicker">Round</Label>
-        <NativeSelect id="roundPicker" aria-label="Review round" value={state.selectedId}
-          disabled={state.disabled || !state.rounds.length}
-          onChange={(event) => { void runtime.commands.selectRound(event.currentTarget.value); }}>
-          {!state.rounds.length && <NativeSelectOption value="">No review rounds</NativeSelectOption>}
-          {state.rounds.map((round) => <NativeSelectOption key={round.value} value={round.value}>{round.label}</NativeSelectOption>)}
-        </NativeSelect>
-      </div>
-      <div id="historyTargetLabel" className="changes-field changes-target" hidden={state.targets.length < 2}>
-        <Label htmlFor="historyTarget">Page</Label>
-        <NativeSelect id="historyTarget" aria-label="Comparison page" value={state.targetKey}
-          disabled={state.disabled || state.loading}
-          onChange={(event) => { void runtime.commands.selectTarget(event.currentTarget.value); }}>
-          {state.targets.map((target) => <NativeSelectOption key={target.value} value={target.value}>{target.label}</NativeSelectOption>)}
-        </NativeSelect>
-      </div>
-      <div id="comparisonModes" className="changes-formats" role="group" aria-label="Comparison format" hidden={!state.modes.length}>
-        {state.modes.map((mode) => <Button key={mode} size="sm" variant={mode === state.mode ? "secondary" : "ghost"}
-          data-comparison-mode={mode} aria-pressed={mode === state.mode} disabled={state.disabled || state.loading}
-          onClick={() => runtime.commands.selectMode(mode)}>{mode === "content" ? "Content" : "Source"}</Button>)}
-      </div>
+  return <div className="changes-controls" hidden={inlineStatus(state) && !state.captureAllowed} onKeyDown={ownEscape}>
+    <div className="changes-support">
+      {!inlineStatus(state) && <HistoryStatus state={state} />}
       <Button id="captureResult" size="sm" hidden={!state.captureAllowed} disabled={state.captureDisabled}
         aria-busy={state.captureBusy} onClick={() => { void runtime.commands.capture(state.key); }}>
         {state.captureBusy ? "Capturing result…" : "Capture result"}
       </Button>
-    </div>
-    <div className="changes-summary" aria-busy={state.loading}>
-      <p id="historyStatus" role="status" data-state={state.loading ? "loading" : state.status}>{state.message}</p>
-      <div id="historyCounts" className="changes-counts" hidden={!state.counts}>
-        {state.counts && <>
-          <Badge variant="outline" className="changes-added">{state.counts.added} Added</Badge>{" · "}
-          <Badge variant="outline" className="changes-modified">{state.counts.modified} Modified</Badge>{" · "}
-          <Badge variant="outline" className="changes-removed">{state.counts.removed} Removed</Badge>
-        </>}
-      </div>
     </div>
     <div className="changes-error-line" hidden={!state.error}>
       <p id="historyError" className="changes-error" role="alert">{state.error}</p>
@@ -84,23 +64,64 @@ export function ChangesControls({ runtime }: Props) {
   </div>;
 }
 
-export function ChangesNavigation({ runtime }: Props) {
+export function ChangesToolbar({ runtime }: Props) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
-  return <nav id="changeNavigation" className="changes-navigation" aria-label="Change navigation" hidden={state.changes.length < 2} onKeyDown={ownEscape}>
-    <Button id="previousChange" size="sm" variant="outline" aria-label="Previous change" disabled={state.previousDisabled}
-      onClick={() => runtime.commands.jump(state.index - 1, state.key)}>Previous</Button>
-    <span id="changePosition" aria-live="polite">{state.position}</span>
-    <Button id="nextChange" size="sm" variant="outline" aria-label="Next change" disabled={state.nextDisabled}
-      onClick={() => runtime.commands.jump(state.index + 1, state.key)}>Next</Button>
-    <div className="changes-field changes-jump">
-      <Label htmlFor="changeJump">Jump to</Label>
-      <NativeSelect id="changeJump" aria-label="Jump to change" value={String(state.index)}
-        disabled={state.disabled || state.loading}
-        onChange={(event) => runtime.commands.jump(Number(event.currentTarget.value), state.key)}>
-        {state.changes.map((change) => <NativeSelectOption key={change.value} value={change.value}>{change.label}</NativeSelectOption>)}
-      </NativeSelect>
+  const counts = state.counts;
+  const [menu, setMenu] = useState<{ name: Menu; context: string } | null>(null);
+  const context = JSON.stringify([state.selectedId, state.targetKey, state.mode]);
+  const eligible = (name: Menu) => !state.disabled && (name === "round"
+    ? state.rounds.length > 0 : !state.loading && (name === "page" ? state.targets.length > 1 : state.changes.length > 1));
+  const active = menu?.context === context && eligible(menu.name) ? menu.name : null;
+  useLayoutEffect(() => {
+    if (menu && !active) setMenu(null);
+  }, [menu, active]);
+  const disclosure = (name: Menu) => ({
+    open: active === name,
+    restoreFocus: active === null,
+    onOpenChange: (open: boolean) => setMenu((current) =>
+      open ? { name, context } : current?.name === name ? null : current),
+  });
+  const round = state.rounds.find((option) => option.value === state.selectedId);
+  const target = state.targets.find((option) => option.value === state.targetKey);
+  return <div className="changes-toolbar" role="group" aria-label="Comparison tools" onKeyDown={ownEscape}>
+    <div className="changes-context">
+      <ChoiceMenu id="roundPicker" label="Review round" value={state.selectedId} options={state.rounds}
+        triggerLabel={round?.shortLabel || (state.rounds.length ? "Choose round" : "No review rounds")}
+        disabled={!eligible("round")} {...disclosure("round")}
+        onValueChange={(value) => { void runtime.commands.selectRound(value); }} />
+      <div id="historyTargetLabel" hidden={state.targets.length < 2}>
+        <ChoiceMenu id="historyTarget" label="Comparison page" value={state.targetKey} options={state.targets}
+          triggerLabel={target?.label || "Choose page"} disabled={!eligible("page")} {...disclosure("page")}
+          onValueChange={(value) => { void runtime.commands.selectTarget(value); }} />
+      </div>
     </div>
-  </nav>;
+    <nav id="changeNavigation" className="changes-navigation" aria-label="Change navigation" hidden={state.changes.length < 2}>
+      <Button id="previousChange" variant="outline" aria-label="Previous change" disabled={state.previousDisabled}
+        onClick={() => runtime.commands.jump(state.index - 1, state.key)}>Previous</Button>
+      <ChoiceMenu id="changeJump" textId="changePosition" label="Jump to change"
+        value={String(state.index)} options={state.changes} triggerLabel={state.position} valueLabel={state.position}
+        disabled={!eligible("jump")} {...disclosure("jump")}
+        onValueChange={(value) => runtime.commands.jump(Number(value), state.key)} />
+      <Button id="nextChange" variant="outline" aria-label="Next change" disabled={state.nextDisabled}
+        onClick={() => runtime.commands.jump(state.index + 1, state.key)}>Next</Button>
+    </nav>
+    <div className="changes-view-tools" hidden={!state.hasComparison}>
+      <SegmentedControl id="comparisonModes" className="changes-formats" aria-label="Comparison format">
+        {state.modes.map((mode) => <SegmentedControlItem key={mode} selected={mode === state.mode}
+          data-comparison-mode={mode} disabled={state.disabled || state.loading}
+          onClick={() => runtime.commands.selectMode(mode)}>{mode === "content" ? "Content" : "Source"}</SegmentedControlItem>)}
+      </SegmentedControl>
+      <div id="historyCounts" className="changes-counts" hidden={!counts}>
+        {counts && (["added", "modified", "removed"] as const).map((kind) =>
+          <Badge key={kind} variant="outline" className={`changes-${kind}`} role="img"
+            aria-label={`${counts[kind]} ${kind} changes`} title={`${kind[0].toUpperCase()}${kind.slice(1)} changes`}>
+            <Icon name={kind === "added" ? "plus" : kind === "modified" ? "pencil" : "minus"} size={14} />
+            {counts[kind]}
+          </Badge>)}
+      </div>
+    </div>
+    {inlineStatus(state) && <HistoryStatus state={state} quiet />}
+  </div>;
 }
 
 export function ChangesDiagnostics({ runtime }: Props) {
@@ -108,6 +129,11 @@ export function ChangesDiagnostics({ runtime }: Props) {
   return <details id="historyDiagnostics" className="changes-diagnostics" open={state.diagnosticsOpen} onKeyDown={ownEscape}
     onToggle={(event) => runtime.commands.disclose("diagnostics", event.currentTarget.open)}>
     <summary>Comparison details</summary>
+    <p className="changes-legend">
+      <span className="changes-added"><Icon name="plus" size={14} /> Added</span>
+      <span className="changes-modified"><Icon name="pencil" size={14} /> Modified</span>
+      <span className="changes-removed"><Icon name="minus" size={14} /> Removed</span>
+    </p>
     <p id="historyCurrentStatus" hidden={!state.freshness}>{state.freshness}</p>
     <p id="historyViewCoverage" hidden={!state.view} data-status={state.view?.status || ""}>{state.view?.message}</p>
     <div id="historyUnavailable" hidden={!state.unavailable.length}>

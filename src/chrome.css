@@ -173,8 +173,6 @@ button:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline
 .history-round-label select { max-width: min(280px, 65vw); }
 #historyTargetLabel { flex: 1 1 200px; }
 #historyTarget { width: 100%; }
-#comparisonModes { display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--hair); border-radius: 9px; }
-#comparisonModes:empty { display: none; }
 .history-controls button { min-height: 44px; min-width: 44px; }
 .history-controls [aria-pressed="true"] { background: var(--soft); color: var(--strong-txt); }
 .history-controls button:disabled { opacity: .55; cursor: default; }

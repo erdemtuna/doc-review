@@ -7,7 +7,7 @@ import { RecoveryMenu, RecoveryNotices } from "./components/recovery";
 import { CommentsDrawer } from "./components/comments";
 import { Composer, AlignedComment } from "./components/contextual";
 import { FeedbackEdits, FeedbackFooter, FeedbackConfirmation } from "./components/feedback";
-import { ChangesControls, ChangesNavigation, ChangesDiagnostics, ChangesDetail } from "./components/changes";
+import { ChangesControls, ChangesToolbar, ChangesDiagnostics, ChangesDetail } from "./components/changes";
 import "./styles/shell.css";
 
 class ToolbarBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -51,7 +51,7 @@ createRoot(host).render(<StrictMode><ToolbarBoundary>
   {createPortal(<FeedbackFooter runtime={feedbackRuntime} />, footer)}
   <FeedbackConfirmation runtime={feedbackRuntime} />
   {createPortal(<ChangesControls runtime={changesRuntime} />, changesControls)}
-  {createPortal(<ChangesNavigation runtime={changesRuntime} />, changesNavigation)}
+  {createPortal(<ChangesToolbar runtime={changesRuntime} />, changesNavigation)}
   {createPortal(<ChangesDiagnostics runtime={changesRuntime} />, changesDiagnostics)}
   <ChangesDetail runtime={changesRuntime} root={comparisonRoot} headingSlot={comparisonHeading} header={comparisonHeader} />
 </ToolbarBoundary></StrictMode>);

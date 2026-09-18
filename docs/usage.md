@@ -65,6 +65,10 @@ explicit **Save** and **Cancel** controls; moving focus never saves a draft.
 Closing a card only hides it. Drafts and caret position follow the comment
 between the document and drawer.
 
+![An anchored comment beside highlighted Field Notes copy, asking what readers can collect and how it helps them](../assets/doc-review.png)
+
+*Feedback stays beside the passage it describes; the document remains in View.*
+
 In Edit you can change text and basic formatting, make lists, add links,
 resize or move images, rearrange blocks, and remove elements. Type `- ` or `1. `
 to start a list; use Tab and Shift+Tab to change nesting. On macOS, `Cmd+K`
@@ -111,6 +115,11 @@ share the document with the SDK: correlated feedback is not proof of human
 authorship.
 
 ## Sending feedback
+
+![Comments showing two saved requests, a saved headline edit, an overall note, and an enabled Send to agent button](../assets/doc-review-feedback.png)
+
+*Review the whole batch before sending. The overall note gives the agent direction
+across individual comments and edits.*
 
 Send waits for edit persistence and writable HTML saves, then attempts a short
 baseline capture for comparisons. Missing comparison data does not block
@@ -168,7 +177,7 @@ normally comparing content captured when feedback was sent with the result
 captured after the agent acknowledged that batch. Previous rounds keep their
 own fixed endpoints instead of changing on each reload.
 
-![A completed review round comparing the original landing page copy with clearer wording and a revised link](../assets/doc-review-changes.png)
+![The same Field Notes review round in Changes, with centered navigation and before-and-after text for the revised description and call to action](../assets/doc-review-changes.png)
 
 *The same example after its feedback was applied and acknowledged.*
 

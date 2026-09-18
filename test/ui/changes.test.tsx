@@ -1,8 +1,9 @@
 import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createChangesController, type ChangesContext } from "../../src/changes-controller";
-import { ChangesControls, ChangesNavigation, ChangesDiagnostics, ChangesDetail } from "@/components/changes";
+import { ChangesControls, ChangesToolbar, ChangesDiagnostics, ChangesDetail } from "@/components/changes";
 
 afterEach(cleanup);
 function fixture() {
@@ -28,28 +29,108 @@ function fixture() {
     selectIndex: (index) => { context.history.index = index; runtime.publish(); },
     capture, finish: vi.fn(), refresh: vi.fn(), failed: vi.fn(),
   });
-  render(<StrictMode><ChangesControls runtime={runtime}/><ChangesNavigation runtime={runtime}/><ChangesDiagnostics runtime={runtime}/></StrictMode>);
+  render(<StrictMode><ChangesControls runtime={runtime}/><ChangesToolbar runtime={runtime}/><ChangesDiagnostics runtime={runtime}/></StrictMode>);
   return { context, runtime, capture };
 }
-it("keeps native selector and format button identity through publications and format selection", () => {
+it("keeps choice trigger and format button identity through publications and format selection", () => {
   const { context, runtime } = fixture();
-  const round = screen.getByRole("combobox", { name: "Review round" });
+  const round = screen.getByRole("button", { name: /^Review round:/ });
   const source = screen.getByRole("button", { name: "Source" });
   fireEvent.click(source);
   expect(source).toHaveAttribute("aria-pressed", "true");
   act(() => { context.history.loading = true; runtime.publish(); });
-  expect(screen.getByRole("combobox", { name: "Review round" })).toBe(round);
+  expect(screen.getByRole("button", { name: /^Review round:/ })).toBe(round);
   expect(screen.getByRole("button", { name: "Source" })).toBe(source);
   expect(source).toBeDisabled();
 });
 it("normalizes navigation and exposes counts and meaningful labels", () => {
   fixture();
-  expect(screen.getByText("2 Modified")).toBeVisible();
+  expect(screen.getByRole("img", { name: "2 modified changes" })).toHaveAttribute("title", "Modified changes");
   expect(screen.getByRole("button", { name: "Previous change" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Next change" }));
   expect(screen.getByText("2 of 2")).toBeVisible();
   expect(screen.getByRole("button", { name: "Next change" })).toBeDisabled();
-  expect(screen.getByRole("combobox", { name: "Jump to change" })).toHaveValue("1");
+  expect(screen.getByRole("button", { name: "Jump to change: 2 of 2" })).toHaveAttribute("data-value", "1");
+});
+it("groups context, display, navigation and ready status in one toolbar without duplicate controls", () => {
+  fixture();
+  const toolbar = screen.getByRole("group", { name: "Comparison tools" });
+  expect(within(toolbar).getByRole("group", { name: "Comparison format" })).toBeVisible();
+  expect(within(toolbar).getByRole("img", { name: "2 modified changes" })).toBeVisible();
+  expect(within(toolbar).getByRole("navigation", { name: "Change navigation" })).toBeVisible();
+  expect(within(toolbar).getByRole("button", { name: /^Jump to change:/ })).toBeVisible();
+  for (const label of ["Review round", "Comparison page"]) {
+    expect(screen.getAllByRole("button", { name: new RegExp(`^${label}:`) })).toHaveLength(1);
+    expect(within(toolbar).getByRole("button", { name: new RegExp(`^${label}:`) })).toBeVisible();
+  }
+  expect(within(toolbar).getByRole("status")).toHaveTextContent("Comparison ready.");
+  expect(within(toolbar).getByRole("status")).toHaveClass("sr-only");
+  expect(screen.getAllByRole("status")).toHaveLength(1);
+  expect(within(toolbar).queryByRole("button", { name: "Capture result" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Source" })).toHaveLength(1);
+});
+it.each([0, 1])("keeps an available %i-change comparison visible without empty navigation", (count) => {
+  const { context, runtime } = fixture();
+  act(() => {
+    context.history.round = { roundId: "round", targets: [{ key: "page", resultRevisionId: "result", comparison: {
+      source: { available: true, changes: Array.from({ length: count }, () => ({ label: "change" })),
+        counts: { added: count, modified: 0, removed: 0 } },
+    } }] };
+    runtime.publish();
+  });
+  const toolbar = screen.getByRole("group", { name: "Comparison tools" });
+  expect(toolbar).toBeVisible();
+  expect(within(toolbar).getByRole("button", { name: "Source" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(toolbar).getByRole("img", { name: `${count} added changes` })).toBeVisible();
+  expect(within(toolbar).getByRole("img", { name: "0 modified changes" })).toBeVisible();
+  expect(within(toolbar).getByRole("img", { name: "0 removed changes" })).toBeVisible();
+  expect(within(toolbar).queryByRole("navigation")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Comparison page:/ })).toBeNull();
+});
+it("leaves Round and recovery accessible when no representation can show comparison tools", () => {
+  const { context, runtime } = fixture();
+  act(() => {
+    context.history.round!.targets![0].comparison = {};
+    context.history.error = { message: "History temporarily offline" };
+    runtime.publish();
+  });
+  expect(screen.getByRole("button", { name: /^Review round:/ })).toBeEnabled();
+  expect(screen.queryByRole("group", { name: "Comparison format" })).toBeNull();
+  expect(screen.getByRole("status")).toHaveTextContent("Content capture failed.");
+  expect(screen.getByRole("status")).not.toHaveClass("sr-only");
+  expect(screen.getByRole("button", { name: "Capture result" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Retry history" })).toBeEnabled();
+  expect(screen.getByRole("alert")).toHaveTextContent("History temporarily offline");
+  expect(screen.getAllByRole("status")).toHaveLength(1);
+});
+it("closes menus on changed context or leaving Changes while unrelated updates retain the open menu", async () => {
+  const { context, runtime } = fixture();
+  const user = userEvent.setup();
+  const page = screen.getByRole("button", { name: /^Comparison page:/ });
+  await user.click(page);
+  expect(screen.getByRole("menu")).toBeVisible();
+  act(() => { context.current.dirty = true; runtime.publish(); });
+  expect(screen.getByRole("menu")).toBeVisible();
+  act(() => { context.history.preferredMode = "source"; runtime.publish(); });
+  expect(screen.queryByRole("menu")).toBeNull();
+  await user.click(page);
+  act(() => { context.comparing = false; runtime.publish(); });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(page).toBeDisabled();
+});
+it("uses checked menu choices for Jump and exposes an icon legend without extra count tab stops", async () => {
+  const { runtime } = fixture();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /^Jump to change:/ }));
+  expect(screen.getByRole("menuitemradio", { name: /1\./ })).toHaveAttribute("aria-checked", "true");
+  await user.click(screen.getByRole("menuitemradio", { name: /2\./ }));
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByRole("button", { name: "Jump to change: 2 of 2" })).toHaveFocus();
+  for (const count of screen.getAllByRole("img")) expect(count).not.toHaveAttribute("tabindex");
+  act(() => runtime.commands.disclose("diagnostics", true));
+  expect(screen.getByText("Added")).toBeVisible();
+  expect(screen.getByText("Modified")).toBeVisible();
+  expect(screen.getByText("Removed")).toBeVisible();
 });
 it("retains owned diagnostics while unavailable Source remains distinct from Content", () => {
   const { context, runtime } = fixture();
@@ -101,14 +182,16 @@ function detailFixture() {
   });
   const view = render(<StrictMode><ChangesDetail runtime={value.runtime} root={root} headingSlot={headingSlot} header={header}/></StrictMode>);
   view.container.append(header, root);
-  return { ...value, root, headingSlot };
+  return { ...value, root, headingSlot, header };
 }
 
 it("scrolls the committed controlled row once, not the previous row or a stale request", () => {
-  const { runtime, context, root } = detailFixture();
+  const { runtime, context, root, header } = detailFixture();
+  const headerBounds = vi.spyOn(header, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 128));
   const scrolled: Element[] = [];
   const scroll = vi.fn(function (this: Element) {
     expect(this).toBe(root.querySelector(".comparison-current"));
+    expect(root.style.getPropertyValue("--comparison-header-height")).toBe(`${header.getBoundingClientRect().height}px`);
     scrolled.push(this);
   });
   const original = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
@@ -121,6 +204,7 @@ it("scrolls the committed controlled row once, not the previous row or a stale r
     act(() => runtime.commands.selectMode("source"));
     expect(runtime.getSnapshot().scrollRequest).toBeNull();
     expect(scroll).toHaveBeenCalledTimes(1);
+    headerBounds.mockReturnValue(new DOMRect(0, 0, 320, 192));
     act(() => runtime.commands.jump(0, runtime.getSnapshot().key));
     expect(scrolled[1]).toHaveAttribute("data-row-id", "legacy-row-0");
     act(() => { context.comparing = false; runtime.publish(); });
@@ -128,6 +212,7 @@ it("scrolls the committed controlled row once, not the previous row or a stale r
     act(() => { context.comparing = true; runtime.publish(); });
     expect(scroll).toHaveBeenCalledTimes(2);
   } finally {
+    headerBounds.mockRestore();
     if (original) Object.defineProperty(Element.prototype, "scrollIntoView", original);
     else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
   }

@@ -14,7 +14,7 @@ test("the committed selected Lucide module is deterministic and allowlisted", ()
   assert.equal(generated.status, 0, generated.stderr.toString());
   assert.equal(fs.readFileSync(path.join(root, "src", "icons.js"), "utf8"), before);
   assert.deepEqual(Object.keys(ICON_NODES), [
-    "eye", "pencil", "locate", "chevronDown", "chevronRight", "messageSquarePlus", "messages",
+    "eye", "pencil", "plus", "minus", "locate", "chevronDown", "chevronRight", "messageSquarePlus", "messages",
     "send", "trash", "moreHorizontal", "x", "check", "sun", "moon",
   ]);
   assert.match(iconMarkup("eye"), /^<svg/);

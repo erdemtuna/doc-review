@@ -29,6 +29,8 @@ the runtime and do not require TypeScript or an installation build.
 | `npm run preview:recovery` | Build and serve the isolated G3 recovery-state gallery |
 | `npm run preview:shell` | Build and serve a disposable shell review on an isolated runtime snapshot |
 | `npm run preview:review` | Seed real HTML/Markdown history and serve the integrated migration review guide |
+| `npm run media:readme` | Build and capture the three README screenshots and social cover into `output/readme` |
+| `npm run media:preview` | Preview the README, usage guide, and tracked social cover on loopback |
 | `npm run browser:install` | Install the matching Chromium |
 | `npm run test:browser` | Rebuild and run browser tests |
 | `npm run test:package` | Pack and check an isolated production installation |
@@ -92,6 +94,64 @@ See [the review checklist](migration-review.md). After building, use
 `node scripts/migration-review.js --smoke` to verify seeding and clean up without
 leaving servers running. This launcher copies `lib` before seeding; like the
 other previews, its runtime does not change during later builds.
+
+## README media
+
+The media tells one story using the fictional Field Notes landing page:
+Review with an anchored comment, Comments with the complete unsent batch, then
+Changes after the requested description and call to action have been revised.
+The social cover is a separate composition, not another README banner.
+
+With the local dependencies and Chromium installed, run:
+
+```sh
+npm run media:readme
+```
+
+The capture recipe in `scripts/capture-readme.js` uses
+`test/fixtures/readme-review.js` and a private copy of the built runtime.
+It types a real headline edit, adds two selection comments, fills the overall
+note, sends the batch, applies a scripted revision, acknowledges the exact
+batch, and waits for real SDK history captures. This is a scripted product
+example, not a recording of an autonomous agent. No existing review is reused.
+Its private server, browser, files, and state are cleaned up on success or failure.
+
+Product captures use a 1120 x 800 viewport at 1.5 device scale (1680 x 1200 PNG),
+light mode, English locale, and UTC. `scripts/readme-cover.js` composes the
+1280 x 640 social PNG from the actual Review capture. All four outputs must be
+below 1 MB. The script checks the saved edit, feedback inventory, successful
+round, expected changed text, centered navigation, image dimensions, and browser
+errors. It leaves staged PNGs in ignored `output/readme`; use
+`node scripts/capture-readme.js --output <directory>` after a build to stage
+elsewhere. It does not overwrite tracked images by default.
+
+Inspect all four images at full size and typical README width before copying
+the corresponding PNGs into `assets`. Keep the filenames stable:
+
+| Asset | Use |
+| --- | --- |
+| `doc-review.png` | README hero and contextual commenting example |
+| `doc-review-feedback.png` | Feedback inventory, direct edit, overall note, Send |
+| `doc-review-changes.png` | Completed comparison of the same feedback round |
+| `doc-review-social.png` | GitHub social-sharing cover |
+
+Run `npm run media:preview` to inspect the rendered README, usage guide and
+social cover using the tracked images. It prints a loopback URL; stop with
+Ctrl+C. The preview only serves those documents and four explicitly named assets.
+The README retains absolute `raw.githubusercontent.com/.../main/assets/...`
+image URLs for npm compatibility: the GitHub Markdown API used by npm leaves
+relative image sources relative. Consequently, GitHub branch previews show
+the current `main` images until merge. The local preview maps just those image
+references to the local assets, without changing README content. The usage
+guide keeps repository-relative links. npm README copy changes appear only
+after a package release; this media workflow does not publish one.
+
+To apply the social cover separately, a repository maintainer can open GitHub
+**Settings > General > Social preview** and upload `assets/doc-review-social.png`.
+Generating or committing that file does not change the repository setting.
+Keep the cover at 1280 x 640 and below GitHub's 1 MB upload limit.
+
+## Architecture and tests
 
 Tests import and serve compiled modules. The generated icon consistency check
 intentionally reads committed source; after changing the selected icons, run

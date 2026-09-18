@@ -2,6 +2,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { test, expect, enterEditMode, openReview, reviewApi, waitForSdk, writeFile } from "./helpers.js";
+import { expectCounts, selectChoice } from "./choice-helpers.js";
 
 test("Latest version remains interactive across a read-only history switch at 320px", async ({ page, review }) => {
   const file = writeFile(review, "history.html", `<!doctype html><h1>Review me</h1>
@@ -83,7 +84,7 @@ test("comparison exposes textual counts, removed excerpts and keyboard-friendly 
   await openReview(page, review, writeFile(review, "compare.html", "<!doctype html><p>Latest live page</p>"));
   await waitForSdk(page);
   await page.locator("#seeChanges").click();
-  await expect(page.locator("#historyCounts")).toHaveText("0 Added · 1 Modified · 1 Removed");
+  await expectCounts(page, 0, 1, 1);
   await expect(page.locator("#changeDetail")).toContainText("Before title");
   await expect(page.locator("#changeDetail del").first()).toHaveText("Before");
   await expect(page.locator("#changeDetail ins")).toHaveText("After");
@@ -464,13 +465,13 @@ test("Compare prefers completed history and retains Content limits while Source 
   });
   await openReview(page, review, writeFile(review, "source-fallback.html", "<!doctype html><p>Latest content</p>"));
   await page.locator("#seeChanges").click();
-  await expect(page.locator("#roundPicker")).toHaveValue("older-completed");
+  await expect(page.locator("#roundPicker")).toHaveAttribute("data-value", "older-completed");
   await expect(page.locator("#comparisonModes")).toHaveText("Source");
   await page.locator("#historyDiagnostics > summary").click();
   await expect(page.locator("#historyUnavailable")).toContainText("Content exceeded processing limits");
-  await expect(page.locator("#historyCounts")).toHaveText("0 Added · 0 Modified · 0 Removed");
+  await expectCounts(page, 0, 0, 0);
   await expect(page.locator("#changeDetail")).toHaveText("No changes detected in this comparison format.");
-  await page.locator("#roundPicker").selectOption("new-pending");
+  await selectChoice(page, "roundPicker", "new-pending");
   await expect(page.locator("#historyStatus")).toHaveText("Source available. Content is pending or unavailable.");
   await expect(page.locator("#comparisonModes")).toHaveText("Source");
 });
@@ -539,7 +540,7 @@ test("real Send and acknowledged result produce a durable automatic Content comp
   await page.reload();
   await waitForSdk(page);
   await page.locator("#seeChanges").click();
-  await expect(page.locator("#roundPicker")).toHaveValue(round.roundId);
+  await expect(page.locator("#roundPicker")).toHaveAttribute("data-value", round.roundId);
   await expect(page.locator("#changeDetail")).toContainText("After result");
 });
 
@@ -753,7 +754,7 @@ test("populated continuous comparisons align real Content and Source across two 
           await page.setViewportSize({ width, height: 1000 });
           await page.locator("#historyPanel").evaluate((element) => { element.scrollTop = 0; });
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-          const controls = await page.locator(".changes-controls button, .changes-controls select, .changes-navigation button, .changes-navigation select").evaluateAll((elements) =>
+          const controls = await page.locator(".changes-controls button, .changes-controls select, .changes-toolbar button, .changes-toolbar select").evaluateAll((elements) =>
             elements.filter((element) => element.checkVisibility()).map((element) => {
               const { x, y, width, height } = element.getBoundingClientRect();
               return { id: element.id || element.textContent, x, y, width, height };
@@ -810,7 +811,7 @@ test("populated continuous comparisons align real Content and Source across two 
     expect(preserved.rows).toEqual(firstComparison.rows);
     expect(preserved.changes).toEqual(firstComparison.changes);
     await page.locator("#seeChanges").click();
-    await page.locator("#roundPicker").selectOption(round.roundId);
+    await selectChoice(page, "roundPicker", round.roundId);
     await page.getByRole("button", { name: "Content", exact: true }).click();
     await expect(page.locator(".comparison-after h1")).toHaveText("Release readiness and rollout");
   });

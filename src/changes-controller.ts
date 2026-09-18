@@ -140,6 +140,7 @@ export function createChangesController(options: Options) {
       disabled, loading: history.loading, key, mode, index, modes, detailVersion, scrollRequest, hasComparison: modes.length > 0,
       rounds: history.rounds.map((item, position) => ({
         value: roundId(item),
+        shortLabel: `Round ${item.ordinal || item.number || history.rounds.length - position}`,
         label: `Round ${item.ordinal || item.number || history.rounds.length - position} · ${item.captureStatus === "ready" ? "completed" : item.captureStatus || item.status || item.feedbackStatus || "pending"}`,
       })),
       selectedId: history.selectedId || "",

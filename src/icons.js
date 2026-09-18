@@ -30,6 +30,28 @@ export const ICON_NODES = Object.freeze({
       }
     ]
   ],
+  "plus": [
+    [
+      "path",
+      {
+        "d": "M5 12h14"
+      }
+    ],
+    [
+      "path",
+      {
+        "d": "M12 5v14"
+      }
+    ]
+  ],
+  "minus": [
+    [
+      "path",
+      {
+        "d": "M5 12h14"
+      }
+    ]
+  ],
   "locate": [
     [
       "line",

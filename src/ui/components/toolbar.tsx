@@ -2,6 +2,7 @@ import { useRef, useSyncExternalStore } from "react";
 import type { ToolbarController } from "../../toolbar-controller.js";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuTrigger,
@@ -13,14 +14,14 @@ export function Toolbar({ runtime }: { runtime: ToolbarController }) {
   const commands = runtime.commands;
   const modeTrigger = useRef<HTMLButtonElement>(null);
   return <>
-    <div className="shell-destinations" role="group" aria-label="Review destination">
-      <Button id="latestVersion" variant={!state.comparing ? "secondary" : "ghost"}
-        aria-pressed={!state.comparing} aria-controls="frame" disabled={state.ended}
-        onClick={() => commands.setComparing(false)}>Review</Button>
-      <Button id="seeChanges" variant={state.comparing ? "secondary" : "ghost"}
-        aria-pressed={state.comparing} aria-controls="historyPanel" disabled={state.ended}
-        onClick={() => commands.setComparing(true)}>Changes</Button>
-    </div>
+    <SegmentedControl className="shell-destinations" aria-label="Review destination">
+      <SegmentedControlItem id="latestVersion" selected={!state.comparing}
+        aria-controls="frame" disabled={state.ended}
+        onClick={() => commands.setComparing(false)}>Review</SegmentedControlItem>
+      <SegmentedControlItem id="seeChanges" selected={state.comparing}
+        aria-controls="historyPanel" disabled={state.ended}
+        onClick={() => commands.setComparing(true)}>Changes</SegmentedControlItem>
+    </SegmentedControl>
     <div className="shell-mode" role="group" aria-label="Page controls" hidden={state.comparing}>
       <DropdownMenu modal={false} open={state.modeMenuOpen} onOpenChange={commands.setModeMenu}>
         <DropdownMenuTrigger asChild>

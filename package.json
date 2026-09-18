@@ -35,6 +35,8 @@
     "preview:recovery": "node scripts/ui-preview.js --recovery",
     "preview:shell": "npm run build && node scripts/shell-preview.js",
     "preview:review": "npm run build && node scripts/migration-review.js",
+    "media:readme": "npm run build && node scripts/capture-readme.js",
+    "media:preview": "node scripts/preview-readme.js",
     "test:browser": "npm run build && playwright test",
     "test:package": "node scripts/package-smoke.js",
     "test:package:browser": "node scripts/package-smoke.js --browser",

@@ -44,6 +44,8 @@ test("Changes projection is cached, immutable and never normalizes by mutating i
   const snapshot = controller.getSnapshot();
   assert.equal(snapshot.index, 1);
   assert.equal(snapshot.mode, "content");
+  assert.equal(snapshot.rounds[0].shortLabel, "Round 1");
+  assert.equal(snapshot.rounds[0].label, "Round 1 · acknowledged");
   assert.equal(history.index, 999);
   assert.equal(history.preferredMode, "unavailable");
   assert.equal(controller.getSnapshot(), snapshot);

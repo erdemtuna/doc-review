@@ -33,9 +33,14 @@ build includes it and the icon license in the packaged third-party notices.
 
 Radix handles interaction behavior, Tailwind supplies utilities, and semantic
 tokens define appearance. Not every control needs a primitive: the styled
-native select retains the browser's selection behavior. Icons reuse the
+native select remains available in the component gallery. Changes selections
+use styled radio menus to match View/Edit. Icons reuse the
 existing Lucide allowlist through a typed SVG adapter, without HTML injection
 or a second icon library.
+
+Review/Changes and Content/Source share `SegmentedControl` and
+`SegmentedControlItem`: the same inset border, selected treatment and button
+size, while keeping separate labelled groups and their existing commands.
 
 ## Tokens and styling
 
@@ -50,6 +55,7 @@ or a second icon library.
 | border, input, ring | Separators, controls and visible keyboard focus |
 | review-added/removed/modified | Dedicated historical comparison semantics |
 | review-insert/delete | Inline comparison emphasis |
+| review-count-added/modified/removed | Emerald/blue/rose count and legend icons; separate from comparison highlights |
 | review-control-height, radius, spacing, type | Shared compact density |
 | review-layer-*, review-duration | Predictable layers and reduced motion |
 
@@ -60,6 +66,12 @@ portalled controls. This prevents names such as `--card` from changing the
 legacy shell during staged coexistence. The isolated preview marks its root
 with `review-ui`; the production shell must opt in surface by surface.
 
+Keep `--radius-md` on that same scope as an alias of `--radius`. The adapted
+shadcn compact controls reference it directly in arbitrary utilities; a
+root-level alias cannot resolve the surface-scoped token and leaves square
+corners. The Changes toolbar uses 12px horizontal padding to keep its controls
+inset from the comparison edge.
+
 The UI stylesheet deliberately imports Tailwind theme/utilities without global
 Preflight. Its baseline is scoped to `.review-ui`; historical typography will
 be explicit rather than relying on browser defaults. Do not inject shell
@@ -69,6 +81,53 @@ Use semantic utilities rather than hard-coded palette classes. Geometry from
 the reviewed frame remains measured, typed CSS variables/styles rather than
 constructed Tailwind class names. Keep meaningful text/symbol labels alongside
 comparison colors.
+
+## Compact Changes toolbar
+
+`ChangesToolbar` occupies the stable `changesNavigationRoot` portal inside the
+sticky comparison header. Round and optional Page sit on the left, navigation
+is centred on the full toolbar, and Content/Source with icon counts sits on the
+right. Equal outer grid columns keep navigation truly centred despite unequal
+side groups. Narrow screens stack these groups in the same DOM/keyboard order,
+with navigation still centred. There is no separate normal-state Round card.
+Normal availability status is screen-reader-only, not visible toolbar text.
+`ChangesControls` is only the nonsticky supporting area for loading, partial,
+waiting, error and capture/retry
+states; a status message is rendered in exactly one location.
+
+Round/Page/Jump use `ChoiceMenu`, built from the existing outline Button and
+nonmodal Radix radio-menu primitives. Their 32px height, padding, radius and
+interaction treatment match View/Edit; the existing 38px outer segmented group
+is centre-aligned alongside them. Round uses a structured short label on its
+trigger; full labels and selection checkmarks remain in the menu. Bounded menu
+scrolling and typeahead keep every option reachable.
+
+Navigation is Previous, a position dropdown such as **2 of 6**, and Next. The
+position dropdown is Jump to; its menu contains the full change descriptions.
+One local disclosure owner prevents multiple Changes menus from opening.
+Escape/selection return focus without undoing comparison scrolling. If selecting
+a page temporarily disables its trigger, focus can return when it becomes ready,
+but intervening pointer, keyboard or focus activity cancels that deferred return.
+
+Counts use plus, pencil and minus icons with numbers, including zero. Hover
+titles and complete accessible names describe Added/Modified/Removed, and the
+Comparison details disclosure includes a visible legend. The statistics are
+not buttons and do not add tab stops. All three badges share the neutral card
+surface, border and standard foreground for numbers. Only the icons carry
+semantic color: deeper emerald/blue/rose in light mode and lighter counterparts
+in dark mode. The legend uses the same icon tokens. Historical row and inline
+comparison highlight colors are unchanged.
+
+The toolbar and Before/After headings stay sticky.
+Explicit change navigation measures that committed header and applies its height
+as the selected row's scroll margin, accounting for wrapped toolbar rows.
+
+Available zero-change comparisons retain format and counts. Navigation remains
+hidden for fewer than two changes. The header itself stays available even without
+a comparison so Round and Page can still be selected; only the representation
+controls, headings and detail hide. Responsive layout uses CSS, not
+duplicate control trees or viewport-driven remounts. Controllers and the live
+document retain their existing ownership.
 
 ## G1 manual review
 
