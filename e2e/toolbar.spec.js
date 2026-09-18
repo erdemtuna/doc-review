@@ -121,7 +121,7 @@ test("G2 populated toolbar and portals fit all review widths in both themes", as
       expect(destinationBox.x - iconBox.x - iconBox.width).toBe(8);
       expect(await brand.evaluate((image) => image.complete && image.naturalWidth === 64)).toBe(true);
       expect(await destination.evaluate((element) => getComputedStyle(element).borderRadius)).toBe("8px");
-      expect(await page.locator("#latestVersion").evaluate((element) => ({
+      await expect.poll(() => page.locator("#latestVersion").evaluate((element) => ({
         fill: getComputedStyle(element).backgroundColor,
         ink: getComputedStyle(element).color,
         inset: getComputedStyle(element, "::before").top,
