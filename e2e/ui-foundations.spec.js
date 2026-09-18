@@ -143,6 +143,6 @@ test("G1 styles stay scoped and reduced motion disables component transitions", 
     return result;
   });
   expect(values.legacy).toBe("rgb(1, 2, 3)");
-  expect(values.ui).toBe("rgb(255, 255, 255)");
+  expect(values.ui).toBe("rgb(255, 253, 247)");
   expect(values.transition).toBe("0s");
 });

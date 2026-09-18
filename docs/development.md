@@ -22,7 +22,7 @@ the runtime and do not require TypeScript or an installation build.
 | Command | Purpose |
 | --- | --- |
 | `npm run typecheck` | Strict shared, browser, Node, UI, UI-test, and tooling checks |
-| `npm run build` | Check types, emit Node/SDK ESM, bundle UI, and copy runtime assets |
+| `npm run build` | Generate palette/brand assets, check types, emit Node/SDK ESM, bundle UI, and copy runtime assets |
 | `npm run test:unit` | Rebuild and run Node unit and UI component tests |
 | `npm run test:ui` | Run focused Vitest/Testing Library component tests in jsdom |
 | `npm run preview:ui` | Build and serve the isolated G1 component gallery |
@@ -43,6 +43,14 @@ Install Chromium before the browser commands. CI uses
 `test:package:browser` when validating the installed browser experience too.
 
 Source lives in `src`; the TypeScript compiler emits Node/SDK ESM into `lib`.
+Before checking types, the build generates the shell/SDK palette from
+`src/review-palette.js` and the inline toolbar/favicon asset from
+`src/assets/doc-review.svg`. Run `node scripts/generate-review-theme.js` and
+`node scripts/generate-brand.js` after changing their sources; brand generation
+also supports `--check` to reject stale outputs without writing. Keep generated
+outputs in sync rather than editing their colors or encoded SVG by hand.
+The SDK does not import a palette module at browser runtime, and the favicon
+needs no new server route or static bundle output.
 Vite separately bundles `src/ui/main.tsx` into deterministic `lib/ui/chrome.js`
 and `lib/ui/chrome.css`, still served at `/chrome.js` and `/chrome.css`.
 The entry mounts the React toolbar and More menu outside the authored iframe,
@@ -52,7 +60,8 @@ footer share that root through stable portals; session controllers own their
 drafts and mutations. Changes controls and both comparison representations also
 use React; the old imperative comparison renderer and route have been removed.
 Legacy styles occupy a lower cascade layer; new tokens and baselines apply only
-inside `.review-ui` surfaces and their portals. The G1 gallery stays separate.
+inside `.review-ui` surfaces and their portals, with generated legacy aliases
+sharing the same palette. The G1 gallery stays separate.
 React, Tailwind, Radix-backed shadcn controls, and browser-only dependencies are
 build-time dependencies; installed packages require no Vite or UI tooling.
 Vite emits bundled dependency licenses in `lib/ui/THIRD_PARTY_NOTICES.md`;
@@ -189,8 +198,8 @@ at HTTP, frame, or persisted data boundaries.
 Frame configuration confirmation and the visual replacement handoff are
 separate milestones. A matching settings acknowledgement cancels its deadline
 immediately; the two-paint handoff may remain pending while a background tab
-pauses animation frames. Deferred paint callbacks must match both the current
-render and configuration attempt. Missing or mismatched acknowledgements still
+pauses animation frames. Deferred paint callbacks must match the current
+render, configuration attempt, and latest acknowledged theme. Missing or mismatched acknowledgements still
 fail safely. Lifecycle regressions pause shell painting while leaving messages
 and timers running, then verify source updates and interaction after resuming.
 

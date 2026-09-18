@@ -12,6 +12,7 @@ export function createFrameHost(initial: HTMLIFrameElement, artifactOrigin: stri
   let disposed = false;
   const loadListeners = new Set<() => void>();
   const focusListeners = new Set<() => void>();
+  const removalListeners = new Set<() => void>();
   const detach = new Map<HTMLIFrameElement, () => void>();
   const paintFrames = new Set<number>();
   function paint(callback: () => void) {
@@ -47,6 +48,12 @@ export function createFrameHost(initial: HTMLIFrameElement, artifactOrigin: stri
   return {
     get current() { return current; },
     get previous() { return previous; },
+    get currentWindow() { return current.contentWindow; },
+    get previousWindow() { return previous?.contentWindow || null; },
+    onPreviousRemoved(listener: () => void) {
+      removalListeners.add(listener);
+      return () => { removalListeners.delete(listener); };
+    },
     get visibleExecution(): HostExecution | null {
       const visible = previous || current;
       const savePolicy = visible.dataset.savePolicy;
@@ -98,6 +105,7 @@ export function createFrameHost(initial: HTMLIFrameElement, artifactOrigin: stri
     finishReplacement() {
       if (previous) remove(previous);
       previous = null;
+      for (const listener of removalListeners) listener();
       delete current.dataset.replacing;
     },
     suspend() { current.removeAttribute("data-sdk-ready"); },
@@ -127,6 +135,7 @@ export function createFrameHost(initial: HTMLIFrameElement, artifactOrigin: stri
       paintFrames.clear();
       loadListeners.clear();
       focusListeners.clear();
+      removalListeners.clear();
     },
   };
 }

@@ -39,12 +39,37 @@ existing Lucide allowlist through a typed SVG adapter, without HTML injection
 or a second icon library.
 
 Review/Changes and Content/Source share `SegmentedControl` and
-`SegmentedControlItem`: the same inset border, selected treatment and button
-size, while keeping separate labelled groups and their existing commands.
+`SegmentedControlItem`, while keeping separate labelled groups and their
+existing commands. The shell scopes a compact treatment to Review/Changes;
+it does not change the sizing of the Content/Source control.
+
+## Brand and toolbar
+
+The brand is one paper comment bubble with compact opposing arrow cutouts,
+on a teal rounded-square tile. `src/assets/doc-review.svg` owns the geometry:
+a 64 by 64 canvas with a 14-unit corner radius. Its fixed teal `#17685F`
+and paper `#FFFDF7` colors do not invert with the theme. This custom artwork
+is separate from the generated Lucide action icons.
+
+`scripts/generate-brand.js` validates the artwork against the canonical brand
+colors and derives the toolbar image and encoded SVG favicon. The favicon is
+embedded in the outer shell only. Do not change the reviewed document's title,
+favicon, or head; the outer tab retains its filename/path title behavior.
+
+The toolbar mark is a named, noninteractive 32 by 32 image beside the original
+Review destination button group, separated by 8px. Both selector and button
+hit areas are 32px tall at normal text size. Its border is inset rather than
+adding layout height; the selected background is inset 3px. The group radius
+is 8px and the decorative selection radius is 5px. Focus outlines remain
+outside the buttons. Text can reflow rather than clip at larger text sizes.
+The ordinary narrow toolbar keeps its two-row layout.
 
 ## Tokens and styling
 
-`src/ui/styles/tokens.css` is the canonical light/dark token map:
+`src/review-palette.js` is the canonical light/dark color map. Build-time
+generation derives semantic UI colors, legacy shell aliases and the SDK's
+embedded review-tool colors from it. `src/ui/styles/tokens.css` retains the
+non-color density, typography, layer and motion tokens:
 
 | Family | Purpose |
 | --- | --- |
@@ -55,16 +80,20 @@ size, while keeping separate labelled groups and their existing commands.
 | border, input, ring | Separators, controls and visible keyboard focus |
 | review-added/removed/modified | Dedicated historical comparison semantics |
 | review-insert/delete | Inline comparison emphasis |
-| review-count-added/modified/removed | Emerald/blue/rose count and legend icons; separate from comparison highlights |
+| review-count-added/modified/removed | Olive/amber/rose count and legend inks; separate from comparison backgrounds |
 | review-control-height, radius, spacing, type | Shared compact density |
 | review-layer-*, review-duration | Predictable layers and reduced motion |
 
 Keep `doc-review:theme` and `data-theme="light|dark"` as the theme contract.
 Light is the default unless the stored preference is exactly `dark`.
-The token values and control baseline are scoped to `review-ui`, including
-portalled controls. This prevents names such as `--card` from changing the
-legacy shell during staged coexistence. The isolated preview marks its root
-with `review-ui`; the production shell must opt in surface by surface.
+Semantic values and the control baseline are scoped to `review-ui`, including
+portalled controls. A generated legacy alias bridge gives the remaining shell
+surfaces the same palette. The isolated preview marks its root with `review-ui`.
+Teal denotes actions and focus, not successful saves. Added, removed and
+modified comparisons keep separate olive, rose and amber semantics and labels.
+`--review-added`, `--review-removed` and `--review-modified` are backgrounds,
+not text inks. Use their paired foregrounds for text. Essential input boundaries
+use `--input`, not the quieter decorative `--border`.
 
 Keep `--radius-md` on that same scope as an alias of `--radius`. The adapted
 shadcn compact controls reference it directly in arbitrary utilities; a
@@ -75,7 +104,18 @@ inset from the comparison edge.
 The UI stylesheet deliberately imports Tailwind theme/utilities without global
 Preflight. Its baseline is scoped to `.review-ui`; historical typography will
 be explicit rather than relying on browser defaults. Do not inject shell
-styles or tokens into the authored-document iframe.
+styles or root tokens into the authored-document iframe. The SDK themes only
+review-owned tools, highlight styles and selection cues. It does not recolor the
+authored HTML/body or serialize theme metadata into the user's document.
+
+The shell owns the desired theme and sends a separately validated, revisioned
+`eh:setTheme` command. The SDK applies it in place and acknowledges
+`eh:themeApplied`; theme changes do not invoke review-mode configuration.
+Initial annotation tools remain gated until the first application. A timeout
+surfaces **Retry theme**, which retries the latest preference without replacing
+the iframe or losing drafts. During an iframe handoff, the retained previous
+frame has a separate theme-only channel, never an edit channel. Mode, save,
+delivery and history semantics are unchanged.
 
 Use semantic utilities rather than hard-coded palette classes. Geometry from
 the reviewed frame remains measured, typed CSS variables/styles rather than
@@ -129,7 +169,7 @@ states; a status message is rendered in exactly one location.
 
 Round/Page/Jump use `ChoiceMenu`, built from the existing outline Button and
 nonmodal Radix radio-menu primitives. Their 32px height, padding, radius and
-interaction treatment match View/Edit; the existing 38px outer segmented group
+interaction treatment match View/Edit; Content/Source's unchanged 38px outer group
 is centre-aligned alongside them. Round uses a structured short label on its
 trigger; full labels and selection checkmarks remain in the menu. Bounded menu
 scrolling and typeahead keep every option reachable.
@@ -146,9 +186,9 @@ titles and complete accessible names describe Added/Modified/Removed, and the
 Comparison details disclosure includes a visible legend. The statistics are
 not buttons and do not add tab stops. All three badges share the neutral card
 surface, border and standard foreground for numbers. Only the icons carry
-semantic color: deeper emerald/blue/rose in light mode and lighter counterparts
+semantic color: deeper olive/amber/rose in light mode and lighter counterparts
 in dark mode. The legend uses the same icon tokens. Historical row and inline
-comparison highlight colors are unchanged.
+highlights use paired backgrounds from the same semantic families.
 
 The toolbar and Before/After headings stay sticky.
 Explicit change navigation measures that committed header and applies its height

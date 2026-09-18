@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { isFrameIdentity } from "../lib/contracts/frame.js";
+import { isFrameIdentity, isThemePayload } from "../lib/contracts/frame.js";
 import { isPageResponse, isRenderExecution } from "../lib/contracts/page.js";
 import { applyBodyReviewMode, keepBodyInReviewMode, normalizeReviewMode, reviewConfiguration, savePolicyForPage } from "../lib/review-mode.js";
 import { framePolicy, interactiveFileCsp, TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
@@ -102,6 +102,22 @@ test("identity validation does not claim payload validation", () => {
     assert.equal(isFrameIdentity(input), false);
   }
   assert.equal(isFrameIdentity({ capability: "c", generation: 1, pageKey: "p", type: "unknown" }), true);
+});
+
+test("theme payload requires a recognized theme and positive safe integer revision", () => {
+  for (const theme of ["light", "dark"]) {
+    assert.equal(isThemePayload({ theme, themeRevision: 1 }), true);
+    assert.equal(isThemePayload({ theme, themeRevision: Number.MAX_SAFE_INTEGER }), true);
+  }
+  for (const theme of [undefined, null, "", "system", {}, 1]) {
+    assert.equal(isThemePayload({ theme, themeRevision: 1 }), false);
+  }
+  for (const themeRevision of [undefined, null, "1", 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal(isThemePayload({ theme: "light", themeRevision }), false);
+  }
+  for (const value of [null, undefined, "dark", [], {}, { css: "body{color:red}" }]) {
+    assert.equal(isThemePayload(value), false);
+  }
 });
 
 test("snapshot normalization distinguishes raw fields, nullable parent, and persisted provenance", () => {

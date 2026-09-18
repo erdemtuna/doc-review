@@ -280,6 +280,8 @@ const transport = createReviewApi({ token: state.token });
 const api = transport.request;
 const frameController = createFrameController({
   sessionId: state.sessionId, host: frameHost, request: api,
+  activated: completeFrameReady,
+  diagnostic: (code) => diagnostic(code, {}),
   suspended() {
     captures.cancel();
     captureCoordinator.reset();
@@ -371,6 +373,7 @@ export const recoveryRuntime = createRecoveryController({
     comparing: state.comparing, ended: state.ended, loading: frameController.loading,
     pendingReload: frameController.state.pendingReload || !!frameHost.previous,
     frameError: frameController.state.phase.kind === "failed" ? frameController.state.phase.message : null,
+    themeSync: frameController.themeSync,
     reload: {
       visible: state.reloadVisible, message: state.reloadMessage,
       error: state.reloadFailed || saveController.state.conflict,
@@ -395,6 +398,7 @@ export const recoveryRuntime = createRecoveryController({
     toFrame({ type: "eh:modeMenuState", open });
   },
   reload: () => reloadLatest({ explicit: true }),
+  retryTheme: () => frameController.retryTheme(),
   keepCurrent() {
     state.reloadVisible = false;
     announce("Keeping the current page. Return to Review to reload when ready.");
@@ -1275,44 +1279,46 @@ function targetPayload(msg) {
   };
 }
 
+function completeFrameReady(readyState) {
+  state.page = { ...state.page, ...readyState };
+  toFrame({ type: "eh:anchors", comments: state.page ? state.page.comments : [] });
+  if (frameController.state.reloading) {
+    toFrame({ type: "eh:restoreScroll", x: state.scroll.x, y: state.scroll.y });
+    frameController.restoredScroll();
+  }
+  const configuration = reviewConfiguration(state.page, state.reviewMode);
+  state.savePolicy = configuration.savePolicy;
+  void frameController.configure(configuration.mode, configuration.savePolicy, false);
+  render();
+  if (state.page?.kind !== "url") {
+    const rawIdentity = currentRender();
+    void api(`/api/page/${frameController.state.key}/raw`).then((raw) => {
+      if (!sameRender(rawIdentity, currentRender()) || frameController.state.pendingReload) return;
+      if (frameController.state.sourceHash && frameController.state.sourceHash !== raw.hash) {
+        saveController.markConflict();
+        holdReload();
+        return;
+      }
+      saveController.baseline(raw.hash || null);
+      if (configuration.savePolicy === "writable") toFrame({ type: "eh:raw", html: raw.html });
+      scheduleResultCapture();
+    }).catch((error) => {
+      if (sameRender(rawIdentity, currentRender()) && !state.ended) {
+        toast(`Source could not be loaded: ${error.message}. Reload before saving.`);
+      }
+    });
+  }
+  void refreshHistory();
+}
+
 listen(window, "message", async (event) => {
+  if (frameController.handleThemeMessage(event)) return;
   if (!frameController.accepts(event)) return;
   const msg = event.data;
 
   switch (msg.type) {
     case "eh:ready": {
-      const readyIdentity = currentRender();
-      const readyState = await frameController.ready();
-      if (!readyState || !sameRender(readyIdentity, currentRender())) return;
-      state.page = { ...state.page, ...readyState };
-      toFrame({ type: "eh:anchors", comments: state.page ? state.page.comments : [] });
-      if (frameController.state.reloading) {
-        toFrame({ type: "eh:restoreScroll", x: state.scroll.x, y: state.scroll.y });
-        frameController.restoredScroll();
-      }
-      const configuration = reviewConfiguration(state.page, state.reviewMode);
-      state.savePolicy = configuration.savePolicy;
-      void frameController.configure(configuration.mode, configuration.savePolicy, false);
-      render();
-      if (state.page?.kind !== "url") {
-        const rawIdentity = currentRender();
-        void api(`/api/page/${frameController.state.key}/raw`).then((raw) => {
-          if (!sameRender(rawIdentity, currentRender()) || frameController.state.pendingReload) return;
-          if (frameController.state.sourceHash && frameController.state.sourceHash !== raw.hash) {
-            saveController.markConflict();
-            holdReload();
-            return;
-          }
-          saveController.baseline(raw.hash || null);
-          if (configuration.savePolicy === "writable") toFrame({ type: "eh:raw", html: raw.html });
-          scheduleResultCapture();
-        }).catch((error) => {
-          if (sameRender(rawIdentity, currentRender()) && !state.ended) {
-            toast(`Source could not be loaded: ${error.message}. Reload before saving.`);
-          }
-        });
-      }
-      void refreshHistory();
+      await frameController.ready();
       break;
     }
     case "eh:configurationApplied":
@@ -1541,6 +1547,7 @@ function toggleTheme() {
 function applyTheme(dark) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   state.theme = dark ? "dark" : "light";
+  frameController.setTheme(state.theme);
   toolbarRuntime.publish();
 }
 

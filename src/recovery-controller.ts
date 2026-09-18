@@ -2,6 +2,7 @@ import { createControllerStore } from "./controller-store.js";
 import { decodePage, record } from "./chrome-api.js";
 import type { ExecutionPreference, FrameRenderState, PageMetadata, PageResponse, RenderExecution } from "./contracts/page.js";
 import { executionPresentation } from "./execution-client.js";
+import type { ThemeSync } from "./frame-controller.js";
 
 export interface RecoveryContext {
   page: Partial<PageMetadata> | null;
@@ -13,6 +14,7 @@ export interface RecoveryContext {
   pendingReload: boolean;
   frameError: string | null;
   reload: { visible: boolean; message: string; error: boolean };
+  themeSync?: ThemeSync;
 }
 
 interface Options {
@@ -24,6 +26,7 @@ interface Options {
   menuChanged(open: boolean): void;
   reload(): Promise<void>;
   keepCurrent(): void;
+  retryTheme?(): Promise<boolean>;
 }
 
 export function createRecoveryController(options: Options) {
@@ -52,6 +55,9 @@ export function createRecoveryController(options: Options) {
       reloadMessage: context.reload.message, reloadError: context.reload.error,
       canReload: !disposed && visible && context.reload.visible && !!context.identity.key && (!context.loading || !!context.frameError) && !reloadBusy,
       reloadBusy,
+      themeVisible: visible && context.themeSync?.status === "failed",
+      themeMessage: context.themeSync?.message || "",
+      canRetryTheme: !disposed && visible && context.themeSync?.status === "failed" && !!options.retryTheme,
       status: visible && !context.reload.visible ? (context.frameError || error || view.status || (busy ? "Updating page recovery settings…" : "")) : "",
       statusError: !!context.frameError || !!error,
     };
@@ -117,6 +123,11 @@ export function createRecoveryController(options: Options) {
     getSnapshot: store.getSnapshot, subscribe: store.subscribe, publish,
     commands: {
       setMenuOpen, recover, reload,
+      async retryTheme() {
+        if (!project().canRetryTheme) return;
+        await options.retryTheme?.();
+        publish();
+      },
       keepCurrent() {
         if (disposed || !project().reloadVisible || reloadBusy) return;
         options.keepCurrent();

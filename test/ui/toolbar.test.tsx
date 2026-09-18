@@ -28,6 +28,11 @@ it("owns accessible destinations with stable controls and one command per Strict
   const { runtime, state, commands } = fixture();
   const user = userEvent.setup();
   render(<StrictMode><Toolbar runtime={runtime} /></StrictMode>);
+  const brand = screen.getByRole("img", { name: "Doc Review" });
+  expect(brand).toHaveAttribute("width", "32");
+  expect(brand).toHaveAttribute("height", "32");
+  expect(brand).not.toHaveAttribute("tabindex");
+  expect(screen.getByRole("group", { name: "Review destination" })).not.toContainElement(brand);
   const review = screen.getByRole("button", { name: "Review" });
   const changes = screen.getByRole("button", { name: "Changes" });
   expect(review).toHaveAttribute("aria-controls", "frame");
@@ -38,9 +43,9 @@ it("owns accessible destinations with stable controls and one command per Strict
   expect(changes).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Feedback" })).toBeNull();
   await user.click(review);
-  const theme = screen.getByRole("button", { name: "Switch chrome to dark" });
+  const theme = screen.getByRole("button", { name: "Switch review tools to dark" });
   await user.click(theme);
-  expect(screen.getByRole("button", { name: "Switch chrome to light" })).toBe(theme);
+  expect(screen.getByRole("button", { name: "Switch review tools to light" })).toBe(theme);
   act(() => { state.feedbackCount = 1000; runtime.publish(); });
   expect(screen.getByTitle("1000 feedback items")).toHaveTextContent("99+");
   expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("1000 feedback items");

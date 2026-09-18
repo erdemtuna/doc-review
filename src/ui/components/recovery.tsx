@@ -46,8 +46,18 @@ export function RecoveryMenu({ runtime }: { runtime: RecoveryController }) {
 
 export function RecoveryNotices({ runtime }: { runtime: RecoveryController }) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
-  if (!state.reloadVisible && !state.status) return null;
+  if (!state.reloadVisible && !state.status && !state.themeVisible) return null;
   return <div className="review-ui recovery-notices">
+    {state.themeVisible && <section id="themeNotice" className="recovery-notice" data-error="true"
+      aria-label="Annotation theme">
+      <div role="alert">
+        <strong className="block font-medium">Annotation theme needs attention</strong>
+        <p className="mt-1">{state.themeMessage}</p>
+      </div>
+      <Button id="retryTheme" disabled={!state.canRetryTheme}
+        className="h-auto min-h-8 max-w-full whitespace-normal py-1.5"
+        onClick={() => { void runtime.commands.retryTheme(); }}>Retry theme</Button>
+    </section>}
     {state.reloadVisible
       ? <section id="reloadNotice" className="recovery-notice" data-error={state.reloadError}
           aria-label="Source update">
@@ -66,7 +76,7 @@ export function RecoveryNotices({ runtime }: { runtime: RecoveryController }) {
             </Button>
           </div>
         </section>
-      : <p id="executionStatus" className="recovery-notice" data-error={state.statusError}
+      : state.status && <p id="executionStatus" className="recovery-notice" data-error={state.statusError}
           role={state.statusError ? "alert" : "status"}>{state.status}</p>}
   </div>;
 }

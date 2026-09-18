@@ -9,6 +9,12 @@ const output = path.join(root, "lib");
 const source = path.join(root, "src");
 const assets = ["chrome.html", "SKILL.md"];
 
+for (const generator of ["generate-review-theme.js", "generate-brand.js"]) {
+  const result = spawnSync(process.execPath, [path.join(root, "scripts", generator)], { cwd: root, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
 if (output === source || path.dirname(output) !== path.resolve(root) || path.basename(output) !== "lib") {
   throw new Error("Refusing to clean an unexpected build output path");
 }

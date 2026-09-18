@@ -2,6 +2,7 @@ import type {
   AvailableComparison, CaptureProvenance, FrameEnvelope, FrameIdentity, Page, PersistedPageRecord,
   RawPageInput, RawSemanticSnapshotInput, RevisionComparison, SemanticSnapshot, ShellToFrameMessage,
   SnapshotMessage, UnavailableComparison, PageResponse, FrameRenderState, RenderExecution,
+  FrameToShellMessage, ThemePayload,
 } from "../../src/contracts/index.js";
 import { isFrameIdentity, isPageResponse } from "../../src/contracts/index.js";
 import { framePolicy } from "../../src/frame-policy.js";
@@ -20,6 +21,16 @@ export type RejectGenerationString = Assert<NotAssignable<{ capability: string; 
 export type RejectMissingCaptureResult = Assert<NotAssignable<{ type: "eh:snapshot"; requestId: string }, SnapshotMessage>>;
 export type RequireUnavailableReason = Assert<NotAssignable<{ available: false; mode: "content"; changes: []; limitations: [] }, UnavailableComparison>>;
 export type RejectUnavailableCounts = Assert<NotAssignable<UnavailableComparison, AvailableComparison>>;
+export type RequireTheme = Assert<NotAssignable<{ themeRevision: number }, ThemePayload>>;
+export type RequireThemeRevision = Assert<NotAssignable<{ theme: "light" }, ThemePayload>>;
+export type RejectNullTheme = Assert<NotAssignable<{ theme: null; themeRevision: number }, ThemePayload>>;
+export type RejectNullThemeRevision = Assert<NotAssignable<{ theme: "light"; themeRevision: null }, ThemePayload>>;
+export type RejectUnknownTheme = Assert<NotAssignable<{ theme: "system"; themeRevision: number }, ThemePayload>>;
+export type RejectThemeAckDirection = Assert<NotAssignable<{ type: "eh:themeApplied"; theme: "light"; themeRevision: number }, ShellToFrameMessage>>;
+export type RejectThemeCommandDirection = Assert<NotAssignable<{ type: "eh:setTheme"; theme: "light"; themeRevision: number }, FrameToShellMessage>>;
+export const themeCommand = {
+  type: "eh:setTheme", theme: "dark", themeRevision: 1, capability: "secret", generation: 1, pageKey: "page",
+} satisfies FrameEnvelope<ShellToFrameMessage>;
 
 export const configuration = reviewConfiguration({ kind: "file", arbitrary: true }, "invalid");
 export const defaultMode = normalizeReviewMode();

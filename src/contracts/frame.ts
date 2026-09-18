@@ -9,6 +9,15 @@ export interface FrameIdentity {
 }
 export type FrameEnvelope<Message> = Message & FrameIdentity;
 
+export type ReviewTheme = "light" | "dark";
+export interface ThemePayload { theme: ReviewTheme; themeRevision: number }
+export function isThemePayload(value: unknown): value is ThemePayload {
+  return typeof value === "object" && value !== null &&
+    "theme" in value && (value.theme === "light" || value.theme === "dark") &&
+    "themeRevision" in value && typeof value.themeRevision === "number" &&
+    Number.isSafeInteger(value.themeRevision) && value.themeRevision > 0;
+}
+
 /** Correlation alone does not validate a message type or its payload. */
 export function isFrameIdentity(value: unknown): value is FrameIdentity {
   return typeof value === "object" && value !== null &&
@@ -38,6 +47,7 @@ export interface TargetGeometry {
   horizontal: number | null;
 }
 export type ShellToFrameMessage =
+  | ({ type: "eh:setTheme" } & ThemePayload)
   | ({ type: "eh:configureReview" } & ReviewConfiguration)
   | { type: "eh:anchors"; comments: FeedbackComment[] }
   | { type: "eh:activate"; id: string; scroll: boolean }
@@ -62,6 +72,7 @@ export type SnapshotMessage =
   | { type: "eh:snapshot"; requestId: string; error: { code: string; message: string }; snapshot?: never };
 
 export type FrameToShellMessage =
+  | ({ type: "eh:themeApplied" } & ThemePayload)
   | { type: "eh:ready"; scrollHeight: number }
   | ({ type: "eh:configurationApplied" } & ReviewConfiguration)
   | ({ type: "eh:target" | "eh:openComment" | "eh:targetGeometry" } & TargetGeometry)

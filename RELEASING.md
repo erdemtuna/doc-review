@@ -14,6 +14,26 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.12.0 release checklist
+
+This release introduces the rounded teal-tile/paper-bubble identity, a matching
+favicon, a 32px Review/Changes selector, and one warm-paper/teal palette across
+the shell and annotation tools. Light/dark changes preserve authored appearance
+and editing state. Explicit **Retry theme** recovers synchronization without
+reloading or discarding drafts, including open link edits during frame resize.
+
+Use `version=0.12.0` and `previous_tag=v0.11.1` for both workflow phases.
+Require the theme protocol, initial/live timeout recovery, retained-frame
+handoff, link-draft resize, narrow/large-text toolbar, contrast, and installed
+package regressions before publishing the immutable candidate. Node
+**24.21.0**, npm **12.0.2**, feedback formats, and page-script permissions
+remain unchanged.
+
+The mandatory shell/SDK theme handshake raises server protocol to **18**.
+End old active reviews before a controlled server restart, preserving pending
+review state. Verify publication integrity, install the released CLI, and run
+`doc-review setup --global` to refresh the installed instructions.
+
 ## v0.11.1 release checklist
 
 This patch fixes false review-settings failures after source updates when

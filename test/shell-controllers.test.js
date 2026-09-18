@@ -38,19 +38,41 @@ function clock() {
 
 function frameFixture(overrides = {}) {
   const messages = [], failures = [], paths = [];
-  const source = {};
+  let source;
+  let autoTheme = overrides.autoTheme !== false;
+  const makeSource = () => {
+    const window = { postMessage(message, origin) {
+      messages.push({ message, origin, source: window });
+      if (autoTheme && message.type === "eh:setTheme") queueMicrotask(() => {
+        controller.handleThemeMessage({
+          source: window, origin: "null", data: { ...message, type: "eh:themeApplied" },
+        });
+      });
+    } };
+    return window;
+  };
+  source = makeSource();
   let load;
+  let removed;
   let previous = null;
   let disposed = false;
+  let readyCount = 0;
   const timers = clock();
   const host = {
     get previous() { return previous; },
+    get currentWindow() { return source; },
+    get previousWindow() { return previous?.source || null; },
+    onPreviousRemoved(fn) { removed = fn; return () => { removed = null; }; },
     onLoad(fn) { load = fn; return () => { load = null; }; },
-    navigate(path, replacing) { paths.push(path); if (replacing) previous = {}; },
-    finishReplacement() { previous = null; },
+    navigate(path, replacing) {
+      paths.push(path);
+      if (replacing && !previous) previous = { source };
+      source = makeSource();
+    },
+    finishReplacement() { previous = null; removed?.(); },
     suspend() {},
-    ready() {},
-    send(message, origin) { messages.push({ message, origin }); },
+    ready() { readyCount++; },
+    send(message, origin) { source.postMessage(message, origin); },
     acceptsSource(value) { return value === source; },
     setPolicy() {},
     afterPaint(fn) { fn(); },
@@ -71,7 +93,12 @@ function frameFixture(overrides = {}) {
     await controller.register("p", generation);
     return generation;
   };
-  return { controller, host, start, messages, failures, paths, timers, source,
+  return { controller, host, start, messages, failures, paths, timers,
+    get source() { return source; }, get readyCount() { return readyCount; },
+    set autoTheme(value) { autoTheme = value; },
+    ack(message = messages.filter(({ message, source: sentTo }) => message.type === "eh:setTheme" && sentTo === source).at(-1)?.message, window = source, extra = {}) {
+      return controller.handleThemeMessage({ source: window, origin: "null", data: { ...message, type: "eh:themeApplied", ...extra } });
+    },
     loaded: () => load?.(), get disposed() { return disposed; } };
 }
 
@@ -285,6 +312,306 @@ test("iframe self-navigation invalidates draft geometry and save baseline throug
   assert.equal(transitions, 2);
   f.controller.dispose();
 });
+
+test("initial theme is acknowledged before exposure and confirming admits only ready/theme acknowledgments", async () => {
+  const f = frameFixture({ autoTheme: false });
+  f.controller.setTheme("dark");
+  const generation = await f.start();
+  const ready = f.controller.ready();
+  await drain();
+  assert.equal(f.readyCount, 0);
+  assert.equal(f.controller.loading, true);
+  assert.equal(f.controller.state.phase.kind, "confirming");
+  assert.equal(f.controller.themeSync.status, "pending");
+  const envelope = { capability: "c", generation, pageKey: "p" };
+  for (const type of ["eh:edit", "eh:target", "eh:configurationApplied", "eh:setTheme"]) {
+    assert.equal(f.controller.accepts({ source: f.source, origin: "null", data: { ...envelope, type } }), false);
+  }
+  assert.equal(f.controller.accepts({
+    source: f.source, origin: "null", data: { ...envelope, type: "eh:themeApplied", theme: "dark", themeRevision: 2 },
+  }), true);
+  assert.equal(f.controller.accepts({
+    source: f.source, origin: "null", data: { ...envelope, type: "eh:themeApplied", theme: "light", themeRevision: 1 },
+  }), false);
+  f.controller.send({ type: "eh:anchors", comments: [] });
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.messages[0].message.theme, "dark");
+  await f.timers.tick(2999);
+  assert.equal(f.readyCount, 0);
+  f.ack();
+  assert.equal((await ready).executionMode, "static");
+  assert.equal(f.readyCount, 1);
+  assert.equal(f.controller.themeSync.status, "applied");
+  assert.equal(f.timers.size, 0);
+  f.controller.dispose();
+});
+
+test("invalid, foreign, unsolicited, and stale theme traffic cannot acknowledge synchronization", async () => {
+  const diagnostics = [];
+  const f = frameFixture({ autoTheme: false, diagnostic: (code) => diagnostics.push(code) });
+  const generation = await f.start();
+  f.controller.handleThemeMessage({ source: f.source, origin: "null", data: {
+    type: "eh:themeApplied", capability: "c", generation, pageKey: "p", theme: "light", themeRevision: 1,
+  } });
+  const ready = f.controller.ready();
+  await drain();
+  const data = { ...f.messages[0].message, type: "eh:themeApplied" };
+  for (const patch of [
+    { capability: "wrong" }, { generation: generation + 1 }, { pageKey: "wrong" },
+    { theme: "dark" }, { themeRevision: 2 }, { themeRevision: 0 }, { themeRevision: "1" },
+    { theme: null }, { themeRevision: null }, { theme: "system" }, { type: "eh:setTheme" },
+  ]) {
+    f.ack(data, f.source, patch);
+    assert.equal(f.readyCount, 0);
+  }
+  for (const event of [
+    { source: {}, origin: "null", data },
+    { source: null, origin: "null", data },
+    { source: f.source, origin: "http://foreign", data },
+  ]) f.controller.handleThemeMessage(event);
+  assert.equal(f.readyCount, 0);
+  assert.deepEqual(diagnostics, ["invalid-theme-acknowledgment"]);
+  f.ack();
+  await ready;
+  f.ack();
+  assert.equal(f.readyCount, 1);
+  f.controller.dispose();
+});
+
+test("rapid initial and live toggles supersede deadlines without mode, reload, or stale failure", async () => {
+  const f = frameFixture({ autoTheme: false });
+  await f.start();
+  const ready = f.controller.ready();
+  await drain();
+  const old = f.messages[0].message;
+  await f.timers.tick(2000);
+  f.controller.setTheme("dark");
+  assert.equal(await ready, null);
+  f.ack(old);
+  assert.equal(f.readyCount, 0);
+  await f.timers.tick(1500);
+  assert.equal(f.controller.themeSync.status, "pending");
+  f.ack();
+  assert.equal(f.readyCount, 1);
+  const identity = f.controller.identity();
+  const execution = f.controller.state.execution;
+  f.controller.setTheme("light");
+  const intermediate = f.messages.at(-1).message;
+  f.controller.setTheme("dark");
+  f.ack(intermediate);
+  assert.equal(f.controller.themeSync.status, "pending");
+  f.ack();
+  await f.timers.tick(6000);
+  assert.equal(f.controller.themeSync.status, "applied");
+  assert.deepEqual(f.controller.identity(), identity);
+  assert.equal(f.controller.state.execution, execution);
+  assert.equal(f.paths.length, 1);
+  assert.equal(f.readyCount, 1);
+  assert.ok(f.messages.every(({ message }) => message.type === "eh:setTheme"));
+  assert.deepEqual(f.messages.map(({ message }) => message.themeRevision), [1, 2, 3, 4]);
+  assert.deepEqual(f.failures, []);
+  f.controller.dispose();
+});
+
+test("initial theme failure preserves confirmed policy and retry resumes without registration or reload", async () => {
+  let confirmations = 0, activations = 0;
+  const f = frameFixture({
+    autoTheme: false, activated: () => { activations++; },
+    request: async (path) => {
+      if (path.endsWith("/ready")) {
+        confirmations++;
+        return { executionMode: "static", savePolicy: "writable", sourceHash: "h" };
+      }
+      return { renderId: "r", capability: "c", sourceHash: "h", path: "/artifact/r/index.html" };
+    },
+  });
+  await f.start();
+  const ready = f.controller.ready();
+  await drain();
+  const initial = f.messages[0].message;
+  const identity = f.controller.identity();
+  const execution = f.controller.state.execution;
+  await f.timers.tick(3000);
+  assert.equal(await ready, null);
+  assert.equal(f.controller.themeSync.status, "failed");
+  assert.match(f.controller.themeSync.message, /Retry theme without reloading/);
+  assert.equal(f.controller.state.phase.kind, "confirming");
+  assert.equal(f.controller.state.execution, execution);
+  assert.equal(f.controller.state.pendingReload, false);
+  await f.timers.tick(20000);
+  f.ack(initial);
+  assert.equal(f.readyCount, 0);
+  assert.equal(f.messages.length, 1);
+  const retry = f.controller.retryTheme();
+  assert.deepEqual(f.messages.at(-1).message, initial);
+  f.ack();
+  assert.equal(await retry, true);
+  assert.equal(f.readyCount, 1);
+  assert.equal(activations, 1);
+  assert.equal(confirmations, 1);
+  assert.equal(f.paths.length, 1);
+  assert.deepEqual({ ...f.controller.identity(), loading: true }, identity);
+  assert.equal(f.controller.themeSync.status, "applied");
+  assert.deepEqual(f.failures, []);
+  f.controller.dispose();
+});
+
+test("live timeout retains last applied theme and readiness; retry sends only latest theme", async () => {
+  const f = frameFixture();
+  await f.start();
+  await f.controller.ready();
+  const identity = f.controller.identity();
+  f.autoTheme = false;
+  f.controller.setTheme("dark");
+  await f.timers.tick(3000);
+  assert.equal(f.controller.themeSync.status, "failed");
+  assert.equal(f.controller.themeSync.appliedRevision, 1);
+  assert.deepEqual(f.controller.identity(), identity);
+  const retry = f.controller.retryTheme();
+  f.controller.setTheme("light");
+  assert.equal(await retry, false);
+  f.ack();
+  assert.equal(f.controller.themeSync.status, "applied");
+  assert.equal(f.readyCount, 1);
+  assert.equal(f.paths.length, 1);
+  f.controller.dispose();
+});
+
+test("policy confirmation uses the latest selected theme and stale confirmations cannot revive navigation", async () => {
+  const policy = deferred();
+  const f = frameFixture({ autoTheme: false, request: (path) => path.endsWith("/ready") ? policy.promise :
+    Promise.resolve({ renderId: "r", capability: "c", sourceHash: "h", path: "/artifact/r/index.html" }) });
+  await f.start();
+  const ready = f.controller.ready();
+  f.controller.setTheme("dark");
+  assert.equal(f.messages.length, 0);
+  policy.resolve({ executionMode: "static", savePolicy: "writable" });
+  await drain();
+  assert.equal(f.messages.at(-1).message.theme, "dark");
+  const oldSource = f.source;
+  const oldMessage = f.messages.at(-1).message;
+  f.controller.begin("next");
+  assert.equal(await ready, null);
+  f.ack(oldMessage, oldSource);
+  assert.equal(f.readyCount, 0);
+  assert.equal(f.controller.state.execution, null);
+  assert.equal(f.timers.size, 0);
+  f.controller.dispose();
+});
+
+test("retained iframe has only a theme channel, and removal cancels its deadline and failure", async () => {
+  const f = frameFixture();
+  await f.start();
+  await f.controller.ready();
+  await f.controller.configure("view", "writable", false);
+  f.controller.configured("view", "writable");
+  const oldSource = f.source;
+  const oldGeneration = f.controller.state.generation;
+  await f.start();
+  f.autoTheme = false;
+  const ready = f.controller.ready();
+  await drain();
+  f.controller.setTheme("dark");
+  await ready;
+  const currentMessage = f.messages.filter((entry) => entry.source === f.source).at(-1).message;
+  const previousMessage = f.messages.filter((entry) => entry.source === oldSource).at(-1).message;
+  assert.equal(previousMessage.theme, "dark");
+  assert.equal(previousMessage.generation, oldGeneration);
+  const oldEvent = { source: oldSource, origin: "null", data: { ...previousMessage, type: "eh:edit" } };
+  assert.equal(f.controller.accepts(oldEvent), false);
+  assert.equal(f.controller.handleThemeMessage(oldEvent), false);
+  f.ack(previousMessage, oldSource);
+  assert.equal(f.controller.loading, true);
+  f.ack(currentMessage);
+  assert.equal(f.controller.loading, false);
+  f.controller.setTheme("light");
+  f.ack();
+  await f.timers.tick(3000);
+  assert.equal(f.controller.themeSync.status, "failed");
+  f.host.finishReplacement();
+  assert.equal(f.controller.themeSync.status, "applied");
+  assert.equal(f.timers.size, 0);
+  f.ack(previousMessage, oldSource);
+  assert.equal(f.controller.themeSync.status, "applied");
+  f.controller.dispose();
+});
+
+test("replacement paints recheck latest theme and exact configuration before handoff", async () => {
+  const f = frameFixture();
+  const paints = [];
+  f.host.afterPaint = (fn) => paints.push(fn);
+  await f.start();
+  await f.controller.ready();
+  await f.controller.configure("view", "writable", false);
+  f.controller.configured("view", "writable");
+  f.autoTheme = false;
+  f.controller.setTheme("dark");
+  paints.shift()();
+  assert.ok(f.host.previous);
+  f.ack();
+  assert.equal(paints.length, 1);
+  await f.controller.configure("edit", "writable", false);
+  paints.shift()();
+  assert.ok(f.host.previous);
+  f.controller.setTheme("light");
+  f.ack();
+  assert.equal(paints.length, 0);
+  f.controller.configured("edit", "writable");
+  paints.shift()();
+  assert.equal(f.host.previous, null);
+  f.controller.dispose();
+});
+
+test("a second replacement retains only the original visible theme channel and cancels all others", async () => {
+  const f = frameFixture();
+  await f.start();
+  await f.controller.ready();
+  await f.controller.configure("view", "writable", false);
+  f.controller.configured("view", "writable");
+  const visible = f.source;
+  await f.start();
+  await f.controller.ready();
+  const removed = f.source;
+  f.autoTheme = false;
+  f.controller.setTheme("dark");
+  const removedMessage = f.messages.findLast((entry) => entry.source === removed).message;
+  await f.start();
+  const ready = f.controller.ready();
+  await drain();
+  assert.equal(f.host.previousWindow, visible);
+  f.ack(removedMessage, removed);
+  assert.equal(f.controller.loading, true);
+  f.ack();
+  assert.ok(await ready);
+  const previousMessage = f.messages.findLast((entry) => entry.source === visible).message;
+  f.ack(previousMessage, visible);
+  assert.equal(f.controller.themeSync.status, "applied");
+  const retry = f.controller.retryTheme();
+  f.controller.dispose();
+  assert.equal(await retry, false);
+  assert.equal(f.timers.size, 0);
+});
+
+for (const transition of ["begin", "suspend", "dispose"]) {
+  test(`theme waiters and late acknowledgments are canceled by ${transition}`, async () => {
+    const f = frameFixture({ autoTheme: false });
+    await f.start();
+    const ready = f.controller.ready();
+    await drain();
+    const message = f.messages.at(-1).message;
+    const source = f.source;
+    const retry = f.controller.retryTheme();
+    assert.equal(await ready, null);
+    f.controller[transition]();
+    assert.equal(await retry, false);
+    f.ack(message, source);
+    await f.timers.tick(10000);
+    assert.equal(f.readyCount, 0);
+    assert.equal(f.timers.size, 0);
+    assert.deepEqual(f.failures, []);
+    f.controller.dispose();
+  });
+}
 
 function saveFixture(overrides = {}) {
   let identity = { key: "p", renderId: "r", generation: 1, loading: false };
@@ -518,10 +845,14 @@ test("frame host keeps the visible policy during handoff and removes old listene
   initial.dataset.savePolicy = "writable";
   const host = createFrameHost(initial, "http://localhost:9999");
   let loads = 0;
+  let removals = 0;
+  host.onPreviousRemoved(() => { removals++; });
   host.onLoad(() => { loads++; });
   host.navigate("/artifact/new/index.html", true);
   assert.equal(host.previous, initial);
   assert.notEqual(host.current, initial);
+  assert.equal(host.currentWindow, host.current.contentWindow);
+  assert.equal(host.previousWindow, initial.contentWindow);
   host.ready({ executionMode: "interactive", savePolicy: "feedback-only", executionNotice: null });
   assert.equal(host.visibleExecution.savePolicy, "writable");
   initial.dispatchEvent(new dom.window.Event("load"));
@@ -530,6 +861,8 @@ test("frame host keeps the visible policy during handoff and removes old listene
   assert.equal(loads, 1);
   host.finishReplacement();
   assert.equal(initial.isConnected, false);
+  assert.equal(host.previousWindow, null);
+  assert.equal(removals, 1);
   assert.equal(host.visibleExecution.savePolicy, "feedback-only");
   host.dispose();
   host.current.dispatchEvent(new dom.window.Event("load"));

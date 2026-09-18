@@ -16,6 +16,10 @@ function fixture() {
     reload: { visible: false, message: "", error: false },
   };
   const reload = vi.fn(async () => {});
+  const retryTheme = vi.fn(async () => {
+    if (context.themeSync) context.themeSync = { ...context.themeSync, status: "applied", message: null };
+    return true;
+  });
   const request = vi.fn(async () => ({
     page: {
       key: "a", kind: "file", markdown: false, file: "sample.html", filename: "sample.html",
@@ -26,9 +30,9 @@ function fixture() {
   const runtime = createRecoveryController({
     sessionId: "session", read: () => context, request,
     changed: (page) => { context.page = page; }, failed: vi.fn(), menuChanged: vi.fn(),
-    reload, keepCurrent: () => { context.reload.visible = false; },
+    reload, retryTheme, keepCurrent: () => { context.reload.visible = false; },
   });
-  return { context, runtime, request, reload };
+  return { context, runtime, request, reload, retryTheme };
 }
 
 it("More is a nonmodal keyboard menu with policy details and focus return", async () => {
@@ -91,4 +95,41 @@ it("hides unavailable recovery and preserves loading status for a non-file revie
   render(<><RecoveryMenu runtime={runtime} /><RecoveryNotices runtime={runtime} /></>);
   expect(screen.queryByRole("button", { name: "More" })).toBeNull();
   expect(screen.getByRole("status")).toHaveTextContent("Loading page");
+});
+
+it("retries failed initial theme without reloading, changing policy, or losing drafts", async () => {
+  const { runtime, context, retryTheme, reload, request } = fixture();
+  context.loading = true;
+  context.themeSync = {
+    desired: { theme: "dark", themeRevision: 2 }, status: "failed", appliedRevision: null,
+    message: "Annotation theme synchronization was not confirmed. Your page and drafts are unchanged.",
+  };
+  runtime.publish();
+  const user = userEvent.setup();
+  render(<><RecoveryNotices runtime={runtime} /><textarea aria-label="Draft" defaultValue="Keep my text" /></>);
+  expect(screen.getByRole("alert")).toHaveTextContent("Annotation theme needs attention");
+  const retry = screen.getByRole("button", { name: "Retry theme" });
+  expect(retry).toBeEnabled();
+  await user.click(retry);
+  expect(retryTheme).toHaveBeenCalledTimes(1);
+  expect(reload).not.toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Draft")).toHaveValue("Keep my text");
+  expect(screen.queryByRole("button", { name: "Retry theme" })).toBeNull();
+});
+
+it("keeps unrelated source reload recovery alongside theme-only recovery and hides both in comparison", () => {
+  const { runtime, context } = fixture();
+  context.reload = { visible: true, error: false, message: "Source changed." };
+  context.themeSync = {
+    desired: { theme: "dark", themeRevision: 2 }, status: "failed", appliedRevision: 1,
+    message: "Theme synchronization was not confirmed.",
+  };
+  runtime.publish();
+  render(<RecoveryNotices runtime={runtime} />);
+  expect(screen.getByRole("button", { name: "Retry theme" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Reload latest; keep comment drafts" })).toBeEnabled();
+  act(() => { context.comparing = true; runtime.publish(); });
+  expect(screen.queryByRole("button", { name: "Retry theme" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Reload latest; keep comment drafts" })).toBeNull();
 });
