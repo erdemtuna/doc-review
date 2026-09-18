@@ -51,7 +51,7 @@ export function createFrameController({
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const flushes = new Map<string, { strict: boolean; settle: (confirmed: boolean) => void }>();
   let readinessTimer: ReturnType<typeof setTimeout> | null = null;
-  let replacementTimer: ReturnType<typeof setTimeout> | null = null;
+  let configurationTimer: ReturnType<typeof setTimeout> | null = null;
   let readinessRetries = 0;
   let initialLoad = false;
   let readyGeneration: number | null = null;
@@ -94,7 +94,7 @@ export function createFrameController({
     expectedConfiguration = null;
     for (const timer of timers) clearTimer(timer);
     timers.clear();
-    readinessTimer = replacementTimer = null;
+    readinessTimer = configurationTimer = null;
     state.capability = null;
     state.renderId = null;
     state.execution = null;
@@ -116,8 +116,8 @@ export function createFrameController({
     return state.generation;
   }
   function finishReplacement() {
-    cancelTimer(replacementTimer);
-    replacementTimer = null;
+    cancelTimer(configurationTimer);
+    configurationTimer = null;
     host.finishReplacement();
     publish();
   }
@@ -214,9 +214,9 @@ export function createFrameController({
   }
   function configurationTimeout() {
     if (!host.previous) return;
-    cancelTimer(replacementTimer);
+    cancelTimer(configurationTimer);
     const started = identity();
-    replacementTimer = later(() => {
+    configurationTimer = later(() => {
       if (matches(started) && host.previous) {
         fail("The page did not confirm its review settings. Reload before continuing.");
       }
@@ -291,8 +291,15 @@ export function createFrameController({
     configured(mode: unknown, savePolicy: unknown) {
       if (!expectedConfiguration || expectedConfiguration.mode !== mode ||
         expectedConfiguration.savePolicy !== savePolicy || loading()) return false;
+      // Confirmation is complete even when background tabs pause the visual handoff.
+      cancelTimer(configurationTimer);
+      configurationTimer = null;
       state.configurationGeneration = state.generation;
-      if (host.previous) host.afterPaint(() => { if (!loading()) finishReplacement(); });
+      const started = identity();
+      const appliedConfiguration = expectedConfiguration;
+      if (host.previous) host.afterPaint(() => {
+        if (matches(started) && expectedConfiguration === appliedConfiguration && !loading()) finishReplacement();
+      });
       if (configuration && configuration.mode === mode && configuration.savePolicy === savePolicy) {
         configuration.settle(true);
       }

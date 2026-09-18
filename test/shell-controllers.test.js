@@ -181,6 +181,97 @@ test("configuration timeout is visible and an old configuration waiter is settle
   f.controller.dispose();
 });
 
+for (const wait of [false, true]) {
+  test(`confirmed configuration stays ready while replacement paint is paused (wait=${wait})`, async () => {
+    const f = frameFixture();
+    const paints = [];
+    f.host.afterPaint = (callback) => paints.push(callback);
+    const generation = await f.start();
+    await f.controller.ready();
+    const identity = f.controller.identity();
+    const execution = f.controller.state.execution;
+    const configuration = f.controller.configure("view", "writable", wait);
+    assert.equal(f.controller.configured("view", "writable"), true);
+    assert.equal(await configuration, true);
+    await f.timers.tick(6000);
+    assert.deepEqual(f.failures, []);
+    assert.deepEqual(f.controller.identity(), identity);
+    assert.equal(f.controller.state.execution, execution);
+    assert.equal(f.controller.state.configurationGeneration, generation);
+    assert.equal(f.controller.state.pendingReload, false);
+    assert.equal(f.controller.accepts({
+      source: f.source, origin: "null",
+      data: { type: "eh:scroll", capability: "c", generation, pageKey: "p" },
+    }), true);
+    assert.ok(f.host.previous);
+    assert.equal(paints.length, 1);
+    paints.shift()();
+    assert.equal(f.host.previous, null);
+    assert.equal(f.timers.size, 0);
+    f.controller.dispose();
+  });
+}
+
+test("mismatched configuration cannot cancel the replacement deadline", async () => {
+  const f = frameFixture();
+  await f.start();
+  await f.controller.ready();
+  await f.controller.configure("view", "writable", false);
+  assert.equal(f.controller.configured("edit", "writable"), false);
+  assert.equal(f.controller.configured("view", "feedback-only"), false);
+  await f.timers.tick(5000);
+  assert.match(f.failures[0], /review settings/);
+  assert.equal(f.controller.state.phase.kind, "failed");
+  f.controller.dispose();
+});
+
+test("a prior configuration paint cannot finish a newer configuration on the same frame", async () => {
+  const f = frameFixture();
+  const paints = [];
+  f.host.afterPaint = (callback) => paints.push(callback);
+  await f.start();
+  await f.controller.ready();
+  await f.controller.configure("view", "writable", false);
+  f.controller.configured("view", "writable");
+  await f.controller.configure("edit", "writable", false);
+  await f.controller.configure("view", "writable", false);
+  paints.shift()();
+  assert.ok(f.host.previous);
+  await f.timers.tick(5000);
+  assert.match(f.failures[0], /review settings/);
+  f.controller.dispose();
+});
+
+for (const transition of ["reload", "suspend", "dispose"]) {
+  test(`a confirmed replacement paint cannot outlive ${transition}`, async () => {
+    const f = frameFixture();
+    const paints = [];
+    f.host.afterPaint = (callback) => paints.push(callback);
+    await f.start();
+    await f.controller.ready();
+    await f.controller.configure("view", "writable", false);
+    f.controller.configured("view", "writable");
+    if (transition === "reload") {
+      await f.start();
+      await f.controller.ready();
+      await f.controller.configure("view", "writable", false);
+    } else {
+      f.controller[transition]();
+    }
+    paints.shift()();
+    assert.ok(f.host.previous);
+    if (transition === "reload") {
+      await f.timers.tick(5000);
+      assert.match(f.failures[0], /review settings/);
+    } else {
+      await f.timers.tick(6000);
+      assert.deepEqual(f.failures, []);
+      assert.equal(f.timers.size, 0);
+    }
+    f.controller.dispose();
+  });
+}
+
 test("iframe self-navigation invalidates draft geometry and save baseline through the transition hook", async () => {
   let transitions = 0;
   const f = frameFixture({ transitioning() { transitions++; } });

@@ -14,6 +14,24 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.11.1 release checklist
+
+This patch fixes false review-settings failures after source updates when
+browser painting is delayed, including background-tab handoffs. Settings
+confirmation now ends the handshake deadline independently of the visual swap;
+obsolete paint callbacks cannot complete newer configuration transitions.
+Real missing-confirmation errors and draft/conflict safeguards remain intact.
+
+Use `version=0.11.1` and `previous_tag=v0.11.0` for both workflow phases.
+Require the delayed-paint and missing-confirmation lifecycle regressions,
+the existing CI matrix, and installed-package checks before publishing the
+immutable candidate. Node **24.21.0**, npm **12.0.2**, server protocol **17**,
+and feedback formats are unchanged.
+
+After verifying publication and integrity, update the installed CLI and run
+`doc-review setup --global`. Follow the normal controlled-restart guidance for
+old servers without deleting pending review state.
+
 ## v0.11.0 release checklist
 
 This release migrates the review shell to React and TypeScript, refreshes the

@@ -1,4 +1,89 @@
-import { test, expect, openReview, waitForSdk, writeFile } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode } from "./helpers.js";
+
+test("confirmed source updates survive paused shell painting without requiring reload", async ({ page, review }) => {
+  test.setTimeout(30_000);
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const requestPaint = window.requestAnimationFrame.bind(window);
+    const cancelPaint = window.cancelAnimationFrame.bind(window);
+    const held = new Map();
+    let sequence = 0;
+    window.paintProbe = {
+      paused: false,
+      confirmations: [],
+      resume() {
+        this.paused = false;
+        for (const callback of held.values()) requestPaint(callback);
+        held.clear();
+      },
+    };
+    window.requestAnimationFrame = (callback) => {
+      if (!window.paintProbe.paused) return requestPaint(callback);
+      const id = --sequence;
+      held.set(id, callback);
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => {
+      if (id < 0) held.delete(id);
+      else cancelPaint(id);
+    };
+    window.addEventListener("message", (event) => {
+      if (event.source === document.querySelector("#frame")?.contentWindow &&
+        event.data?.type === "eh:configurationApplied") {
+        window.paintProbe.confirmations.push(event.data.generation);
+      }
+    });
+  });
+  const source = (version) => `<!doctype html><h1>Agent revision ${version}</h1><p>Review this text.</p>`;
+  const file = writeFile(review, "paused-paint.html", source(0));
+  await openReview(page, review, file);
+  await expect.poll(() => page.evaluate(() => window.paintProbe.confirmations.length)).toBe(1);
+  for (const version of [1, 2]) {
+    await page.evaluate(() => { window.paintProbe.paused = true; });
+    writeFile(review, "paused-paint.html", source(version));
+    await expect.poll(() => page.evaluate(() => window.paintProbe.confirmations.length)).toBe(version + 1);
+    const frame = page.frameLocator("#frame");
+    await expect(frame.locator("h1")).toHaveText(`Agent revision ${version}`);
+    await expect(page.locator("#previousFrame")).toHaveCount(1);
+    // The real five-second deadline must elapse while protocol messages still flow.
+    await page.waitForTimeout(5500);
+    await expect(page.locator("#reloadNotice")).toBeHidden();
+    await expect(page.locator("#frame")).toHaveAttribute("data-sdk-ready", "true");
+    await expect(page.locator("#previousFrame")).toHaveCount(1);
+    await page.evaluate(() => window.paintProbe.resume());
+    await expect(page.locator("#previousFrame")).toHaveCount(0);
+    await expect(page.locator("#frame")).not.toHaveAttribute("data-replacing");
+  }
+  const frame = await enterEditMode(page);
+  await expect(frame.locator("h1")).toHaveText("Agent revision 2");
+  await expect(page.locator("#reloadNotice")).toBeHidden();
+});
+
+test("an unconfirmed source update still offers recovery and can retry", async ({ page, review }) => {
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    window.blockConfigurationAck = false;
+    window.addEventListener("message", (event) => {
+      if (window.blockConfigurationAck && event.data?.type === "eh:configurationApplied") {
+        event.stopImmediatePropagation();
+      }
+    });
+  });
+  const file = writeFile(review, "missing-confirmation.html", "<h1>Original document</h1>");
+  await openReview(page, review, file);
+  await enterEditMode(page);
+  await page.evaluate(() => { window.blockConfigurationAck = true; });
+  writeFile(review, "missing-confirmation.html", "<h1>Updated document</h1>");
+  await expect(page.frameLocator("#frame").locator("h1")).toHaveText("Updated document");
+  await expect(page.locator("#reloadNotice")).toContainText("The page did not confirm its review settings", { timeout: 10_000 });
+  await expect(page.locator("#frame")).not.toHaveAttribute("data-sdk-ready");
+  await page.evaluate(() => { window.blockConfigurationAck = false; });
+  await page.locator("#safeReload").click();
+  await waitForSdk(page);
+  await expect(page.locator("#previousFrame")).toHaveCount(0);
+  await expect(page.locator("#reloadNotice")).toBeHidden();
+  await expect(page.frameLocator("#frame").locator("body")).toHaveAttribute("contenteditable", "true");
+});
 
 test("Review and Changes keep the same iframe and authored runtime state", async ({ page, review }) => {
   const file = writeFile(review, "controller-state.html", `<!doctype html>

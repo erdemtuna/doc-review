@@ -186,6 +186,14 @@ the renderer. Controllers expose commands, subscriptions, and disposal. Reuse
 the existing history and comment helpers. Types do not replace runtime checks
 at HTTP, frame, or persisted data boundaries.
 
+Frame configuration confirmation and the visual replacement handoff are
+separate milestones. A matching settings acknowledgement cancels its deadline
+immediately; the two-paint handoff may remain pending while a background tab
+pauses animation frames. Deferred paint callbacks must match both the current
+render and configuration attempt. Missing or mismatched acknowledgements still
+fail safely. Lifecycle regressions pause shell painting while leaving messages
+and timers running, then verify source updates and interaction after resuming.
+
 ## Package validation
 
 Packages contain `lib`, README, LICENSE, and package metadata. `prepack` rebuilds
