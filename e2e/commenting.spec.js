@@ -433,6 +433,7 @@ test("draft retarget submits first and a failed submit blocks retargeting", asyn
   await selectText(frame, "#three");
   await frame.locator("#commentAction").click();
   await page.locator("#composeText").fill("First draft");
+  await expect(page.locator("#composeText")).toBeFocused();
   await frame.locator("#two").scrollIntoViewIfNeeded();
   await selectText(frame, "#two");
   await page.locator("#frame").focus();
@@ -468,9 +469,11 @@ test("retargeting an empty composer preserves the new target", async ({ page, re
   await selectText(frame, "#one");
   await frame.locator("#commentAction").click();
   await expect(page.locator("#composeQuote")).toContainText("First target");
+  await expect(page.locator("#composeText")).toBeFocused();
 
   await selectText(frame, "#two");
   await page.locator("#frame").focus();
+  await expect(page.locator("#compose")).toHaveClass(/\bpass-through\b/);
   await expect(frame.locator("#commentAction")).toBeVisible();
   await frame.locator("#commentAction").click();
   await expect(page.locator("#composeQuote")).toContainText("Second target");
