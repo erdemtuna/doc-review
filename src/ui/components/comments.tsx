@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Textarea } from "./ui/textarea";
 import { Icon } from "./icon";
+import { DisclosureSection } from "./ui/disclosure-section";
 
 type Card = CommentsSnapshot["cards"][number];
 type Props = { runtime: CommentsController };
@@ -99,15 +100,18 @@ export function CommentCard({ runtime, card, state, surface = "drawer" }: Props 
 export function CommentsInventory({ runtime }: Props) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   return <>
-    <section aria-labelledby="inventoryHeading">
-      <div className="inventory-heading"><h3 id="inventoryHeading">Comments</h3><Badge id="count" variant="secondary">{state.cards.length}</Badge></div>
-      {state.loading && <p role="status" className="inventory-empty">Loading comments...</p>}
-      {state.error && <p role="alert" className="inventory-error">{state.error}</p>}
+    <DisclosureSection label="Comments" headingId="inventoryHeading" countId="count"
+      contentId="commentsContent" count={state.cards.length} open={state.sectionOpen}
+      onOpenChange={runtime.commands.setSectionOpen} disabled={state.disabled} lockReason={state.sectionLock}
+      status={<>
+        {state.loading && <p role="status" className="inventory-empty">Loading comments...</p>}
+        {state.error && <p role="alert" className="inventory-error">{state.error}</p>}
+      </>}>
       <div id="cards" className="inventory-cards">
         {state.cards.map((card) => <CommentCard key={card.id} runtime={runtime} card={card} state={state} />)}
       </div>
       <p id="empty" className="inventory-empty" hidden={!state.showEmpty}>Select text or focus an element, then use the comment button</p>
-    </section>
+    </DisclosureSection>
     <section id="othersBox" hidden={state.others.length === 0} aria-labelledby="otherPagesHeading">
       <div className="inventory-heading"><h3 id="otherPagesHeading">Other pages</h3><Badge id="othersCount" variant="secondary">{state.others.length}</Badge></div>
       <div id="othersList" className="inventory-other-pages">
@@ -132,9 +136,9 @@ export function CommentsDrawer({ runtime, drawer, header, inventory, backdrop }:
   }, [drawer, state.open]);
   return <>
     {createPortal(<div className="inventory-drawer-head">
-      <div><span className="inventory-help">Review</span><h2 id="drawerTitle">Comments</h2></div>
-      <Button id="drawerClose" variant="ghost" size="icon" aria-label="Close review drawer"
-        title="Close review drawer" onClick={runtime.commands.close}><Icon name="x" /></Button>
+      <h2 id="drawerTitle">Feedback</h2>
+      <Button id="drawerClose" variant="ghost" size="icon" aria-label="Close feedback"
+        title="Close feedback" onClick={runtime.commands.close}><Icon name="x" /></Button>
     </div>, header)}
     {createPortal(<CommentsInventory runtime={runtime} />, inventory)}
     {createPortal(<div className="drawer-backdrop" id="drawerBackdrop" hidden={!state.open}

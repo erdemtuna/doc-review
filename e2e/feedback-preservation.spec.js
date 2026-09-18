@@ -19,10 +19,18 @@ test("external Markdown changes refresh the page but retain unsent browser edits
     const response = await reviewApi(review, `/api/page/${session.key}`);
     return response.json().edits[0]?.after;
   }).toBe(edited);
+  await expect(page.locator("#count")).toHaveText("0");
+  await expect(page.locator("#toolbarCount")).toHaveText("1");
+  await page.locator("#commentsButton").click();
+  await expect(page.locator("#send")).toHaveText("Send 1 to agent");
+  await page.locator("#editsContentToggle").click();
+  await expect(page.locator("#editsContent")).toBeHidden();
 
   fs.writeFileSync(file, "# External revision\n\nA source editor changed this.");
   await expect(frame.locator("h1")).toHaveText("External revision");
   await waitForSdk(page);
+  await expect(page.locator("#toolbarCount")).toHaveText("1");
+  await expect(page.locator("#editsContentToggle")).toHaveAttribute("aria-expanded", "false");
   const refreshed = await reviewApi(review, `/api/page/${session.key}`);
   expect(refreshed.json().edits[0].after).toBe(edited);
   const sent = await reviewApi(review, `/api/page/${session.key}/send`, {

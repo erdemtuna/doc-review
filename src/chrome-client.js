@@ -124,6 +124,9 @@ function commentById(id) {
 }
 
 function requestControlFocus(id) {
+  if (state.drawerOpen && document.getElementById(id)?.closest("#cards")) {
+    commentsRuntime.commands.setSectionOpen(true);
+  }
   requestedFocus = id;
 }
 
@@ -149,7 +152,11 @@ function restoreTransientFocus(editWasFocused = false) {
   const shouldFocusEdit = editWasFocused || editFocusRequested;
   afterPaint(() => {
     if (focusId) {
-      document.getElementById(focusId)?.focus();
+      const target = document.getElementById(focusId);
+      if (target?.closest("[hidden], [inert]")) {
+        $(state.comparing ? "latestVersion" : state.drawerOpen ? "commentsSection" : "commentsButton").focus();
+      }
+      else target?.focus();
       return;
     }
     const edit = state.commentUi.edit;
@@ -395,6 +402,11 @@ export const recoveryRuntime = createRecoveryController({
 });
 reviewController.own(() => recoveryRuntime.dispose());
 
+function pendingFeedbackCount() {
+  return (state.page?.comments?.length || 0) + (state.page?.edits?.length || 0) +
+    (state.others || []).reduce((sum, other) => sum + other.count, 0);
+}
+
 export const toolbarRuntime = createToolbarController(() => ({
   comparing: state.comparing,
   mode: normalizeReviewMode(state.reviewMode),
@@ -403,7 +415,7 @@ export const toolbarRuntime = createToolbarController(() => ({
   restoreModeFocus: state.restoreModeFocus,
   editDescription: executionPresentation(state.page, frameHost.visibleExecution).editDescription,
   drawerOpen: state.drawerOpen,
-  commentCount: state.page?.comments?.length || 0,
+  feedbackCount: pendingFeedbackCount(),
   theme: state.theme === "dark" ? "dark" : "light",
   ended: state.ended,
 }), {
@@ -467,8 +479,7 @@ export const feedbackRuntime = createFeedbackPanelController({
     identity: JSON.stringify([frameController.state.key, frameController.state.renderId, frameController.state.generation, state.pageEpoch, frameController.state.pendingReload]),
     source: frameController.state.sourceHash,
     edits: state.page?.edits || [],
-    total: (state.page?.comments?.length || 0) + (state.page?.edits?.length || 0) +
-      (state.others || []).reduce((sum, other) => sum + other.count, 0),
+    total: pendingFeedbackCount(),
     drafts: draftCount(state), agent: state.agent,
     prompt: handoffPrompt(state.pollCommand || state.page?.pollCommand),
     filename: state.page?.filename || "", kind: state.page?.kind || "", markdown: !!state.page?.markdown,
@@ -919,6 +930,7 @@ function toast(message) {
 }
 
 function setActive(id, scroll) {
+  if (id && state.drawerOpen) commentsRuntime.commands.setSectionOpen(true);
   state.activeSavedCommentId = id;
   toFrame({ type: "eh:activate", id, scroll: !!scroll });
   render();

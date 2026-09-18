@@ -10,7 +10,22 @@ async function setup(page, review, name = "feedback.html") {
   return { file, session, frame };
 }
 
-test("disposable feedback preview fixture seeds edits and keeps primary Send above supporting scroll", async ({ page, review }) => {
+async function expectActionRow(page, width, height) {
+  await expect.poll(async () => {
+    const [left, right] = await Promise.all([
+      page.locator("#endReview").boundingBox(), page.locator("#send").boundingBox(),
+    ]);
+    return !!left && !!right && [left, right].every((box) =>
+      box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height
+    ) && left.x + left.width <= right.x &&
+      Math.max(left.y, right.y) < Math.min(left.y + left.height, right.y + right.height);
+  }).toBe(true);
+  expect(await page.locator(".feedback-actions > button").evaluateAll((buttons) => buttons.map((button) => button.id)))
+    .toEqual(["endReview", "send"]);
+}
+
+test("disposable feedback preview fixture seeds edits and keeps final actions outside supporting scroll", async ({ page, review }) => {
+  test.setTimeout(60_000);
   const target = writeFile(review, "feedback-preview.html", fs.readFileSync(path.join(process.cwd(), "test", "fixtures", "feedback-review.html"), "utf8"));
   const opened = await reviewApi(review, "/api/session", { method: "POST", body: { target } });
   const session = opened.json();
@@ -30,18 +45,32 @@ test("disposable feedback preview fixture seeds edits and keeps primary Send abo
   await expect(page.locator("#editList li")).toHaveCount(7);
   await page.locator("#send").click();
   await expect(page.locator("#handoff")).toBeVisible({ timeout: 15000 });
-  await page.locator(".feedback-secondary").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect.poll(() => page.locator("#send").evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.top >= 0 && rect.bottom <= innerHeight;
-  })).toBe(true);
-});
-for (const width of [320, 390, 768, 1440]) {
+  await expect(page.locator("#send")).toHaveText("Sent — agent is not listening");
   for (const theme of ["light", "dark"]) {
-    test(`feedback note, short-screen footer and safe dialog ${width} ${theme}`, async ({ page, review }, testInfo) => {
-      await page.setViewportSize({ width, height: 560 });
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [1440, 560]]) {
+      await page.setViewportSize({ width, height });
+      await expectActionRow(page, width, height);
+      const before = await page.locator(".feedback-actions").boundingBox();
+      const secondary = page.locator(".feedback-secondary");
+      expect(await secondary.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+      await secondary.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await expectActionRow(page, width, height);
+      expect((await page.locator(".feedback-actions").boundingBox()).y).toBe(before.y);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  }
+  expect(await page.locator(".feedback-actions").evaluate((element) =>
+    element.previousElementSibling.classList.contains("feedback-secondary") &&
+    element.lastElementChild.id === "send" && element.firstElementChild.id === "endReview"
+  )).toBe(true);
+});
+for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [1440, 560]]) {
+  for (const theme of ["light", "dark"]) {
+    test(`feedback note, short-screen footer and safe dialog ${width}x${height} ${theme}`, async ({ page, review }, testInfo) => {
+      await page.setViewportSize({ width, height });
       await page.addInitScript((value) => localStorage.setItem("doc-review:theme", value), theme);
-      const { frame } = await setup(page, review, `feedback-${width}-${theme}.html`);
+      const { frame } = await setup(page, review, `feedback-${width}-${height}-${theme}.html`);
       const note = page.getByLabel("Overall note");
       await note.fill("Keep this overall note");
       await note.evaluate((element) => {
@@ -60,26 +89,26 @@ for (const width of [320, 390, 768, 1440]) {
       await expect.poll(() => note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);
       await expect(frame.locator("#copy")).toHaveText("Original paragraph");
       const send = page.locator("#send");
+      const end = page.locator("#endReview");
       await expect(send).toBeEnabled();
-      await expect.poll(async () => {
-        const box = await send.boundingBox();
-        return box.x >= 0 && box.x + box.width <= width && box.y + box.height <= 560;
-      }).toBe(true);
+      await expectActionRow(page, width, height);
       await page.locator("#endReview").click();
       const dialog = page.getByRole("alertdialog");
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
       await expect(dialog).toContainText("only in this tab");
-      await page.screenshot({ path: testInfo.outputPath(`g6-dialog-${width}-${theme}.png`), animations: "disabled" });
+      await page.screenshot({ path: testInfo.outputPath(`g6-dialog-${width}-${height}-${theme}.png`), animations: "disabled" });
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
       await expect(page.locator("#endReview")).toBeFocused();
       await expect(page.locator("#drawer")).toHaveClass(/open/);
       await expect(page.locator("#drawer")).not.toHaveAttribute("aria-hidden", "true");
       await expect(note).toHaveValue("Keep this overall note");
-      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
       await expect(send).toBeFocused();
       await expect.poll(() => send.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("solid");
+      await page.keyboard.press("Shift+Tab");
+      await expect(end).toBeFocused();
     });
   }
 }

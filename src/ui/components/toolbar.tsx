@@ -61,12 +61,14 @@ export function Toolbar({ runtime }: { runtime: ToolbarController }) {
     </div>
     <div className="shell-actions">
       <Button id="commentsButton" variant={state.drawerOpen ? "secondary" : "ghost"}
-        aria-controls="drawer" aria-label="Comments" aria-expanded={state.drawerOpen}
+        aria-controls="drawer" aria-label="Feedback" aria-describedby="feedbackCountDescription" aria-expanded={state.drawerOpen}
         hidden={state.comparing} disabled={state.ended} onClick={commands.openComments}>
-        <Icon name="messages" /><span className="shell-comments-label">Comments</span>
-        <Badge id="toolbarCount" variant="secondary" title={`${state.commentCount} comments`}>
-          {state.commentCount > 99 ? "99+" : state.commentCount}
+        <Icon name="messages" /><span className="shell-comments-label">Feedback</span>
+        <Badge id="toolbarCount" variant="secondary" title={`${state.feedbackCount} feedback items`}
+          aria-label={`${state.feedbackCount} feedback items`}>
+          {state.feedbackCount > 99 ? "99+" : state.feedbackCount}
         </Badge>
+        <span id="feedbackCountDescription" className="sr-only">{state.feedbackCount} feedback items</span>
       </Button>
       <Button id="theme" variant="ghost" size="icon" disabled={state.ended}
         title={`Switch chrome to ${state.theme === "dark" ? "light" : "dark"}`}

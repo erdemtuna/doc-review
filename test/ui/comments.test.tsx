@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ownConfirmation, clearOwned } from "../../src/chrome-session.js";
+import { ownConfirmation, ownEdit, clearOwned } from "../../src/chrome-session.js";
 import { createCommentsController, type CommentsContext } from "../../src/comments-controller.js";
 import { CommentsInventory } from "@/components/comments";
 import type { FeedbackComment } from "../../src/contracts/feedback.js";
@@ -149,4 +149,48 @@ it("renders with StrictMode", () => {
     </StrictMode>
   );
   expect(screen.getByRole("heading", { name: "Comments" })).toBeInTheDocument();
+});
+
+it("keeps cards mounted while collapsed, with other pages and failures still visible", () => {
+  const { context, runtime } = fixture();
+  render(<CommentsInventory runtime={runtime} />);
+  const card = screen.getByText("feedback 1");
+  fireEvent.click(screen.getByRole("button", { name: "Comments" }));
+  expect(card).not.toBeVisible();
+  expect(card).toBeInTheDocument();
+  act(() => {
+    context.others = [{ key: "other", filename: "elsewhere.html", count: 3 }];
+    context.hasPage = false;
+    context.error = "Could not load feedback";
+    runtime.publish();
+  });
+  expect(screen.getByRole("button", { name: /elsewhere.html/ })).toBeVisible();
+  expect(screen.getByRole("alert")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Comments" })).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(screen.getByRole("button", { name: "Comments" }));
+  expect(screen.getByText("feedback 1")).toBe(card);
+});
+
+it("reveals an owned comment editor and guards collapse without recreating the input", () => {
+  const { context, runtime } = fixture();
+  render(<CommentsInventory runtime={runtime} />);
+  const trigger = screen.getByRole("button", { name: "Comments" });
+  fireEvent.click(trigger);
+  act(() => {
+    ownEdit(context.ui, context.comments[0]!, "drawer");
+    runtime.publish();
+  });
+  const input = screen.getByRole("textbox", { name: "Edit comment text" });
+  expect(trigger).toHaveAttribute("aria-expanded", "true");
+  expect(trigger).toHaveAttribute("aria-disabled", "true");
+  fireEvent.change(input, { target: { value: "Keep the draft", selectionStart: 3, selectionEnd: 6 } });
+  fireEvent.click(trigger);
+  expect(input).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Edit comment text" })).toBe(input);
+  expect(input).toHaveValue("Keep the draft");
+  act(() => { clearOwned(context.ui, "edit"); runtime.publish(); });
+  expect(trigger).toHaveAttribute("aria-disabled", "false");
+  expect(trigger).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(trigger);
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
 });

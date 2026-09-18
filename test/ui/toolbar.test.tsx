@@ -11,7 +11,7 @@ function fixture() {
   const state: ToolbarState = {
     comparing: false, mode: "view", modeDisabled: false, modeMenuOpen: false,
     restoreModeFocus: true, editDescription: "Edits save directly to this file",
-    drawerOpen: false, commentCount: 3, theme: "light", ended: false,
+    drawerOpen: false, feedbackCount: 3, theme: "light", ended: false,
   };
   const commands = {
     setComparing: vi.fn((value: boolean) => { state.comparing = value; runtime.publish(); }),
@@ -36,18 +36,19 @@ it("owns accessible destinations with stable controls and one command per Strict
   await user.click(changes);
   expect(commands.setComparing).toHaveBeenCalledExactlyOnceWith(true);
   expect(changes).toHaveAttribute("aria-pressed", "true");
-  expect(screen.queryByRole("button", { name: "Comments" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Feedback" })).toBeNull();
   await user.click(review);
   const theme = screen.getByRole("button", { name: "Switch chrome to dark" });
   await user.click(theme);
   expect(screen.getByRole("button", { name: "Switch chrome to light" })).toBe(theme);
-  act(() => { state.commentCount = 1000; runtime.publish(); });
-  expect(screen.getByTitle("1000 comments")).toHaveTextContent("99+");
+  act(() => { state.feedbackCount = 1000; runtime.publish(); });
+  expect(screen.getByTitle("1000 feedback items")).toHaveTextContent("99+");
+  expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("1000 feedback items");
   expect(screen.getByRole("button", { name: "Review" })).toBe(review);
   expect(screen.getByRole("button", { name: "Changes" })).toBe(changes);
-  await user.click(screen.getByRole("button", { name: "Comments" }));
+  await user.click(screen.getByRole("button", { name: "Feedback" }));
   expect(commands.openComments).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("button", { name: "Comments" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Feedback" })).toHaveAttribute("aria-expanded", "true");
 });
 
 it("uses a nonmodal keyboard mode menu with selected policy and focus restoration", async () => {
@@ -62,7 +63,7 @@ it("uses a nonmodal keyboard mode menu with selected policy and focus restoratio
   expect(screen.getByRole("menuitemradio", { name: /^View/ })).toHaveAttribute("aria-checked", "true");
   expect(screen.getByText("Edits save directly to this file")).toBeVisible();
   expect(document.body.style.pointerEvents).not.toBe("none");
-  expect(screen.getByRole("button", { name: "Comments" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Feedback" })).toBeVisible();
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("menu")).toBeNull();
   expect(trigger).toHaveFocus();

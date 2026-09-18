@@ -14,6 +14,29 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.11.0 release checklist
+
+This release migrates the review shell to React and TypeScript, refreshes the
+Changes controls, and groups comments and inline edits under Feedback. The
+minimum Node version remains **24.21.0**; development and release preparation
+use npm **12.0.2**.
+
+Use `version=0.11.0` and `previous_tag=v0.10.0` for both workflow phases.
+Merge only after the required checks pass, prepare from the current `main`
+commit, and publish that immutable candidate through `npm-release`. Use the
+existing protected token fallback when trusted publishing is unavailable;
+never expose or copy its credential into the checkout or logs.
+
+Release notes should describe the collapsible Feedback sections, draft-safe
+comment editing, horizontal End/Send actions, consistent comparison controls,
+and reproducible screenshots/social cover. There is no new feedback format or
+expanded page-script permission. The CLI requires server protocol **17**:
+preserve pending review state, end old active reviews before restarting, and
+refresh installed guidance with `doc-review setup --global`.
+
+After publication, verify npm integrity against the candidate, the release tag,
+and the public assets before installing the released version locally.
+
 ## v0.10.0 release checklist
 
 This release containing issues #8/#9 intentionally raises the minimum Node

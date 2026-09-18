@@ -34,14 +34,14 @@ async function acknowledgeBatch(review, target, batchId) {
 }
 
 async function addSelectionComment(page, frame, selector, feedback) {
-  const before = Number(await page.locator("#toolbarCount").textContent());
+  const before = Number(await page.locator("#count").textContent());
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(before);
   await selectText(frame, selector);
   await frame.locator("#commentAction").click();
   await page.locator("#composeText").fill(feedback);
   await page.locator("#composeAdd").click();
   await expect(page.locator("#compose")).toBeHidden();
-  await expect(page.locator("#toolbarCount")).toHaveText(String(before + 1));
+  await expect(page.locator("#count")).toHaveText(String(before + 1));
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(before + 1);
 }
 

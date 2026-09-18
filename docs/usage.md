@@ -56,7 +56,7 @@ changing the draft. Narrow screens use a full width composer.
 | Submit a comment or save a comment edit | `Enter` |
 | Add a line inside a comment | `Shift+Enter` |
 | Cancel a comment edit | `Escape` or **Cancel** |
-| Find a comment's target | **Jump to** in the Comments drawer |
+| Find a comment's target | **Jump to** in the Feedback panel's Comments section |
 | Delete a comment | **Delete comment** (trash icon), then confirm deletion |
 
 Submitting a comment adds its highlight and count without opening its card.
@@ -76,12 +76,24 @@ adds or edits a link, and `Cmd+Shift+8` / `Cmd+Shift+7` creates lists.
 Pasted images are saved beside file reviews or staged for the agent in localhost
 reviews. Command clicking links lets you review multiple pages in one session.
 
-Open **Comments** for the feedback inventory, overall note, and **Send to agent**.
-The inventory scrolls independently of the note and Send controls.
+Open **Feedback** for the **Comments** and **Edits** sections, overall note, and
+**Send to agent**. The toolbar badge counts saved comments and edits across
+reviewed pages, matching Send's item count; the overall note and unsaved comment
+drafts are not numbered items. Each section shows the current page's count.
+Other-page feedback stays in its separate navigation list.
+
+Both sections start expanded. Collapse them independently; the choices survive
+closing the panel, switching pages, and Review/Changes in this tab, but reset
+after a full reload. Comments stays expanded until you save or cancel an active
+comment edit or finish its deletion confirmation. Save failures remain visible
+even with Edits collapsed. Edits is absent when there are no edits or save problems.
+
+The inventory scrolls independently of the note and bottom action row.
 The overall note can be sent on its own. It stays in this tab when you close
-Comments, switch Review/Changes, or change theme. Open comment drafts are not
+Feedback, switch Review/Changes, or change theme. Open comment drafts are not
 included until you explicitly save them. Supporting messages and the handoff
-prompt scroll separately beneath Send.
+prompt scroll separately between the note and actions. **End review** is on
+the left; **Send to agent** is on the right. End still asks for confirmation.
 
 ## Files, scripts, and local apps
 
@@ -116,7 +128,7 @@ authorship.
 
 ## Sending feedback
 
-![Comments showing two saved requests, a saved headline edit, an overall note, and an enabled Send to agent button](../assets/doc-review-feedback.png)
+![Feedback showing collapsible Comments and Edits, an overall note, and End review to the left of Send to agent](../assets/doc-review-feedback.png)
 
 *Review the whole batch before sending. The overall note gives the agent direction
 across individual comments and edits.*

@@ -41,8 +41,11 @@ comment and Shift+Enter adds a new line. On desktop the composer stays attached
 to its target or pins to the effective top or bottom clipping edge; Back to
 selection reveals an offscreen target without changing the draft.
 
-Comments is the single toolbar entry point. The drawer inventory scrolls
-independently while the overall note and Send to agent controls remain fixed.
+Feedback is the single toolbar entry point for Comments, Edits, and the overall
+note. Comments and Edits collapse independently; their choices last until the
+tab reloads. An active comment edit keeps Comments expanded until Save or Cancel.
+The inventory scrolls independently while the overall note and bottom actions
+remain reachable. End review is on the left and Send to agent on the right.
 Submitting creates the normal target mark and count but leaves the card closed
 until the user explicitly activates the mark or chooses Jump to. Focus returns
 to the reviewed element or selection. Aligned cards expose Edit, Close, and

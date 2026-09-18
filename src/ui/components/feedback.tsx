@@ -4,6 +4,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { DisclosureSection } from "./ui/disclosure-section";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -13,16 +14,20 @@ type Props = { runtime: FeedbackPanelController };
 
 export function FeedbackEdits({ runtime }: Props) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
-  return <section id="editsBox" className="feedback-edits" hidden={!state.editCount && !state.saveError} aria-labelledby="editsHeading">
-    <div className="inventory-heading">
-      <h3 id="editsHeading">Your edits</h3><Badge id="editCount" variant="secondary">{state.editCount}</Badge>
+  const persistentStatus = state.saveError || state.saveStatus === "saving";
+  const saveStatus = <p id="saveLine" className="feedback-save" data-error={state.saveError} role={state.saveError ? "alert" : "status"}>
+    <span id="saveText">{state.saveText}</span>
+  </p>;
+  return <div id="editsBox" className="feedback-edits" hidden={!state.editCount && !state.saveError}>
+    <DisclosureSection label="Edits" headingId="editsHeading" countId="editCount" contentId="editsContent"
+      count={state.editCount} open={state.editsOpen} onOpenChange={runtime.commands.setEditsOpen}
+      disabled={state.disabled || !!state.dialog} status={persistentStatus ? saveStatus : null}>
+    <div className="feedback-edit-status">
+      {!persistentStatus && saveStatus}
       <Button id="revert" variant="ghost" size="sm" className="feedback-revert"
         disabled={state.disabled || state.busy || !!state.dialog || !state.editCount}
         onClick={() => runtime.commands.open("revert")}>Revert all</Button>
     </div>
-    <p id="saveLine" className="feedback-save" data-error={state.saveError} role="status">
-      <span id="saveText">{state.saveText}</span>
-    </p>
     <ul id="editList" className="feedback-edit-list">
       {state.edits.map((edit, index) => <li key={`${edit.label}-${edit.kind}-${index}`}>
         <span className="feedback-edit-label">{edit.label}</span><Badge variant="outline">{edit.kind}</Badge>
@@ -31,7 +36,8 @@ export function FeedbackEdits({ runtime }: Props) {
     {state.editCount > 5 && <Button size="sm" variant="ghost" onClick={runtime.commands.expand}>
       {state.expanded ? "Show fewer" : `${state.editCount - 5} more…`}
     </Button>}
-  </section>;
+    </DisclosureSection>
+  </div>;
 }
 
 export function FeedbackFooter({ runtime }: Props) {
@@ -48,6 +54,8 @@ export function FeedbackFooter({ runtime }: Props) {
   }, [draft.selectionStart, draft.selectionEnd, draft.composing]);
   const notice = state.delivery.phase === "delivered" ? state.delivery.notice : null;
   const failure = state.delivery.phase === "failed" || state.delivery.phase === "uncertain" ? state.delivery.message : null;
+  const hasSupport = !!(state.drafts || failure || notice || state.agent === "working" ||
+    state.delivery.sent || state.agent === "stranded");
   return <>
     <div className="send-primary feedback-primary">
       <Label htmlFor="note">Overall note</Label>
@@ -57,10 +65,8 @@ export function FeedbackFooter({ runtime }: Props) {
         onSelect={(event) => update(event.currentTarget)}
         onCompositionStart={(event) => update(event.currentTarget, true)}
         onCompositionEnd={(event) => update(event.currentTarget, false)} />
-      <Button id="send" className="feedback-send" disabled={state.sendDisabled}
-        aria-busy={state.busy} onClick={() => { void runtime.commands.send(); }}>{state.sendText}</Button>
     </div>
-    <div className="send-secondary feedback-secondary">
+    <div className="send-secondary feedback-secondary" hidden={!hasSupport}>
       {state.drafts > 0 && <p id="draftWarning" className="feedback-help">
         {state.drafts} open {state.drafts === 1 ? "draft is" : "drafts are"} not included. Save comments explicitly before sending.
       </p>}
@@ -82,8 +88,12 @@ export function FeedbackFooter({ runtime }: Props) {
         {state.copyStatus === "copied" && <span className="sr-only" role="status">Prompt copied</span>}
         {state.copyError && <p className="feedback-error" role="alert">{state.copyError}</p>}
       </section>}
+    </div>
+    <div className="feedback-actions">
       <Button id="endReview" variant="ghost" className="feedback-end" disabled={state.disabled || state.busy || !!state.dialog}
         title="Stop this review and release the waiting agent" onClick={() => runtime.commands.open("end")}>End review</Button>
+      <Button id="send" className="feedback-send h-auto min-h-8 min-w-0 shrink whitespace-normal" disabled={state.sendDisabled}
+        aria-busy={state.busy} onClick={() => { void runtime.commands.send(); }}>{state.sendText}</Button>
     </div>
   </>;
 }

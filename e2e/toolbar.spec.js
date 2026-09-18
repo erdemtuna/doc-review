@@ -59,6 +59,10 @@ test("G2 populated toolbar and portals fit all review widths in both themes", as
   await page.reload();
   await waitForSdk(page);
   await expect(page.locator("#toolbarCount")).toHaveText("2");
+  await expect(page.locator("#toolbarCount")).toHaveAttribute("aria-label", "2 feedback items");
+  await expect(page.locator("#toolbarCount")).toHaveAttribute("title", "2 feedback items");
+  await expect(page.locator("#commentsButton")).toHaveAccessibleName("Feedback");
+  await expect(page.locator(".shell-comments-label")).toHaveText("Feedback");
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const width of [320, 390, 768, 1440]) {

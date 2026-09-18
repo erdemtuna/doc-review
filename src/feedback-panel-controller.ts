@@ -59,6 +59,7 @@ function savePresentation(state: FeedbackPanelContext) {
 export function createFeedbackPanelController(options: Options) {
   let disposed = false;
   let expanded = false;
+  let editsOpen = true;
   let dialog: Confirmation | null = null;
   let copyStatus: "idle" | "copying" | "copied" | "failed" = "idle";
   let copyError = "";
@@ -78,7 +79,7 @@ export function createFeedbackPanelController(options: Options) {
     const hasNote = !!state.note.text.trim();
     return {
       note: state.note, ended: state.ended, disabled: state.ended || !state.available,
-      edits: expanded ? state.edits : state.edits.slice(0, 5), editCount: state.edits.length, expanded,
+      edits: expanded ? state.edits : state.edits.slice(0, 5), editCount: state.edits.length, expanded, editsOpen,
       saveText: savePresentation(state), saveError: state.save.conflict || state.save.status === "failed",
       saveStatus: state.save.status, drafts: state.drafts, busy, delivery: state.delivery,
       sendDisabled: state.ended || !state.available || (!count && !hasNote) || busy || sent || !!dialog || state.note.composing,
@@ -101,6 +102,11 @@ export function createFeedbackPanelController(options: Options) {
   return {
     getSnapshot: store.getSnapshot, subscribe: store.subscribe, publish,
     commands: {
+      setEditsOpen(open: boolean) {
+        if (!available() || dialog) return;
+        editsOpen = open;
+        publish();
+      },
       updateNote(value: NoteDraft) {
         if (!available() || dialog) return;
         Object.assign(options.read().note, value);
@@ -111,6 +117,7 @@ export function createFeedbackPanelController(options: Options) {
       open(action: Action) {
         const state = options.read();
         if (!available() || dialog || state.delivery.sending || (action === "revert" && !state.edits.length)) return;
+        if (action === "revert") editsOpen = true;
         const drafts = state.drafts + Number(!!state.note.text.trim());
         dialog = {
           action, identity: state.identity, source: state.source, fingerprint: fingerprint(action, state),

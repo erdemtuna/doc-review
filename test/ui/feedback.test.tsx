@@ -52,3 +52,37 @@ it("Cancel is safe and the confirmation does not submit automatically", async ()
   expect(end).not.toHaveBeenCalled();
   expect(runtime.getSnapshot().dialog).toBeNull();
 });
+
+it("keeps save problems visible with Edits collapsed and preserves the note and edit list", () => {
+  const { context, runtime } = fixture();
+  act(() => {
+    context.edits = [{ label: "Headline", kind: "edited" }];
+    context.total = 1;
+    runtime.publish();
+  });
+  const note = screen.getByLabelText("Overall note");
+  fireEvent.change(note, { target: { value: "Still here" } });
+  const edit = screen.getByText("Headline");
+  fireEvent.click(screen.getByRole("button", { name: "Edits" }));
+  expect(edit).not.toBeVisible();
+  expect(edit).toBeInTheDocument();
+  act(() => { context.save = { ...context.save, status: "failed" }; runtime.publish(); });
+  expect(screen.getByRole("alert")).toHaveTextContent("Couldn't save");
+  expect(screen.getByRole("alert")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Edits" })).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByLabelText("Overall note")).toBe(note);
+  expect(note).toHaveValue("Still here");
+  fireEvent.click(screen.getByRole("button", { name: "Edits" }));
+  expect(screen.getByText("Headline")).toBe(edit);
+  expect(edit).toBeVisible();
+});
+
+it("places End then Send after the note and collapses the empty supporting region", () => {
+  fixture();
+  const note = screen.getByLabelText("Overall note");
+  const end = screen.getByRole("button", { name: "End review" });
+  const send = screen.getByRole("button", { name: "Nothing to send yet" });
+  expect(note.compareDocumentPosition(end) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(end.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(document.querySelector(".feedback-secondary")).toHaveAttribute("hidden");
+});

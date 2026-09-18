@@ -41,10 +41,14 @@ function age(timestamp: number | undefined) {
 
 export function createCommentsController(options: Options) {
   let disposed = false;
+  let sectionOpen = true;
   const store = createControllerStore(() => {
     const state = options.read();
     return {
       open: state.open && !state.comparing,
+      sectionOpen,
+      sectionLock: state.ui.edit ? "Save or cancel the comment edit to collapse."
+        : state.ui.confirmation ? "Finish or cancel the deletion to collapse." : "",
       activeId: state.activeId,
       disabled: state.ended,
       loading: !state.hasPage && !state.error && !state.ended,
@@ -65,23 +69,43 @@ export function createCommentsController(options: Options) {
   const deleting = () => options.read().ui.confirmation?.status === "deleting";
   const editable = (id: string) => has(id) && !deleting() && (!options.read().ui.edit || options.read().ui.edit?.commentId === id);
   const ownsEdit = (id: string) => has(id) && options.read().ui.edit?.commentId === id;
+  const publish = () => {
+    if (disposed) return;
+    const state = options.read();
+    if (state.ui.edit || state.ui.confirmation) sectionOpen = true;
+    store.publish();
+  };
   return {
-    getSnapshot: store.getSnapshot, subscribe: store.subscribe, publish: store.publish,
+    getSnapshot: store.getSnapshot, subscribe: store.subscribe, publish,
     commands: {
+      setSectionOpen(open: boolean) {
+        const state = options.read();
+        if (!available() || (!open && (state.ui.edit || state.ui.confirmation))) return;
+        sectionOpen = open;
+        publish();
+      },
       close() { if (available()) options.close(); },
       activate(id: string, scroll: boolean) { if (editable(id)) options.activate(id, scroll); },
-      edit(id: string, surface: CommentSurface = "drawer") { if (editable(id)) options.edit(id, surface); },
+      edit(id: string, surface: CommentSurface = "drawer") {
+        if (editable(id)) { sectionOpen = true; options.edit(id, surface); publish(); }
+      },
       dismiss() { if (available()) options.dismiss?.(); },
       updateEdit(id: string, value: EditInput) {
         if (!ownsEdit(id)) return;
         const edit = options.read().ui.edit;
         if (!edit || edit.status === "saving") return;
         Object.assign(edit, value, { validation: value.draft === edit.draft ? edit.validation : "" });
-        store.publish();
+        publish();
       },
       save(id: string) { if (ownsEdit(id) && !options.read().ui.edit?.composing) return options.save(); },
       cancelEdit(id: string) { if (ownsEdit(id)) options.cancelEdit(); },
-      confirm(id: string, surface: CommentSurface = "drawer") { if (has(id) && !options.read().ui.edit && !deleting()) options.confirm(id, surface); },
+      confirm(id: string, surface: CommentSurface = "drawer") {
+        if (has(id) && !options.read().ui.edit && !deleting()) {
+          sectionOpen = true;
+          options.confirm(id, surface);
+          publish();
+        }
+      },
       cancelDelete(id: string) {
         if (has(id) && !deleting() && options.read().ui.confirmation?.commentId === id) options.cancelDelete();
       },

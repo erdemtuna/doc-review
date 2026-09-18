@@ -376,3 +376,65 @@ test("controller store disposal stops subscriptions", () => {
   assert.equal(updates.length, 0, "disposal prevents notifications");
   unsubscribe();
 });
+
+test("disclosure preference survives page and drawer changes, but a new controller starts expanded", () => {
+  const { controller, context } = fixture();
+  assert.equal(controller.getSnapshot().sectionOpen, true);
+  controller.commands.setSectionOpen(false);
+  context.open = false;
+  context.comparing = true;
+  controller.publish();
+  context.comments = [];
+  context.open = true;
+  context.comparing = false;
+  controller.publish();
+  assert.equal(controller.getSnapshot().sectionOpen, false);
+  assert.equal(fixture().controller.getSnapshot().sectionOpen, true);
+});
+
+test("comment editing reveals and locks the disclosure until Save or Cancel", async () => {
+  const { controller, context } = fixture();
+  for (const finish of ["save", "cancelEdit"]) {
+    controller.commands.setSectionOpen(false);
+    controller.commands.edit("c1", "aligned");
+    assert.equal(controller.getSnapshot().sectionOpen, true);
+    assert.match(controller.getSnapshot().sectionLock, /Save or cancel/);
+    context.ui.edit.validation = "Required";
+    controller.publish();
+    controller.commands.setSectionOpen(false);
+    assert.equal(controller.getSnapshot().sectionOpen, true);
+    context.ui.edit.status = "saving";
+    controller.publish();
+    controller.commands.setSectionOpen(false);
+    assert.equal(controller.getSnapshot().sectionOpen, true);
+    context.ui.edit.status = "idle";
+    await controller.commands[finish]("c1");
+    controller.publish();
+    assert.equal(controller.getSnapshot().sectionLock, "");
+    assert.equal(controller.getSnapshot().sectionOpen, true);
+    controller.commands.setSectionOpen(false);
+    assert.equal(controller.getSnapshot().sectionOpen, false);
+  }
+});
+
+test("external edit ownership and deletion confirmations reveal and lock hidden comments", () => {
+  const { controller, context, options } = fixture();
+  controller.commands.setSectionOpen(false);
+  options.edit("c1");
+  controller.publish();
+  assert.equal(controller.getSnapshot().sectionOpen, true);
+  controller.commands.cancelEdit("c1");
+  controller.publish();
+  controller.commands.setSectionOpen(false);
+  controller.commands.confirm("c1");
+  controller.commands.setSectionOpen(false);
+  assert.equal(controller.getSnapshot().sectionOpen, true);
+  assert.match(controller.getSnapshot().sectionLock, /deletion/);
+  controller.commands.cancelDelete("c1");
+  controller.publish();
+  controller.commands.setSectionOpen(false);
+  assert.equal(controller.getSnapshot().sectionOpen, false);
+  context.ended = true;
+  controller.commands.setSectionOpen(true);
+  assert.equal(controller.getSnapshot().sectionOpen, false);
+});

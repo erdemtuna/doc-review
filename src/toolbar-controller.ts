@@ -8,7 +8,7 @@ export interface ToolbarState {
   restoreModeFocus: boolean;
   editDescription: string;
   drawerOpen: boolean;
-  commentCount: number;
+  feedbackCount: number;
   theme: "light" | "dark";
   ended: boolean;
 }

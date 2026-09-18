@@ -82,6 +82,38 @@ the reviewed frame remains measured, typed CSS variables/styles rather than
 constructed Tailwind class names. Keep meaningful text/symbol labels alongside
 comparison colors.
 
+## Feedback panel
+
+The toolbar entry and panel title are **Feedback**. Its count matches Send:
+saved comments and edits on the current page plus feedback on other pages.
+The overall note and unsaved comment drafts are excluded. Counts above 99 use
+`99+` visually, with the exact count available in the tooltip and accessible
+description. Existing control IDs and stable portal hosts are retained.
+
+`DisclosureSection` composes the existing Button, Badge, and Icon vocabulary
+with heading semantics, `aria-expanded`, `aria-controls`, and mounted hidden
+content. Comments and Edits have independent controller-owned open states,
+initially expanded. Preferences survive panel/page/view/theme changes within
+the tab and reset when the controllers are recreated on reload.
+The existing edit-list show-more state is separate from disclosure state.
+
+Comments automatically reveals an owned edit or deletion confirmation and
+blocks collapse until that interaction is saved, cancelled, or completed.
+The trigger explains the lock accessibly. Explicit comment activation in an
+open panel reveals Comments before focus restoration; background publications
+do not undo a user's collapsed preference. Hidden content does not receive
+tab focus. Draft and caret ownership remain in the existing controllers.
+Other pages remains a separate listing because its counts include edits too.
+Comments retains its empty guidance; Edits stays hidden without edits or errors.
+
+The footer is note, optional bounded supporting content, then an action row:
+quiet End review on the left and primary Send on the right, in matching keyboard
+order. Long status labels wrap inside Send rather than overflowing or stacking
+the actions. The note and actions remain reachable while long inventory or
+handoff content scrolls. Save problems are outside collapsed content; delivery
+errors, draft warnings and capture notices retain their original semantics.
+Cancel-first End/Revert confirmations and single-flight commands are unchanged.
+
 ## Compact Changes toolbar
 
 `ChangesToolbar` occupies the stable `changesNavigationRoot` portal inside the
@@ -139,7 +171,7 @@ toolbar, comments and comparison layouts have separate later checkpoints.
 
 ## G2 toolbar integration
 
-The toolbar now owns Review/Changes, the nonmodal View/Edit menu, the Comments
+The toolbar now owns Review/Changes, the nonmodal View/Edit menu, the Feedback
 entry and theme switching through one React root. The theme button moves from
 the drawer header to the toolbar and remains available in Changes. Counts above
 99 display as `99+`, with the exact count in the badge title. At narrow widths,

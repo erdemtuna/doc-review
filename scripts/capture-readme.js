@@ -72,7 +72,8 @@ try {
     await page.locator("#composeText").fill(text);
     await page.locator("#composeAdd").click();
     await expect(page.locator("#compose")).toBeHidden();
-    await expect(page.locator("#toolbarCount")).toHaveText(String(count));
+    await expect(page.locator("#count")).toHaveText(String(count));
+    await expect(page.locator("#toolbarCount")).toHaveText(String(count + 1));
   }
   await open();
   await page.locator("#modeButton").click();
@@ -103,7 +104,11 @@ try {
   await expect(page.locator("#saveText")).toContainText("Saved to landing-page.html");
   await page.getByLabel("Overall note").fill(overallNote);
   await expect(page.locator("#send")).toBeEnabled();
-  await page.getByRole("heading", { name: "Your edits" }).click();
+  await expect(page.locator("#commentsContentToggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#editsContentToggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#commentsContentToggle")).toHaveCSS("justify-content", "flex-start");
+  await expect(page.locator("#commentsContentToggle")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await page.locator("#drawerTitle").click();
   await capture("doc-review-feedback.png");
 
   const sent = page.waitForResponse((response) =>

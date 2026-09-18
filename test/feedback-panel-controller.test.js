@@ -130,3 +130,40 @@ test("copy failure is explicit and retryable", async () => {
   assert.equal(controller.getSnapshot().copyStatus, "copied");
   assert.equal(calls.length, 1);
 });
+
+test("Edits disclosure survives context changes independently from showing all edit rows", () => {
+  const { controller, context } = fixture();
+  const edits = Array.from({ length: 7 }, (_, index) => ({ label: `edit ${index}`, kind: "edited" }));
+  context.edits = edits;
+  controller.publish();
+  assert.equal(controller.getSnapshot().editsOpen, true);
+  assert.equal(controller.getSnapshot().edits.length, 5);
+  controller.commands.expand();
+  controller.commands.setEditsOpen(false);
+  assert.equal(controller.getSnapshot().editsOpen, false);
+  assert.equal(controller.getSnapshot().edits.length, 7);
+  context.edits = [];
+  context.available = false;
+  controller.publish();
+  context.identity = "other-page";
+  context.available = true;
+  context.edits = edits;
+  controller.publish();
+  assert.equal(controller.getSnapshot().editsOpen, false);
+  assert.equal(controller.getSnapshot().expanded, true);
+  controller.commands.setEditsOpen(true);
+  assert.equal(controller.getSnapshot().edits.length, 7);
+  assert.equal(fixture().controller.getSnapshot().editsOpen, true);
+});
+
+test("Revert reveals Edits and prevents hiding its return target during confirmation", () => {
+  const { controller } = fixture();
+  controller.commands.setEditsOpen(false);
+  controller.commands.open("revert");
+  assert.equal(controller.getSnapshot().editsOpen, true);
+  controller.commands.setEditsOpen(false);
+  assert.equal(controller.getSnapshot().editsOpen, true);
+  controller.commands.cancel();
+  controller.commands.setEditsOpen(false);
+  assert.equal(controller.getSnapshot().editsOpen, false);
+});

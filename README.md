@@ -42,7 +42,7 @@ to open the page, wait for feedback, and apply the changes.
 2. **Point out what matters.** Select text or choose an element to leave a
    comment. Switch to **Edit** for direct changes to wording, formatting, images,
    or layout. Commenting works in either mode.
-3. **Send one batch.** Open **Comments**, add an overall note if needed, and
+3. **Send one batch.** Open **Feedback**, inspect Comments and Edits, add an overall note if needed, and
    choose **Send to agent**. No need to describe where every sentence lives.
 4. **Check the result.** Use **Changes** to compare a review round's captured
    before and after content, then continue reviewing. Comparisons show observed
@@ -51,7 +51,7 @@ to open the page, wait for feedback, and apply the changes.
 You can review a plan, refine a landing page, or walk through a local app without
 moving your feedback into a separate document.
 
-![The same page with Comments open: two saved comments, one saved headline edit, an overall note, and Send to agent](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
+![The Feedback panel with separate Comments and Edits sections, an overall note, and End review beside Send to agent](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
 
 *One batch, with the context attached: comments, your edits, and the overall direction.*
 

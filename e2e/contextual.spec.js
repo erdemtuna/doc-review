@@ -52,7 +52,9 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     await page.screenshot({ path: info.outputPath(`g5-compose-${theme}-${width}.png`), animations: "disabled" });
     await page.locator("#composeAdd").click();
     await expect(compose).toBeHidden();
+    await expect(page.locator("#count")).toHaveText("1");
     await expect(page.locator("#toolbarCount")).toHaveText("1");
+    await expect(page.locator("#commentsButton")).toHaveAccessibleName("Feedback");
     await frame.locator("mark[data-eh-mark]").first().click();
     if (width <= 720) await page.locator("#commentsButton").click();
     const card = width <= 720 ? page.locator("#cards article").first() : page.locator("#alignedCard");

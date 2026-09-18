@@ -98,7 +98,7 @@ other previews, its runtime does not change during later builds.
 ## README media
 
 The media tells one story using the fictional Field Notes landing page:
-Review with an anchored comment, Comments with the complete unsent batch, then
+Review with an anchored comment, Feedback with the complete unsent batch, then
 Changes after the requested description and call to action have been revised.
 The social cover is a separate composition, not another README banner.
 
@@ -131,7 +131,7 @@ the corresponding PNGs into `assets`. Keep the filenames stable:
 | Asset | Use |
 | --- | --- |
 | `doc-review.png` | README hero and contextual commenting example |
-| `doc-review-feedback.png` | Feedback inventory, direct edit, overall note, Send |
+| `doc-review-feedback.png` | Collapsible Comments/Edits, overall note, End-left/Send-right actions |
 | `doc-review-changes.png` | Completed comparison of the same feedback round |
 | `doc-review-social.png` | GitHub social-sharing cover |
 
