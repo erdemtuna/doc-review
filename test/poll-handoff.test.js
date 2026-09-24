@@ -2,102 +2,81 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { fileURLToPath } from "node:url";
-import { requestRaw } from "../lib/poll-transport.js";
+import { fixture, responseFor, scopeArgs } from "./fixtures/agent-loop.js";
+import * as c from "../lib/contracts/index.js";
+import { AGENT_INSTRUCTIONS, agentHandoff } from "../lib/agent-handoff.js";
 
-const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tmp = fs.mkdtempSync(path.join(project, ".doc-review-poll-"));
-process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
+test("shell handoff text retires acknowledgement and blanket edits without adding a duplicate timeout", () => {
+  const handoff = agentHandoff({ reviewId: "review", entryKey: "entry" });
+  assert.match(handoff.pollCommand, /--review review --entry entry/);
+  assert.equal(handoff.pollCommand.match(/--timeout/g)?.length, 1);
+  assert.match(AGENT_INSTRUCTIONS, /complete respond JSON file.*stable requestId/);
+  assert.match(AGENT_INSTRUCTIONS, /never repeat source edits/);
+  assert.doesNotMatch(JSON.stringify(handoff), /--ack|apply the feedback/);
+  assert.equal(fs.existsSync(new URL("../src/chrome-client.js", import.meta.url)), false);
+});
 
-async function request(server, method, route, body) {
-  const response = await requestRaw(server, {
-    method, path: route, timeout: 2000,
-    headers: body ? { "content-type": "application/json" } : {},
-  }, body);
-  return { status: response.status, body: JSON.parse(response.raw) };
-}
-
-function collect(child) {
-  return new Promise((resolve, reject) => {
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+test("open/session/shell handoffs bind generated executable commands to the durable review", async (t) => {
+  const f = await fixture(t), file = f.file();
+  const first = await f.cli(file, "--request-id", "repeatable-open", "--no-browser");
+  assert.equal(first.code, 0, first.stderr);
+  const opened = c.agentOpenSchema.parse(first.body);
+  const ref = { reviewId: opened.review.reviewId, entryKey: opened.review.entryKey };
+  assert.equal((await f.open(file)).review.reviewId, ref.reviewId);
+  const attached = await f.ok({ operation: "read-review", ...ref }, "/api/conversation/session");
+  const page = await fetch(`http://127.0.0.1:${f.server.port}/api/session/${attached.sessionId}/page`, {
+    headers: { "x-doc-review-token": f.server.token },
   });
-}
+  const bootstrap = await page.json();
+  assert.ok(JSON.stringify(bootstrap).includes(`--review ${ref.reviewId} --entry ${ref.entryKey}`));
+  await f.send(ref, [await f.thread(ref)]);
+  const run = (command) => f.cli(...command.replace(/^doc-review /, "").split(" "));
+  const polled = await run(opened.handoff.pollCommand);
+  assert.equal(polled.code, 0, polled.stderr);
+  const work = c.agentPollSchema.parse(polled.body);
+  const context = await run(work.handoff.contextCommands[0].command);
+  assert.equal(context.code, 0, context.stderr);
+  c.contextPageSchema.parse(context.body);
+  fs.writeFileSync(path.join(f.root, "response.json"), JSON.stringify(responseFor(work.submission)));
+  const response = await run(work.handoff.responseCommand);
+  assert.equal(response.code, 0, response.stderr);
+  c.acceptedMutationSchema.parse(response.body);
+  const status = await run(work.handoff.statusCommand);
+  assert.equal(status.code, 0, status.stderr);
+  c.agentStatusSchema.parse(status.body);
+  await f.mutate(ref, "end", { confirmUnsentReadOnly: true });
+  const fresh = await f.open(file);
+  assert.notEqual(fresh.review.reviewId, ref.reviewId);
+  const replay = await f.cli(file, "--request-id", "repeatable-open", "--no-browser");
+  assert.equal(replay.body.review.reviewId, ref.reviewId, "exact open replay does not attach fresh review");
+  assert.equal(replay.body.review.state, "ended");
+  assert.equal((await run(work.handoff.pollCommand)).body.state, "ended");
+});
 
-async function waitForServer() {
-  const record = path.join(process.env.DOC_REVIEW_STATE_DIR, "server.json");
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      const saved = JSON.parse(fs.readFileSync(record, "utf8"));
-      const health = await request(saved.port, "GET", "/health");
-      if (health.status === 200) return saved;
-    } catch {
-      // The child has not announced its port yet.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("review server did not start");
-}
-
-test("poll exits with the feedback batch when the user sends", { timeout: 15000 }, async (t) => {
-  const file = path.join(tmp, "review.html");
-  fs.writeFileSync(file, "<p>Original</p>");
-
-  const reviewServer = spawn(process.execPath, ["lib/server-entry.js"], {
-    cwd: project,
-    env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
-    stdio: "ignore",
+test("CLI context pages are bounded, scoped, high-water stable, and chronological", async (t) => {
+  const f = await fixture(t), opened = await f.open(f.file());
+  const ref = { reviewId: opened.review.reviewId, entryKey: opened.review.entryKey };
+  const initial = await f.thread(ref);
+  for (let i = 0; i < 104; i++) await f.mutate(ref, "reply", {
+    threadId: initial.value.threadId, body: `Context ${i}`, intent: "discuss",
   });
-
-  let child;
-  t.after(async () => {
-    for (const process of [child, reviewServer]) {
-      if (process && process.exitCode === null && process.signalCode === null) {
-        const closed = once(process, "close");
-        process.kill();
-        await closed;
-      }
-    }
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  const server = await waitForServer();
-  const opened = await request(server, "POST", "/api/session", { file });
-  assert.equal(opened.status, 200);
-
-  const commented = await request(server, "POST", `/api/page/${opened.body.key}/comment`, {
-    kind: "selection",
-    quote: "Original",
-    feedback: "Make this clearer.",
-  });
-  assert.equal(commented.status, 200);
-
-  child = spawn(process.execPath, ["lib/cli.js", "poll", file], {
-    cwd: project,
-    env: { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const resultPromise = collect(child);
-
-  const sent = await request(server, "POST", `/api/page/${opened.body.key}/send`, {
-    sessionId: opened.body.sessionId,
-    note: "",
-  });
-  assert.equal(sent.status, 200);
-
-  const result = await resultPromise;
-  assert.equal(result.code, 0, result.stderr);
-  const batch = JSON.parse(result.stdout);
-  assert.equal(batch.status, "feedback");
-  assert.equal(batch.pages[0].comments[0].feedback, "Make this clearer.");
+  const args = ["context", ...scopeArgs(ref), "--thread", initial.value.threadId];
+  const latest = await f.cli(...args);
+  assert.equal(latest.code, 0, latest.stderr);
+  c.contextPageSchema.parse(latest.body);
+  assert.equal(latest.body.items.length, 50);
+  assert.equal(latest.body.totalCount, 105);
+  await f.mutate(ref, "reply", { threadId: initial.value.threadId, body: "After cursor", intent: "discuss" });
+  const older = await f.cli(...args, "--limit", "100", "--cursor", latest.body.nextCursor);
+  assert.equal(older.code, 0, older.stderr);
+  assert.equal(older.body.items.length, 55);
+  assert.equal(older.body.highWater, latest.body.highWater);
+  assert.equal(older.body.nextCursor, null);
+  const ids = [...older.body.items, ...latest.body.items].map((item) => item.reviewer.messageId);
+  assert.equal(new Set(ids).size, 105);
+  const other = await f.thread(ref);
+  const wrong = await f.cli("context", ...scopeArgs(ref), "--thread", other.value.threadId, "--cursor", latest.body.nextCursor);
+  assert.equal(wrong.code, 1);
+  assert.equal(wrong.body.error.code, "INVALID_CURSOR");
+  assert.equal((await f.cli(...args, "--limit", "101")).body.error.code, "INVALID_INPUT");
 });

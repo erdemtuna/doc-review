@@ -1,294 +1,160 @@
 import fs from "node:fs";
-import path from "node:path";
-import { test, expect, openReview, waitForSdk, enterEditMode, reviewApi, writeFile } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, intercept, failure, conversation, seedThread } from "./helpers.js";
 
 async function setup(page, review, name = "feedback.html") {
-  const file = writeFile(review, name, "<!doctype html><h1>Feedback candidate</h1><p id='copy'>Original paragraph</p><label>Authored input <input aria-label='Authored input'></label>");
-  const session = await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await page.locator("#commentsButton").click();
-  return { file, session, frame };
+  const file = writeFile(review, name, "<!doctype html><p id='copy'>Original paragraph</p><input aria-label='Authored input'>");
+  const ref = await openReview(page, review, file);
+  await waitForSdk(page); await feedback(page);
+  return { file, ref };
 }
-
-async function expectActionRow(page, width, height) {
-  await expect.poll(async () => {
-    const [left, right] = await Promise.all([
-      page.locator("#endReview").boundingBox(), page.locator("#send").boundingBox(),
-    ]);
-    return !!left && !!right && [left, right].every((box) =>
-      box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height
-    ) && left.x + left.width <= right.x &&
-      Math.max(left.y, right.y) < Math.min(left.y + left.height, right.y + right.height);
+async function edit(page, suffix) {
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  const frame = await enterEditMode(page);
+  await frame.locator("#copy").click(); await page.keyboard.press("End"); await page.keyboard.insertText(suffix);
+}
+async function actionsFit(page, width, height) {
+  for (const id of ["endReview", "send"]) await expect.poll(async () => {
+    const box = await page.locator(`#${id}`).boundingBox();
+    return box && box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height;
   }).toBe(true);
-  expect(await page.locator(".feedback-actions > button").evaluateAll((buttons) => buttons.map((button) => button.id)))
-    .toEqual(["endReview", "send"]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
-test("disposable feedback preview fixture seeds edits and keeps final actions outside supporting scroll", async ({ page, review }) => {
-  test.setTimeout(60_000);
-  const target = writeFile(review, "feedback-preview.html", fs.readFileSync(path.join(process.cwd(), "test", "fixtures", "feedback-review.html"), "utf8"));
-  const opened = await reviewApi(review, "/api/session", { method: "POST", body: { target } });
-  const session = opened.json();
-  for (let index = 0; index < 7; index++) {
-    const result = await reviewApi(review, `/api/page/${session.key}/edit`, {
-      method: "POST", body: { label: `Sample paragraph ${index + 1}`, kind: index === 2 ? "deleted" : "edited", before: "Original sample", after: index === 2 ? "" : "Revised sample", feedback_only: true },
-    });
-    expect(result.status).toBe(200);
-  }
-  await page.setViewportSize({ width: 320, height: 480 });
-  await page.goto(`http://127.0.0.1:${review.port}${session.path}`);
-  await waitForSdk(page);
-  await page.locator("#commentsButton").click();
-  await expect(page.locator("#editCount")).toHaveText("7");
-  await expect(page.locator("#editList li")).toHaveCount(5);
-  await page.getByRole("button", { name: "2 more…" }).click();
-  await expect(page.locator("#editList li")).toHaveCount(7);
-  await page.locator("#send").click();
-  await expect(page.locator("#handoff")).toBeVisible({ timeout: 15000 });
-  await expect(page.locator("#send")).toHaveText("Sent — agent is not listening");
-  for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-    for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [1440, 560]]) {
-      await page.setViewportSize({ width, height });
-      await expectActionRow(page, width, height);
-      const before = await page.locator(".feedback-actions").boundingBox();
-      const secondary = page.locator(".feedback-secondary");
-      expect(await secondary.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-      await secondary.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-      await expectActionRow(page, width, height);
-      expect((await page.locator(".feedback-actions").boundingBox()).y).toBe(before.y);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    }
-  }
-  expect(await page.locator(".feedback-actions").evaluate((element) =>
-    element.previousElementSibling.classList.contains("feedback-secondary") &&
-    element.lastElementChild.id === "send" && element.firstElementChild.id === "endReview"
-  )).toBe(true);
-});
 for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [1440, 560]]) {
   for (const theme of ["light", "dark"]) {
-    test(`feedback note, short-screen footer and safe dialog ${width}x${height} ${theme}`, async ({ page, review }, testInfo) => {
+    test(`note identity, independent inventory and safe shared-End dialog at ${width}x${height} ${theme}`, async ({ page, review }, testInfo) => {
       await page.setViewportSize({ width, height });
-      await page.addInitScript((value) => localStorage.setItem("doc-review:theme", value), theme);
-      const { frame } = await setup(page, review, `feedback-${width}-${height}-${theme}.html`);
-      const note = page.getByLabel("Overall note");
+      await page.addInitScript((theme) => localStorage.setItem("doc-review:theme", theme), theme);
+      const { ref } = await setup(page, review, `footer-${width}-${height}-${theme}.html`);
+      for (let i = 0; i < 8; i++) await seedThread(review, ref, `Saved message ${i}`);
+      await expect(page.locator(".conversation-thread")).toHaveCount(8);
+      const note = page.getByRole("textbox", { name: "Overall note" });
       await note.fill("Keep this overall note");
-      await note.evaluate((element) => {
-        window.g6Note = element; window.g6Frame = document.getElementById("frame");
-        element.setSelectionRange(5, 9);
-        element.dispatchEvent(new Event("select", { bubbles: true }));
-      });
-      await page.getByRole("button", { name: /Switch review tools to/ }).click();
-      await page.getByRole("button", { name: /Switch review tools to/ }).click();
-      await page.locator("#drawerClose").click();
-      await page.locator("#seeChanges").click();
-      await page.locator("#latestVersion").click();
-      await page.locator("#commentsButton").click();
-      await expect(note).toHaveValue("Keep this overall note");
-      expect(await note.evaluate((element) => element === window.g6Note && document.getElementById("frame") === window.g6Frame)).toBe(true);
-      await expect.poll(() => note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);
-      await expect(frame.locator("#copy")).toHaveText("Original paragraph");
-      const send = page.locator("#send");
-      const end = page.locator("#endReview");
-      await expect(send).toBeEnabled();
-      await expectActionRow(page, width, height);
+      await note.evaluate((element) => { window.savedNote = element; window.savedFrame = document.querySelector("#frame"); element.setSelectionRange(5, 9); element.dispatchEvent(new Event("select", { bubbles: true })); });
+      await page.locator("#theme").click(); await page.locator("#theme").click();
+      await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click(); await feedback(page);
+      expect(await note.evaluate((element) => element === window.savedNote && document.querySelector("#frame") === window.savedFrame)).toBe(true);
+      expect(await note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);
+      await actionsFit(page, width, height);
+      const y = (await page.locator("#send").boundingBox()).y;
+      await page.locator(".conversation-inventory").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      expect((await page.locator("#send").boundingBox()).y).toBe(y);
       await page.locator("#endReview").click();
       const dialog = page.getByRole("alertdialog");
-      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText("for every tab");
+      await expect(dialog).toContainText("not durable");
       await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-      await expect(dialog).toContainText("only in this tab");
-      await page.screenshot({ path: testInfo.outputPath(`g6-dialog-${width}-${height}-${theme}.png`), animations: "disabled" });
+      await page.screenshot({ path: testInfo.outputPath(`shared-end-${width}-${height}-${theme}.png`), animations: "disabled" });
       await page.keyboard.press("Escape");
-      await expect(dialog).toBeHidden();
-      await expect(page.locator("#endReview")).toBeFocused();
-      await expect(page.locator("#drawer")).toHaveClass(/open/);
-      await expect(page.locator("#drawer")).not.toHaveAttribute("aria-hidden", "true");
+      await expect(dialog).toBeHidden(); await expect(page.locator("#endReview")).toBeFocused();
       await expect(note).toHaveValue("Keep this overall note");
-      await page.keyboard.press("Tab");
-      await expect(send).toBeFocused();
-      await expect.poll(() => send.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("solid");
-      await page.keyboard.press("Shift+Tab");
-      await expect(end).toBeFocused();
+      await page.keyboard.press("Tab"); await expect(page.locator("#send")).toBeFocused();
     });
   }
 }
 
-test("send flight preserves new note, reports ambiguous error, retries explicitly and copies handoff", async ({ page, context, review }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  const { session } = await setup(page, review);
-  let attempts = 0;
-  let release;
-  const pending = new Promise((resolve) => { release = resolve; });
+test("uncertain Send preserves newer typing and retries exactly one identity with an exact-review handoff", async ({ page, review }) => {
+  const { ref } = await setup(page, review);
   const bodies = [];
-  await page.route("**/api/page/*/send", async (route) => {
-    attempts++; bodies.push(route.request().postDataJSON());
-    if (attempts === 1) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Service unavailable" }) });
-    await pending;
-    await route.continue();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await intercept(page, "send", async (route) => {
+    bodies.push(route.request().postDataJSON());
+    if (bodies.length === 1) return failure(route, "Send acceptance unknown");
+    await gate; await route.continue();
   });
-  await page.locator("#note").fill("First note");
-  await page.locator("#send").click();
-  await expect(page.getByRole("alert")).toContainText("No automatic retry");
-  await expect(page.locator("#note")).toHaveValue("First note");
-  await page.locator("#send").click();
+  const note = page.getByRole("textbox", { name: "Overall note" });
+  await note.fill("First note"); await page.locator("#send").click();
+  await expect(page.getByRole("alert")).toContainText("Send acceptance unknown");
+  await page.getByRole("button", { name: "Retry same request" }).click();
   await expect(page.locator("#send")).toBeDisabled();
-  await page.locator("#send").evaluate((element) => element.click());
-  await page.locator("#note").fill("A newer note");
-  release();
-  await expect.poll(() => attempts).toBe(2);
-  await expect(page.locator("#note")).toHaveValue("A newer note");
-  await expect(page.locator("#send")).toContainText(/Sent|delivered/);
-  expect(bodies[1].note).toBe("First note");
-  await expect(page.locator("#handoff")).toBeVisible({ timeout: 15000 });
-  await page.locator("#handoffCopy").click();
-  await expect(page.locator("#handoffCopy")).toHaveText("Copied");
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("--timeout 600");
-  const response = await reviewApi(review, `/api/page/${session.key}`);
-  expect(response.status).toBe(200);
+  await note.fill("Newer note"); release();
+  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  expect(bodies).toHaveLength(2); expect(bodies[1]).toEqual(bodies[0]);
+  await expect(note).toHaveValue("Newer note");
+  await page.getByText("Agent command", { exact: true }).click();
+  await expect(page.locator(".conversation-handoff code")).toContainText(ref.reviewId);
+  await expect(page.locator(".conversation-handoff code")).toContainText(ref.entryKey);
+  await expect(page.locator(".conversation-handoff code")).not.toContainText("--ack");
 });
 
-test("optional capture failure presents a notice after sending, never a new gate", async ({ page, review }) => {
-  const { frame } = await setup(page, review, "capture-optional.html");
-  await frame.locator("body").evaluate(() => {
+test("optional capture failure is independent of delivery and never introduces a Send override", async ({ page, review }) => {
+  await page.addInitScript(() => {
+    if (window === parent) return;
     window.addEventListener("message", (event) => {
-      if (event.data?.type === "eh:captureSnapshot") {
-        parent.postMessage({ ...event.data, type: "eh:snapshot", error: "The page is still changing" }, "*");
-      }
-    });
+      if (event.data?.type !== "eh:captureSnapshot") return;
+      event.stopImmediatePropagation();
+      parent.postMessage({ ...event.data, type: "eh:snapshot", error: "The page is still changing" }, "*");
+    }, true);
   });
-  let attempts = 0, sent;
-  await page.route("**/api/page/*/send", async (route) => {
-    attempts++;
-    sent = route.request().postDataJSON();
-    await route.continue();
-  });
-  await page.locator("#note").fill("Send despite optional capture");
+  const { ref } = await setup(page, review, "capture-failure.html");
+  await page.getByRole("textbox", { name: "Overall note" }).fill("Send independently");
   await page.locator("#send").click();
-  await expect(page.locator("#note")).toHaveValue("");
-  await expect(page.locator("#captureNotice")).toContainText("comparison may be incomplete");
-  await expect(page.locator("#recaptureBaseline, #sendWithoutComparison")).toHaveCount(0);
-  expect(attempts).toBe(1);
-  expect(sent.history.allowUnavailable).toBe(true);
-  expect(sent.history.semantic).toBeNull();
+  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Comparison baseline unavailable/)).toContainText("Feedback delivery is independent");
+  expect((await conversation(review, ref, "status")).work.state).toBe("queued");
+  await expect(page.getByRole("button", { name: /Send without/ })).toHaveCount(0);
 });
 
-test("Revert cancel keeps edits; pending confirmation submits once, restores source and retains note", async ({ page, review }) => {
-  const { file } = await setup(page, review, "revert-feedback.html");
-  const source = fs.readFileSync(file, "utf8");
-  await page.locator("#drawerClose").click();
-  const frame = await enterEditMode(page);
-  await frame.locator("#copy").click();
-  await page.keyboard.press("End");
-  await page.keyboard.type(" changed");
+test("Revert Cancel preserves edits; confirmation is single-flight and preserves the overall note", async ({ page, review }) => {
+  const { file } = await setup(page, review, "revert.html");
+  const before = fs.readFileSync(file, "utf8");
+  await edit(page, " changed");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("paragraph changed");
-  await page.locator("#commentsButton").click();
-  await page.locator("#note").fill("Retain note");
-  await expect(page.locator("#saveText")).toContainText("Saved to");
-  await page.locator("#revert").click();
-  const dialog = page.getByRole("alertdialog");
-  await dialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.locator("#revert")).toBeFocused();
-  expect(fs.readFileSync(file, "utf8")).toContain("paragraph changed");
+  await feedback(page); await page.getByRole("textbox", { name: "Overall note" }).fill("Keep note");
+  const revert = page.getByRole("button", { name: "Revert", exact: true });
+  await revert.click(); await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(revert).toBeFocused(); expect(fs.readFileSync(file, "utf8")).toContain("changed");
   let requests = 0, release;
-  const pending = new Promise((resolve) => { release = resolve; });
-  await page.route("**/api/page/*/revert", async (route) => { requests++; await pending; await route.continue(); });
-  await page.locator("#revert").click();
-  await dialog.getByRole("button", { name: "Revert all", exact: true }).click();
-  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Revert all", exact: true }).evaluate((element) => element.click());
-  await expect.poll(() => requests).toBe(1);
-  release();
-  await expect(dialog).toBeHidden();
-  await expect.poll(() => fs.readFileSync(file, "utf8")).toBe(source);
-  await expect(page.locator("#note")).toHaveValue("Retain note");
-});
-
-test("End becomes stale after source reload; failure is explicit and confirm retry is single flight", async ({ page, review }) => {
-  const { file } = await setup(page, review, "end-stale.html");
-  await page.locator("#note").fill("Unsent draft");
-  await page.locator("#endReview").click();
+  const gate = new Promise((resolve) => { release = resolve; });
+  await intercept(page, "revert", async (route) => { requests++; await gate; await route.continue(); });
+  await revert.click();
   const dialog = page.getByRole("alertdialog");
-  fs.writeFileSync(file, "<h1>New source</h1>");
-  // A source transition must never authorize the old confirmation.
-  await expect.poll(async () => (await dialog.isVisible()) ? await dialog.getByRole("button", { name: "End review", exact: true }).isDisabled() : true).toBe(true);
-  if (await dialog.isVisible()) await dialog.getByRole("button", { name: "Cancel" }).click();
-  await waitForSdk(page);
-  await page.locator("#endReview").click();
-  let attempts = 0;
-  await page.route("**/api/session/*/end", async (route) => {
-    attempts++;
-    if (attempts === 1) return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "End unavailable" }) });
-    await route.continue();
-  });
-  await dialog.getByRole("button", { name: "End review", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("End unavailable");
-  await expect(page.locator("#note")).toHaveValue("Unsent draft");
-  await dialog.getByRole("button", { name: "End review", exact: true }).click();
-  await expect(page.locator(".ended")).toBeVisible();
-  expect(attempts).toBe(2);
+  await dialog.getByRole("button", { name: "Confirm" }).evaluate((button) => { button.click(); button.click(); });
+  await expect.poll(() => requests).toBe(1);
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await page.keyboard.press("Escape"); await expect(dialog).toBeVisible();
+  release(); await expect(dialog).toBeHidden();
+  await expect.poll(() => fs.readFileSync(file, "utf8")).toBe(before);
+  await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("Keep note");
+  await expect(page.getByText("Source pending", { exact: true })).toBeVisible();
 });
 
-for (const action of ["revert", "end"]) {
-  test(`${action} keeps its persistence contract when a later edit cannot be recorded`, async ({ page, review }) => {
-    const { file, session } = await setup(page, review, `${action}-failed-edit.html`);
-    const source = fs.readFileSync(file, "utf8");
-    await page.locator("#drawerClose").click();
-    const frame = await enterEditMode(page);
-    await frame.locator("#copy").click();
-    await page.keyboard.press("End");
-    await page.keyboard.type(" first");
+test("stale End confirmation rejects explicitly without losing drafts; renewed confirmation ends once", async ({ page, review }) => {
+  const { ref } = await setup(page, review, "stale-end.html");
+  await page.getByRole("textbox", { name: "Overall note" }).fill("Unsent draft");
+  await page.locator("#endReview").click();
+  await seedThread(review, ref, "Concurrent saved work");
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByRole("alert")).toContainText(/version|changed|stale/i);
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.locator("#endReview").click();
+  await dialog.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
+  await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("Unsent draft");
+  expect((await conversation(review, ref, "read-review")).state).toBe("ended");
+});
+
+for (const action of ["Send", "Revert", "End"]) {
+  test(`${action} cannot cross a failed exact edit-record barrier or claim source success`, async ({ page, review }) => {
+    const { file, ref } = await setup(page, review, `barrier-${action}.html`);
+    await edit(page, " first");
     await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("paragraph first");
-    await expect.poll(async () => (await reviewApi(review, `/api/page/${session.key}`)).json().edits.length).toBe(1);
-    let failedEdits = 0, requests = 0, releaseEdit, releaseAction;
-    const retry = new Promise((resolve) => { releaseEdit = resolve; });
-    const mutation = new Promise((resolve) => { releaseAction = resolve; });
-    const order = [];
-    await page.route("**/api/page/*/edit", async (route) => {
-      const attempt = ++failedEdits;
-      order.push(`edit-${attempt}`);
-      if (attempt === 2) await retry;
-      await route.fulfill({ status: 503, json: { error: "Queued edit unavailable" } });
-      order.push(`failed-${attempt}`);
-    });
-    await page.route(action === "revert" ? "**/api/page/*/revert" : "**/api/session/*/end", async (route) => {
-      requests++;
-      order.push(action);
-      await mutation;
-      await route.continue();
-    });
-    await page.keyboard.type(" second");
-    await expect.poll(() => failedEdits).toBe(1);
-    await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("paragraph first second");
-    await page.locator("#commentsButton").click();
-    await page.locator("#note").fill("Keep this note");
-    await page.locator(action === "revert" ? "#revert" : "#endReview").click();
-    const dialog = page.getByRole("alertdialog");
-    const confirm = dialog.getByRole("button", { name: action === "revert" ? "Revert all" : "End review", exact: true });
-    await confirm.click();
-    await expect.poll(() => failedEdits).toBe(2);
-    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await intercept(page, "record-edit", (route) => failure(route, "Exact edit could not be recorded", "VERSION_CONFLICT"));
+    await page.frameLocator("#frame").locator("#copy").click(); await page.keyboard.press("End"); await page.keyboard.insertText(" second");
+    await expect(page.getByRole("alert")).toContainText("Exact edit could not be recorded");
+    await feedback(page); await page.getByRole("textbox", { name: "Overall note" }).fill("Preserve this");
+    let requests = 0;
+    await intercept(page, action.toLowerCase(), async (route) => { requests++; await route.continue(); });
+    await page.getByRole("button", { name: action === "End" ? "End review" : action, exact: true }).click();
+    if (action !== "Send") await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+    await expect(page.getByRole("alert")).toContainText(/record|persist|save|edit/i);
     expect(requests).toBe(0);
-    await confirm.evaluate((element) => element.click());
-    releaseEdit();
-    if (action === "revert") {
-      await expect.poll(() => requests).toBe(1);
-      expect(order).toEqual(["edit-1", "failed-1", "edit-2", "failed-2", "revert"]);
-      releaseAction();
-      await expect(dialog).toBeHidden();
-      await expect.poll(() => fs.readFileSync(file, "utf8")).toBe(source);
-      await waitForSdk(page);
-      await expect.poll(async () => (await reviewApi(review, `/api/page/${session.key}`)).json().edits.length).toBe(0);
-      await expect(page.locator("#editCount")).toHaveText("0");
-      expect(requests).toBe(1);
-    } else {
-      await expect(dialog.getByRole("alert")).toContainText("Queued edit unavailable");
-      await expect(confirm).toBeEnabled();
-      expect(requests).toBe(0);
-      expect(fs.readFileSync(file, "utf8")).toContain("paragraph first second");
-      releaseAction();
-    }
-    await expect(page.locator("#note")).toHaveValue("Keep this note");
+    expect((await conversation(review, ref, "read-review")).state).toBe("open");
+    expect(fs.readFileSync(file, "utf8")).not.toContain("second");
+    if (action !== "Send") await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("Preserve this");
   });
 }

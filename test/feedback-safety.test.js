@@ -1,379 +1,149 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
-import os from "node:os";
-import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fixture, responseFor, editContent, scopeArgs } from "./fixtures/agent-loop.js";
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doc-review-safety-"));
-process.env.DOC_REVIEW_STATE_DIR = path.join(tmp, "state");
-const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-const { start } = await import("../lib/server.js");
-
-function request(port, token, { method = "GET", route = "/", body = null } = {}) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host: "127.0.0.1",
-        port,
-        method,
-        path: route,
-        headers: {
-          "x-doc-review-token": token,
-          ...(body ? { "content-type": "application/json" } : {}),
-        },
-      },
-      (res) => {
-        let raw = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
-        res.on("end", () => resolve({ status: res.statusCode, raw }));
-      }
-    );
-    req.on("error", reject);
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
+async function opened(t) {
+  const f = await fixture(t), file = f.file();
+  const { review } = await f.open(file);
+  return { f, file, ref: { reviewId: review.reviewId, entryKey: review.entryKey } };
+}
+async function attempt(f, ref, operation, fields = {}) {
+  return f.call({ operation, ...ref, requestId: crypto.randomUUID(),
+    expectedVersion: (await f.read(ref)).version, ...fields });
 }
 
-const j = (res) => JSON.parse(res.raw);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-test("comment POST trims feedback and strips presentation geometry", async (t) => {
-  const file = path.join(tmp, "geometry-privacy.html");
-  fs.writeFileSync(file, "<!doctype html><p>Alpha</p>");
-  const { port, token, dispose } = await start(0);
-  t.after(async () => dispose());
-  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
-
-  const empty = await request(port, token, {
-    method: "POST",
-    route: `/api/page/${opened.key}/comment`,
-    body: { kind: "selection", quote: "Alpha", anchor: { quote: "Alpha" }, feedback: " \n " },
-  });
-  assert.equal(empty.status, 400);
-
-  const added = j(await request(port, token, {
-    method: "POST",
-    route: `/api/page/${opened.key}/comment`,
-    body: {
-      kind: "selection",
-      quote: "Alpha",
-      feedback: "  Tighten this.  ",
-      anchor: {
-        quote: "Alpha",
-        prefix: "",
-        suffix: "",
-        selector: "p",
-        rects: [{ left: 1, top: 2 }],
-        viewport: { width: 800, height: 600 },
-        generation: 4,
-      },
-    },
-  }));
-  assert.equal(added.comment.feedback, "Tighten this.");
-  assert.deepEqual(added.comment.anchor, { quote: "Alpha", selector: "p" });
-
-  await request(port, token, {
-    method: "POST",
-    route: `/api/page/${opened.key}/send`,
-    body: { sessionId: opened.sessionId, note: "" },
-  });
-  const batch = j(await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` }));
-  assert.deepEqual(batch.pages[0].comments[0].anchor, { quote: "Alpha", selector: "p" });
-  assert.doesNotMatch(JSON.stringify(batch), /rects|viewport|generation|relation|clip|horizontal/);
-});
-
-/**
- * Fire `poll --ack <batch_id>` the way an agent whose feedback is already delivered
- * does: the ack clears the batch, then the request long-polls for the next
- * one. The test only needs the ack side effect, so the poll is abandoned.
- */
-function ackAndAbandon(port, token, target, batchId, ms = 200) {
-  return new Promise((resolve) => {
-    const req = http.request({
-      host: "127.0.0.1",
-      port,
-      path: `/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batchId)}`,
-      headers: { "x-doc-review-token": token },
-    });
-    req.on("error", () => {});
-    req.on("response", () => setTimeout(() => {
-      req.destroy();
-      resolve();
-    }, ms));
-    req.end();
-  });
-}
-
-test("ack after a timeout delivers a stranded batch instead of destroying it", async (t) => {
-  const file = path.join(tmp, "plan.html");
-  fs.writeFileSync(file, "<!DOCTYPE html>\n<html><head></head><body><h1>Head</h1><p>Alpha</p></body></html>\n");
-  const { port, token, dispose } = await start(0);
-  t.after(async () => dispose());
-
-  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
-  const key = opened.key;
-
-  await request(port, token, {
-    method: "POST",
-    route: `/api/page/${key}/comment`,
-    body: { kind: "selection", quote: "Alpha", feedback: "Tighten this." },
-  });
-  await request(port, token, {
-    method: "POST",
-    route: `/api/page/${key}/edit`,
-    body: { label: "p", kind: "edited", before: "Alpha", after: "Beta" },
-  });
-  // Send with no agent listening: the batch is stranded, never delivered.
-  const sent = j(await request(port, token, { method: "POST", route: `/api/page/${key}/send`, body: { sessionId: opened.sessionId, note: "" } }));
-  assert.equal(sent.ok, true);
-
-  // The agent's previous poll timed out, so a stale receipt accompanies the
-  // next poll. It must not destroy the
-  // stranded one, which must be delivered instead.
-  const polled = await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}&ack=b_stale` });
-  const batch = JSON.parse(polled.raw);
-  assert.equal(batch.status, "feedback");
-  assert.equal(batch.pages[0].comments[0].feedback, "Tighten this.");
-
-  const status = j(await request(port, token, { route: `/api/status?target=${encodeURIComponent(file)}` }));
-  assert.equal(status.feedback_waiting, true, "the delivered batch still awaits a real ack");
-
-  // Feedback added between delivery and ack belongs to the next batch.
-  await sleep(15);
-  await request(port, token, {
-    method: "POST",
-    route: `/api/page/${key}/edit`,
-    body: { label: "h1", kind: "edited", before: "Head", after: "New head", before_html: "Head", after_html: "New <strong>head</strong>" },
-  });
-  await request(port, token, {
-    method: "POST",
-    route: `/api/page/${key}/comment`,
-    body: { kind: "selection", quote: "Head", feedback: "Late comment." },
-  });
-
-  await ackAndAbandon(port, token, file, batch.batch_id);
-
-  const after = j(await request(port, token, { route: `/api/status?target=${encodeURIComponent(file)}` }));
-  assert.equal(after.feedback_waiting, false, "a delivered batch acks normally");
-
-  const page = j(await request(port, token, { route: `/api/page/${key}` }));
-  assert.deepEqual(page.comments.map((c) => c.feedback), ["Late comment."], "post-send comments survive the ack");
-  assert.deepEqual(page.edits.map((e) => e.label), ["h1"], "post-send edits survive the ack");
-  assert.equal(page.edits[0].after_html, "New <strong>head</strong>", "formatting travels with the edit");
-
-  // The surviving edit ships in the next batch, formatting included.
-  await request(port, token, { method: "POST", route: `/api/page/${key}/send`, body: { sessionId: opened.sessionId, note: "" } });
-  const next = JSON.parse((await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` })).raw);
-  const shipped = next.pages[0].edits.find((e) => e.label === "h1");
-  assert.equal(shipped.after_html, "New <strong>head</strong>");
-  await ackAndAbandon(port, token, file, next.batch_id);
-});
-
-test("a comment can be reworded before it is sent", async (t) => {
-  const file = path.join(tmp, "reword.html");
-  fs.writeFileSync(file, "<!DOCTYPE html>\n<html><head></head><body><p>Draft</p></body></html>\n");
-  const { port, token, dispose } = await start(0);
-  t.after(async () => dispose());
-
-  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
-  const key = opened.key;
-  const added = j(await request(port, token, {
-    method: "POST",
-    route: `/api/page/${key}/comment`,
-    body: { kind: "selection", quote: "Draft", feedback: "First thoughts" },
-  }));
-
-  const reworded = await request(port, token, {
-    method: "PATCH",
-    route: `/api/page/${key}/comment/${added.comment.id}`,
-    body: { feedback: "Sharper thoughts" },
-  });
-  assert.equal(reworded.status, 200);
-  assert.deepEqual(j(reworded).page.comments.map((c) => c.feedback), ["Sharper thoughts"]);
-  assert.equal(typeof j(reworded).page.comments[0].updatedAt, "number");
-
-  const missing = await request(port, token, { method: "PATCH", route: `/api/page/${key}/comment/c_nope`, body: { feedback: "x" } });
-  assert.equal(missing.status, 404);
-  const empty = await request(port, token, { method: "PATCH", route: `/api/page/${key}/comment/${added.comment.id}`, body: { feedback: "  " } });
-  assert.equal(empty.status, 400);
-
-  // The reworded text is what ships.
-  await request(port, token, { method: "POST", route: `/api/page/${key}/send`, body: { sessionId: opened.sessionId, note: "" } });
-  const batch = JSON.parse((await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` })).raw);
-  assert.deepEqual(batch.pages[0].comments.map((c) => c.feedback), ["Sharper thoughts"]);
-  await ackAndAbandon(port, token, file, batch.batch_id);
-});
-
-test("rewording replaces a waiting batch and becomes a correction after delivery", async (t) => {
-  const file = path.join(tmp, "reword-after-send.html");
-  fs.writeFileSync(file, "<!DOCTYPE html><html><body><p>Draft</p></body></html>");
-  const { port, token, dispose } = await start(0);
-  t.after(async () => dispose());
-
-  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
-  const added = j(await request(port, token, {
-    method: "POST",
-    route: `/api/page/${opened.key}/comment`,
-    body: { kind: "selection", quote: "Draft", feedback: "Delete this" },
-  }));
-
-  // Nothing is polling yet, so editing should replace the stranded batch in place.
-  await request(port, token, { method: "POST", route: `/api/page/${opened.key}/send`, body: { sessionId: opened.sessionId, note: "" } });
-  const waitingEdit = j(await request(port, token, {
-    method: "PATCH",
-    route: `/api/page/${opened.key}/comment/${added.comment.id}`,
-    body: { feedback: "Shorten this" },
-  }));
-  assert.equal(waitingEdit.delivery, "updated-pending");
-
-  const delivered = j(await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` }));
-  assert.equal(delivered.pages[0].comments[0].feedback, "Shorten this", "the agent never sees the superseded wording");
-
-  // Once delivered, a further revision must survive ack as an explicit correction.
-  const correction = j(await request(port, token, {
-    method: "PATCH",
-    route: `/api/page/${opened.key}/comment/${added.comment.id}`,
-    body: { feedback: "Keep it, but add an example" },
-  }));
-  assert.equal(correction.delivery, "correction");
-  assert.equal(correction.page.comments[0].correction, true);
-  assert.equal(correction.page.comments[0].correctionOf, "Shorten this");
-  assert.notEqual(correction.page.comments[0].id, added.comment.id, "the delivered id is retired so ack cannot clear the correction");
-
-  await ackAndAbandon(port, token, file, delivered.batch_id);
-  const afterAck = j(await request(port, token, { route: `/api/page/${opened.key}` }));
-  assert.equal(afterAck.comments.length, 1);
-  assert.equal(afterAck.comments[0].feedback, "Keep it, but add an example");
-
-  await request(port, token, { method: "POST", route: `/api/page/${opened.key}/send`, body: { sessionId: opened.sessionId, note: "" } });
-  const correctedBatch = j(await request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` }));
-  const shipped = correctedBatch.pages[0].comments[0];
-  assert.equal(shipped.correction, true);
-  assert.equal(shipped.correction_of, "Shorten this");
-  assert.match(correctedBatch.next_step, /replace their `correction_of` instruction/);
-  await ackAndAbandon(port, token, file, correctedBatch.batch_id);
-});
-
-test("a save based on a stale version of the file is refused", async (t) => {
-  const file = path.join(tmp, "save.html");
-  const v1 = "<!DOCTYPE html>\n<html><head></head><body><p>One</p></body></html>\n";
-  fs.writeFileSync(file, v1);
-  const { port, token, dispose } = await start(0);
-  t.after(async () => dispose());
-
-  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
-  const key = opened.key;
-
-  const raw = j(await request(port, token, { route: `/api/page/${key}/raw` }));
-  const render = j(await request(port, token, {
-    method: "POST", route: `/api/session/${opened.sessionId}/render`, body: { key, generation: 1 },
-  }));
-  assert.equal((await request(port, "", { route: render.path })).status, 200);
-  const identity = { sessionId: opened.sessionId, renderId: render.renderId, generation: 1 };
-  assert.equal(raw.html, v1);
-  assert.ok(raw.hash, "raw hands out the save precondition");
-
-  const v2 = v1.replace("One", "Two");
-  const stale = await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { ...identity, html: v2, baseHash: "0".repeat(40) } });
-  assert.equal(stale.status, 409, "a save that names the wrong base version loses");
-  assert.equal(fs.readFileSync(file, "utf8"), v1, "the refused save wrote nothing");
-
-  const good = j(await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { ...identity, html: v2, baseHash: raw.hash } }));
-  assert.ok(good.hash, "a successful save returns the next precondition");
-  assert.equal(fs.readFileSync(file, "utf8"), v2);
-
-  // The agent-rewrite race: a queued autosave still naming the old version.
-  const late = await request(port, token, { method: "POST", route: `/api/page/${key}/save`, body: { ...identity, html: v1, baseHash: raw.hash } });
-  assert.equal(late.status, 409, "the pre-rewrite hash no longer wins");
-  assert.equal(fs.readFileSync(file, "utf8"), v2);
-});
-
-test("ending a review releases the waiting agent and keeps unsent feedback", async (t) => {
-  const file = path.join(tmp, "ended.html");
-  fs.writeFileSync(file, "<!DOCTYPE html>\n<html><head></head><body><p>Alpha</p></body></html>\n");
-  const { port, token, dispose } = await start(0);
-  t.after(async () => dispose());
-
-  const opened = j(await request(port, token, { method: "POST", route: "/api/session", body: { file } }));
-  const key = opened.key;
-  await request(port, token, {
-    method: "POST",
-    route: `/api/page/${key}/comment`,
-    body: { kind: "selection", quote: "Alpha", feedback: "Unsent thought" },
-  });
-
-  // An agent is mid-poll with nothing to deliver.
-  const polled = request(port, token, { route: `/api/poll?target=${encodeURIComponent(file)}` });
-  await sleep(100);
-
-  const ended = await request(port, token, { method: "POST", route: `/api/session/${opened.sessionId}/end` });
-  assert.equal(ended.status, 200);
-
-  const answer = JSON.parse((await polled).raw);
-  assert.equal(answer.status, "closed", "the poller is released, not left to time out");
-  assert.match(answer.next_step, /Stop polling/);
-
-  const gone = await request(port, token, { route: `/api/session/${opened.sessionId}/page` });
-  assert.equal(gone.status, 404, "the session is forgotten");
-
-  const page = j(await request(port, token, { route: `/api/page/${key}` }));
-  assert.deepEqual(page.comments.map((c) => c.feedback), ["Unsent thought"], "unsent feedback survives the end");
-});
-
-test("poll --timeout rejects malformed values instead of waiting forever", async () => {
-  const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
-  const run = (args) =>
-    new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ["lib/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
-      let stderr = "";
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk;
-      });
-      child.on("error", reject);
-      child.on("exit", (code) => resolve({ code, stderr }));
-    });
-
-  for (const args of [
-    ["poll", "x.html", "--timeout", "nope"],
-    ["poll", "x.html", "--timeout=abc"],
-    ["poll", "x.html", "--timeout", "0"],
-    ["poll", "x.html", "--timeout"],
+test("message boundary preserves exact text and rejects presentation geometry rather than persisting it", async (t) => {
+  const { f, ref } = await opened(t);
+  const target = { kind: "selection", anchor: { quote: "Original", prefix: "", suffix: "" } };
+  for (const fields of [
+    { target, body: " \n " },
+    { body: "Thought", target: { ...target, anchor: { ...target.anchor, rects: [{ left: 1, top: 2 }] } } },
+    { body: "Thought", target: { ...target, viewport: { width: 800, height: 600 } } },
   ]) {
-    const result = await run(args);
-    assert.equal(result.code, 1, `${args.join(" ")} must fail`);
-    assert.match(result.stderr, /--timeout/, `${args.join(" ")} names the flag`);
+    const result = await attempt(f, ref, "create-thread", { pageKey: ref.entryKey, intent: "discuss", ...fields });
+    assert.equal(result.body.error.code, "INVALID_INPUT");
+  }
+  const saved = await f.thread(ref, { target, body: "  Exact thought.  " });
+  await f.send(ref, [saved]);
+  const work = (await f.poll(ref)).submission;
+  assert.equal(work.messages[0].message.body, "  Exact thought.  ");
+  assert.deepEqual(work.messages[0].target, target);
+  assert.doesNotMatch(JSON.stringify(work), /rects|viewport|generation|relation|clip|horizontal/);
+});
+
+test("obsolete acknowledgement cannot destroy queued work and handling preserves later messages and formatting", async (t) => {
+  const { f, ref } = await opened(t);
+  const original = await f.thread(ref);
+  await f.send(ref, [original]);
+  const retired = await fetch(`http://127.0.0.1:${f.server.port}/api/poll?ack=stale`, {
+    headers: { "x-doc-review-token": f.server.token },
+  });
+  assert.equal(retired.status, 410);
+  const work = (await f.poll(ref)).submission;
+  assert.equal(work.messages[0].message.messageId, original.value.messageId);
+  const later = await f.mutate(ref, "reply", { threadId: original.value.threadId, body: "Late thought", intent: "discuss" });
+  assert.equal((await attempt(f, ref, "record-edit", {
+    pageKey: ref.entryKey, content: editContent("Original", "New"),
+  })).body.error.code, "WORK_OUTSTANDING");
+  await f.ok(responseFor(work));
+  const edit = await f.mutate(ref, "record-edit", { pageKey: ref.entryKey,
+    content: editContent("Original", "New head", { after_html: "<p>New <strong>head</strong></p>" }) });
+  await f.send(ref, [later], [{ pageKey: ref.entryKey, editId: edit.value.editId, version: 1 }]);
+  const next = (await f.poll(ref)).submission;
+  assert.deepEqual(next.messages.map(({ message }) => message.body), ["Late thought"]);
+  assert.equal(next.edits[0].content.after_html, "<p>New <strong>head</strong></p>");
+});
+
+test("an unsent message can be reworded with exact version, missing and empty updates rejected", async (t) => {
+  const { f, ref } = await opened(t);
+  const saved = await f.thread(ref, { body: "First thoughts" });
+  const fields = { threadId: saved.value.threadId, messageId: saved.value.messageId, messageVersion: 1,
+    body: "Sharper thoughts", intent: "request-change" };
+  assert.equal((await attempt(f, ref, "update-message", { ...fields, messageId: "missing" })).body.error.code, "NOT_FOUND");
+  assert.equal((await attempt(f, ref, "update-message", { ...fields, body: " " })).body.error.code, "INVALID_INPUT");
+  await f.mutate(ref, "update-message", fields);
+  assert.equal((await attempt(f, ref, "update-message", fields)).body.error.code, "VERSION_CONFLICT");
+  await f.mutate(ref, "send", { pageKeys: [ref.entryKey], edits: [],
+    messages: [{ threadId: saved.value.threadId, messageId: saved.value.messageId, version: 2 }] });
+  const work = (await f.poll(ref)).submission;
+  assert.equal(work.messages[0].message.body, "Sharper thoughts");
+  assert.equal(work.messages[0].message.intent, "request-change");
+});
+
+test("Send freezes queued wording; corrections after Send and delivery remain separate messages", async (t) => {
+  const { f, ref } = await opened(t);
+  const original = await f.thread(ref, { body: "Delete this", intent: "request-change" });
+  await f.send(ref, [original]);
+  const update = { threadId: original.value.threadId, messageId: original.value.messageId, messageVersion: 1,
+    body: "Do not delete", intent: "discuss" };
+  assert.equal((await attempt(f, ref, "update-message", update)).body.error.code, "MESSAGE_IMMUTABLE");
+  const queuedCorrection = await f.mutate(ref, "reply", { threadId: original.value.threadId, body: "Shorten instead", intent: "request-change" });
+  const delivered = (await f.poll(ref)).submission;
+  assert.equal(delivered.messages[0].message.body, "Delete this");
+  assert.equal((await attempt(f, ref, "update-message", update)).body.error.code, "MESSAGE_IMMUTABLE");
+  const later = await f.mutate(ref, "reply", { threadId: original.value.threadId, body: "Keep it and add an example", intent: "request-change" });
+  await f.ok(responseFor(delivered));
+  await f.send(ref, [queuedCorrection, later]);
+  const corrected = (await f.poll(ref)).submission;
+  assert.deepEqual(corrected.messages.map(({ message }) => message.body), ["Shorten instead", "Keep it and add an example"]);
+  assert.equal(new Set(corrected.messages.map(({ message }) => message.messageId)).size, 2);
+});
+
+test("stale source saves are refused; accepted save evidence supplies the next exact baseline", async (t) => {
+  const { f, ref, file } = await opened(t);
+  const recorded = await f.mutate(ref, "record-edit", { pageKey: ref.entryKey, content: editContent("Original", "Changed") });
+  const page = await f.read(ref, "read-page", { pageKey: ref.entryKey });
+  const save = { pageKey: ref.entryKey, editId: recorded.value.editId, editVersion: 1, html: "<p>Changed</p>" };
+  assert.equal((await attempt(f, ref, "save-edit", { ...save, expectedSourceHash: "0".repeat(40) })).body.error.code, "SAVE_EVIDENCE_CONFLICT");
+  assert.equal(fs.readFileSync(file, "utf8"), "<p>Original</p>");
+  await f.mutate(ref, "save-edit", { ...save, expectedSourceHash: page.page.sourceHash });
+  assert.equal(fs.readFileSync(file, "utf8"), "<p>Changed</p>");
+  const next = await f.read(ref, "read-page", { pageKey: ref.entryKey });
+  assert.notEqual(next.page.sourceHash, page.page.sourceHash);
+  const later = await f.mutate(ref, "record-edit", { pageKey: ref.entryKey, content: editContent("Changed", "Late") });
+  assert.equal((await attempt(f, ref, "save-edit", { ...save, editId: later.value.editId,
+    html: "<p>Late</p>", expectedSourceHash: page.page.sourceHash })).body.error.code, "SAVE_EVIDENCE_CONFLICT");
+  assert.equal(fs.readFileSync(file, "utf8"), "<p>Changed</p>");
+});
+
+test("End releases the exact-review waiting agent while retaining read-only sessions and unsent feedback", async (t) => {
+  const { f, ref } = await opened(t);
+  const pending = await f.thread(ref, { body: "Unsent thought" });
+  const attached = await f.ok({ operation: "read-review", ...ref }, "/api/conversation/session");
+  const waiting = f.cli("poll", ...scopeArgs(ref), "--timeout", "5");
+  await f.mutate(ref, "end", { confirmUnsentReadOnly: true });
+  assert.equal((await waiting).body.state, "ended");
+  const bootstrap = await fetch(`http://127.0.0.1:${f.server.port}/api/session/${attached.sessionId}/page`, {
+    headers: { "x-doc-review-token": f.server.token },
+  });
+  assert.equal(bootstrap.status, 200);
+  assert.equal((await bootstrap.json()).review.state, "ended");
+  const context = await f.cli("context", ...scopeArgs(ref), "--thread", pending.value.threadId);
+  assert.equal(context.body.items[0].reviewer.body, "Unsent thought");
+  assert.equal(context.body.items[0].reviewer.submissionId, null);
+  assert.equal((await attempt(f, ref, "reply", {
+    threadId: pending.value.threadId, body: "Too late", intent: "discuss",
+  })).body.error.code, "REVIEW_ENDED");
+});
+
+test("poll --timeout rejects malformed values instead of waiting forever", async (t) => {
+  const f = await fixture(t);
+  for (const args of [["--timeout", "nope"], ["--timeout=abc"], ["--timeout", "0"], ["--timeout"]]) {
+    const result = await f.cli("poll", "--review", "review", "--entry", "entry", ...args);
+    assert.equal(result.code, 1);
+    assert.equal(result.body.error.code, "INVALID_INPUT");
+    assert.match(result.stderr, /--timeout/);
   }
 });
 
-test("poll requires an explicit batch ID after --ack", async () => {
-  const env = { ...process.env, DOC_REVIEW_STATE_DIR: process.env.DOC_REVIEW_STATE_DIR };
-  const run = (args) =>
-    new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ["lib/cli.js", ...args], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
-      let stderr = "";
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk;
-      });
-      child.on("error", reject);
-      child.on("exit", (code) => resolve({ code, stderr }));
-    });
-
-  for (const args of [
-    ["poll", "x.html", "--ack"],
-    ["poll", "x.html", "--ack", "--timeout", "1"],
-    ["poll", "x.html", "--ack=b_legacy"],
-  ]) {
-    const result = await run(args);
-    assert.equal(result.code, 1, `${args.join(" ")} must fail`);
-    assert.match(result.stderr, /--ack/);
+test("poll rejects obsolete target and acknowledgement-only commands", async (t) => {
+  const f = await fixture(t);
+  for (const args of [["poll", "x.html", "--ack"], ["poll", "x.html", "--ack", "--timeout", "1"],
+    ["poll", "x.html", "--ack=b_legacy"]]) {
+    const result = await f.cli(...args);
+    assert.equal(result.code, 1);
+    assert.equal(result.body.error.code, "INVALID_INPUT");
+    assert.match(result.stderr, /retired/);
   }
 });
-
-test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));

@@ -19,7 +19,7 @@ function captureTime(value, now) {
 }
 
 export class RevisionStore {
-  constructor({ root = path.join(stateDir(), "history"), write = atomicWrite, limits = REVISION_LIMITS } = {}) {
+  constructor({ root = path.join(stateDir(), "conversation-history"), write = atomicWrite, limits = REVISION_LIMITS } = {}) {
     this.root = root;
     this.write = write;
     this.limits = normalizeRevisionLimits(limits);

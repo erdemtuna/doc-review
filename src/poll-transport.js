@@ -1,5 +1,8 @@
 import http from "node:http";
 import { performance } from "node:perf_hooks";
+import { acceptedMutationSchema } from "./contracts/feedback.js";
+import { pollResponseSchema } from "./contracts/page-boundary.js";
+import { ContractError, failureSchema } from "./contracts/validation.js";
 
 export const DEFAULT_POLL_SECONDS = 12 * 60 * 60;
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -160,33 +163,36 @@ export function parseServerResponse(response) {
   }
 }
 
-export async function pollOnce(server, target, ackId, deadline) {
+export async function conversationOnce(server, body, decoder, deadline, route = "/api/conversation") {
   deadline.check();
-  const query = `target=${encodeURIComponent(target)}${ackId ? `&ack=${encodeURIComponent(ackId)}` : ""}`;
   const response = await requestRaw(server, {
-    method: "GET",
-    path: `/api/poll?${query}`,
-  }, undefined, {
-    timeoutMs: deadline.remaining(),
+    method: "POST", path: route, headers: { "content-type": "application/json" },
+  }, body, {
+    timeoutMs: Math.min(15000, deadline.remaining()),
     time: deadline.time,
-    timeoutCode: "POLL_DEADLINE",
   });
-  // Graceful server disposal ends the space heartbeats without a JSON payload.
-  // HTTP is complete, but this poll was interrupted just like a dropped socket.
-  if (response.status === 200 && /^ +$/.test(response.raw)) {
-    throw codedError("The server ended the poll before sending feedback.", "ERR_STREAM_PREMATURE_CLOSE");
+  let parsed;
+  try { parsed = JSON.parse(response.raw); }
+  catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw codedError("Malformed conversation response.", "SERVER_RESPONSE_INVALID");
   }
-  const batch = parseServerResponse(response);
-  if (!["feedback", "closed", "timeout"].includes(batch.status) ||
-      (batch.status === "feedback" && (typeof batch.batch_id !== "string" || !batch.batch_id || !Array.isArray(batch.pages)))) {
-    throw codedError("Malformed polling response from the doc-review server.", "SERVER_RESPONSE_INVALID");
+  if (response.status !== 200) {
+    let failure;
+    try { failure = failureSchema.parse(parsed); }
+    catch { throw codedError(`Invalid error response (HTTP ${response.status}).`, "SERVER_RESPONSE_INVALID"); }
+    if (failure.error.status !== response.status) throw codedError("HTTP and error status disagree.", "SERVER_RESPONSE_INVALID");
+    throw new ContractError(failure.error.code, failure.error.message);
   }
-  return batch;
+  try { return decoder.parse(parsed); }
+  catch { throw codedError("Conversation response does not match its schema.", "SERVER_RESPONSE_INVALID"); }
 }
 
+export const pollOnce = (server, reference, deadline) =>
+  conversationOnce(server, { operation: "poll", ...reference }, pollResponseSchema, deadline);
+
 export async function pollUntilDeadline({
-  target,
-  ackId = "",
+  reference,
   deadline = createDeadline(),
   discover,
   poll = pollOnce,
@@ -198,17 +204,16 @@ export async function pollUntilDeadline({
       deadline.check();
       const server = await discover(deadline);
       deadline.check();
-      // An uncertain send must repeat the supplied receipt, never a newer ID.
-      const batch = await poll(server, target, ackId, deadline);
-      deadline.check();
-      return batch;
+      const result = await poll(server, reference, deadline);
+      if (result.review.reviewId !== reference.reviewId || result.review.entryKey !== reference.entryKey) {
+        throw codedError("Polling response belongs to another review.", "SERVER_RESPONSE_INVALID");
+      }
+      if (result.state !== "waiting") return result;
+      failures = 0;
+      await deadline.sleep(500);
     } catch (err) {
       if (err.code === "POLL_DEADLINE" || deadline.remaining() <= 0) {
-        return {
-          status: "timeout",
-          waited_seconds: deadline.seconds,
-          next_step: "No feedback yet. Run the same poll command again to keep waiting, or `doc-review status <target>` to check without blocking.",
-        };
+        return { state: "timeout", ...reference };
       }
       if (!isRecoverableTransportError(err)) throw err;
       diagnostic(`Lost the connection (${err.message}); retrying.\n`);
@@ -217,6 +222,68 @@ export async function pollUntilDeadline({
       } catch (sleepError) {
         if (sleepError.code !== "POLL_DEADLINE") throw sleepError;
       }
+    }
+  }
+}
+
+/** Retry transport only. This function never opens or edits a reviewed source. */
+export async function mutationUntilDeadline({
+  body, deadline = createDeadline(60), discover, send = conversationOnce, diagnostic = () => {},
+}) {
+  const request = structuredClone(body);
+  let failures = 0;
+  let reason = "unavailable";
+  let attempted = false;
+  const unknown = (detail = "") => Object.assign(new Error(
+    `Acceptance is unknown. Reuse the identical request; do not repeat source edits.${detail ? ` ${detail}` : ""}`,
+  ), { code: "TRANSPORT_UNKNOWN", outcome: { state: "unknown", requestId: request.requestId, reason } });
+  for (;;) {
+    try {
+      deadline.check();
+      const server = await discover(deadline);
+      deadline.check();
+      attempted = true;
+      const accepted = await send(server, request, acceptedMutationSchema, deadline);
+      const receipt = acceptedMutationSchema.parse(accepted).receipt;
+      if (receipt.requestId !== request.requestId || receipt.operation !== request.operation ||
+          (request.reviewId !== undefined && receipt.reviewId !== request.reviewId) ||
+          (request.entryKey !== undefined && receipt.entryKey !== request.entryKey) ||
+          (request.submissionId !== undefined && receipt.value.submissionId !== request.submissionId)) {
+        throw codedError("Receipt does not match the submitted request.", "SERVER_RESPONSE_INVALID");
+      }
+      return accepted;
+    } catch (error) {
+      if (error instanceof ContractError && !["STATE_PERSIST_FAILED", "INTERNAL_ERROR"].includes(error.code)) throw error;
+      const recoverable = isRecoverableTransportError(error) || ["SERVER_RESPONSE_INVALID", "STATE_PERSIST_FAILED"].includes(error.code);
+      if (!recoverable && error.code !== "POLL_DEADLINE") {
+        if (attempted) throw unknown(error.message);
+        throw error;
+      }
+      if (error.code !== "POLL_DEADLINE") reason = error.code === "SERVER_RESPONSE_INVALID" ? "invalid-response" :
+        error.code === "ETIMEDOUT" ? "timeout" : error.code === "STATE_PERSIST_FAILED" ? "unavailable" : "disconnected";
+      if (error.code === "POLL_DEADLINE" || deadline.remaining() <= 0) {
+        throw unknown();
+      }
+      diagnostic(`Response uncertain (${error.message}); retrying the identical request.\n`);
+      try { await deadline.sleep(Math.min(250 * 2 ** Math.min(failures++, 5), 5000)); }
+      catch (sleepError) {
+        if (sleepError.code !== "POLL_DEADLINE") throw sleepError;
+      }
+    }
+  }
+}
+
+export async function readUntilDeadline({ body, decoder, deadline = createDeadline(60), discover, diagnostic = () => {}, route }) {
+  let failures = 0;
+  for (;;) {
+    try {
+      deadline.check();
+      return await conversationOnce(await discover(deadline), body, decoder, deadline, route);
+    } catch (error) {
+      if (error.code === "POLL_DEADLINE" || deadline.remaining() <= 0) throw error;
+      if (!isRecoverableTransportError(error)) throw error;
+      diagnostic(`Read interrupted (${error.message}); retrying.\n`);
+      await deadline.sleep(Math.min(250 * 2 ** Math.min(failures++, 5), 5000));
     }
   }
 }

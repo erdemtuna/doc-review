@@ -1,1225 +1,203 @@
 import fs from "node:fs";
-import http from "node:http";
-import { test, expect, enterEditMode, openReview, reviewApi, waitForSdk, writeFile } from "./helpers.js";
+import { threadAction } from "./conversation-actions.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
 
-function listen(server) {
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
-}
-
-async function selectText(frame, selector) {
-  await frame.locator(selector).evaluate((element) => {
-    const range = document.createRange();
-    const node = element.firstChild || element;
-    range.setStart(node, 0);
-    range.setEnd(node, node.nodeType === Node.TEXT_NODE ? node.nodeValue.length : node.childNodes.length);
-    const selection = document.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-  });
-}
-
-async function pollBatch(review, target) {
-  const response = await reviewApi(review, `/api/poll?target=${encodeURIComponent(target)}`);
-  expect(response.status, response.raw).toBe(200);
-  return response.json();
-}
-
-async function acknowledgeBatch(review, target, batchId) {
-  const response = await fetch(
-    `http://127.0.0.1:${review.port}/api/poll?target=${encodeURIComponent(target)}&ack=${encodeURIComponent(batchId)}`,
-    { headers: { "x-doc-review-token": review.token } }
-  );
-  await response.body.cancel();
-}
-
-async function addSelectionComment(page, frame, selector, feedback) {
-  const before = Number(await page.locator("#count").textContent());
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(before);
-  await selectText(frame, selector);
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill(feedback);
-  await page.locator("#composeAdd").click();
-  await expect(page.locator("#compose")).toBeHidden();
-  await expect(page.locator("#count")).toHaveText(String(before + 1));
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(before + 1);
-}
-
-test("View is default and writable HTML switches through Edit back to View", async ({ page, review }) => {
-  const file = writeFile(review, "mode.html", "<!doctype html><p id=\"copy\">Original</p>");
-  await openReview(page, review, file);
+async function setup(page, review, name, source = "<p id='copy'>First paragraph to review.</p><p id='other'>Second paragraph to review.</p><button id='action'>Authored control</button>") {
+  const file = writeFile(review, name, source);
+  const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
-  await expect(page.locator("#modeLabel")).toHaveText("View");
-  await expect(frame.locator("body")).not.toHaveAttribute("contenteditable", "true");
+  return { file, ref, frame };
+}
+const panel = (page) => page.getByRole("complementary", { name: "Feedback" });
+const draft = (page) => page.getByRole("textbox", { name: "New message", exact: true });
+const card = (page) => page.locator(".conversation-thread").first();
+async function begin(page, frame, selector = "#copy") { await selectText(frame, selector); await frame.locator("#commentAction").click(); await expect(draft(page)).toBeVisible(); }
+async function close(page) {
+  if (await page.locator(".conversation-panel").isVisible()) {
+    await page.locator(".conversation-panel").getByRole("button", { name: /^(Close|Close comment)$/, exact: true }).click();
+  } else await expect(page.locator(".conversation-panel")).toBeHidden(); // Save closes contextual composition.
+}
 
-  await enterEditMode(page);
-  await selectText(frame, "#copy");
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#copy").evaluate((element) => {
-    element.textContent = "Edited";
-    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
-  });
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).click();
-  await expect(frame.locator("body")).not.toHaveAttribute("contenteditable", "true");
-  await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Edited");
-});
-
-test("Markdown Edit is feedback-only and View preserves application interactions", async ({ page, review }) => {
-  const markdown = writeFile(review, "notes.md", "# Draft\n\nOriginal");
-  await openReview(page, review, markdown);
-  let frame = await enterEditMode(page);
-  await frame.locator("p").evaluate((element) => {
-    element.textContent = "Changed in review";
-    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
-  });
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).click();
-  await expect.poll(() => fs.readFileSync(markdown, "utf8")).toBe("# Draft\n\nOriginal");
-
-  const app = http.createServer((req, res) => {
-    res.setHeader("content-type", "text/html");
-    if (req.url.startsWith("/search")) {
-      const query = new URL(req.url, "http://localhost").searchParams.get("q");
-      res.end(`<!doctype html><p id="searchResult">Search: ${query}</p>`);
-      return;
-    }
-    res.end(`<!doctype html><button id="button" onclick="this.textContent='Worked'">Run</button>
-      <details><summary>More</summary><p>Details</p></details>
-      <div role="button" tabindex="0" id="tab" onclick="this.dataset.active='yes'">Tab</div>
-      <form id="search" action="/search"><input name="q" value="review"><button type="submit">Search</button></form>
-      <form id="handled" onsubmit="event.preventDefault(); this.dataset.handled='yes'"><button type="submit">Handle in app</button></form>
-      <a id="hash" href="#destination">Jump</a><div style="height:900px"></div><p id="destination">There</p>`);
-  });
-  const port = await listen(app);
-  try {
-    const localSession = await openReview(page, review, `http://localhost:${port}/`);
-    frame = await waitForSdk(page);
-    await frame.locator("#button").focus();
-    await expect(frame.locator("#commentAction")).toBeVisible();
-    await frame.locator("#button").click();
-    await expect(frame.locator("#button")).toHaveText("Worked");
-    await frame.locator("#button").press("Control+Alt+m");
-    await expect(page.locator("#compose")).toBeVisible();
-    await expect(page.locator("#composeText")).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect.poll(() => frame.locator("#button").evaluate((element) => document.activeElement === element)).toBe(true);
-    await frame.locator("summary").click();
-    await expect(frame.locator("details")).toHaveAttribute("open", "");
-    await frame.locator("#tab").click();
-    await expect(frame.locator("#tab")).toHaveAttribute("data-active", "yes");
-    await frame.locator("#handled button").click();
-    await expect(frame.locator("#handled")).toHaveAttribute("data-handled", "yes");
-    await frame.locator("#hash").click();
-    await expect.poll(() => frame.locator("html").evaluate(() => location.hash)).toBe("#destination");
-    await enterEditMode(page);
-    await frame.locator("#tab").evaluate((element) => {
-      element.textContent = "Edited tab";
-      element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
-      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
-    });
-    await expect.poll(async () => {
-      const response = await reviewApi(review, `/api/page/${localSession.key}`);
-      return response.json().edits.length;
-    }).toBeGreaterThan(0);
-    await page.locator("#modeButton").click();
-    await page.getByRole("menuitemradio", { name: /^View/ }).click();
-    await frame.locator("#search button").click();
-    await waitForSdk(page);
-    frame = page.frameLocator("#frame");
-    await expect(frame.locator("#searchResult")).toHaveText("Search: review");
-  } finally {
-    app.close();
-  }
-});
-
-test("selection comments use explicit action, keyboard shortcut, aligned card, and shared drawer", async ({ page, review }) => {
-  const file = writeFile(review, "comments.html", "<!doctype html><main><p id=\"first\">First selected sentence.</p><p id=\"second\">Second sentence.</p></main>");
-  const session = await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-
-  await selectText(frame, "#first");
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await expect(page.locator("#compose")).toBeHidden();
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#compose")).toBeVisible();
-  await expect(page.locator("#composeQuote")).toContainText("First selected");
-  await page.locator("#composeText").fill("Make this clearer.");
-  await page.locator("#composeAdd").click();
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
+for (const mode of ["view", "edit"]) test(`explicit selection and keyboard block targeting share the durable inventory in ${mode}`, async ({ page, review }) => {
+  const { ref, frame } = await setup(page, review, `targeting-${mode}.html`);
+  if (mode === "edit") await enterEditMode(page);
+  await begin(page, frame); await compose(page, "Selection feedback");
+  await feedback(page);
+  await expect(card(page)).toContainText("Selection feedback");
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-  await expect(frame.locator("mark.eh-active")).toHaveCount(0);
-  await expect(page.locator("#alignedCard")).toBeHidden();
+  await close(page);
+  await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
+  await compose(page, "Control feedback");
+  await feedback(page);
+  expect((await listed(review, ref, "threads")).items.map((item) => item.thread.target.kind).sort()).toEqual(["element", "selection"]);
+  await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("");
+});
 
-  await page.locator("#commentsButton").click();
-  await expect(page.locator("#commentsButton")).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("#drawer")).toHaveClass(/open/);
-  await expect(page.locator("#commentsSection")).toBeFocused();
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await expect(frame.locator("mark.eh-active")).toHaveCount(0);
-  await expect(page.locator("#cards").getByRole("button", { name: "Jump to" })).toBeVisible();
-  await expect(page.locator("#cards").getByRole("button", { name: "Edit comment" })).toBeVisible();
-  await expect(page.locator("#cards").getByRole("button", { name: "Delete comment", exact: true })).toBeVisible();
-  await expect(page.locator("#cards").getByRole("button", { name: "More", exact: true })).toHaveCount(0);
-  await expect(page.locator("#cards").getByRole("menu")).toHaveCount(0);
-  await expect(page.locator("#cards").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
-  await page.locator("#drawerClose").click();
+test("Save and Cancel restore the exact authored control, and later renders do not reopen composition", async ({ page, review }) => {
+  const { frame } = await setup(page, review, "restored-control.html");
+  await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
+  await compose(page, "Review control");
+  await expect(frame.locator("#action")).toBeFocused();
+  await page.locator("#theme").click(); await expect(draft(page)).toHaveCount(0);
+  await close(page);
+  await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
+  await draft(page).fill("Discard local"); await draft(page).press("Escape");
+  await expect(frame.locator("#action")).toBeFocused();
+});
+
+test("only confirmed deletion removes a never-submitted thread and returns reachable focus", async ({ page, review }) => {
+  const { frame, ref } = await setup(page, review, "delete-thread.html");
+  await selectionMessage(page, frame, "#copy", "Delete this only when confirmed");
+  await (await threadAction(page, card(page), "Delete thread")).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  expect((await listed(review, ref, "threads")).items).toHaveLength(1);
+  await (await threadAction(page, card(page), "Delete thread")).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+  await expect(card(page)).toHaveCount(0);
   await expect(page.locator("#commentsButton")).toBeFocused();
-  await expect(page.locator("#commentsButton")).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await frame.locator("mark[data-eh-mark]").click();
-  await expect(page.locator("#alignedCard")).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Edit comment" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Close comment card" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "More", exact: true })).toHaveCount(0);
-  await expect(page.locator("#alignedCard").getByRole("menu")).toHaveCount(0);
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
-
-  await selectText(frame, "#second");
-  await frame.locator("body").dispatchEvent("keydown", { key: "m", ctrlKey: true, altKey: true });
-  await expect(page.locator("#compose")).toBeVisible();
-  await expect(page.locator("#composeQuote")).toContainText("Second sentence");
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await expect(frame.locator("mark.eh-active")).toHaveCount(0);
-  await page.keyboard.press("Escape");
-
-  const persisted = await reviewApi(review, `/api/page/${session.key}`);
-  expect(persisted.status).toBe(200);
-  expect(JSON.stringify(persisted.json())).not.toMatch(/rects|viewport|targetGeneration|relation|clip|horizontal/);
-});
-
-test("submission restores exact element focus and stays closed through drawer rerenders", async ({ page, review }) => {
-  const file = writeFile(review, "closed-focus.html", "<!doctype html><button id=\"target\">Focusable target</button>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await frame.locator("#target").focus();
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("Keep this durable but closed");
-  await page.locator("#composeAdd").click();
-
-  await expect(page.locator("#compose")).toBeHidden();
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(frame.locator(".block-badge")).toHaveText("◧ 1");
-  await expect(frame.locator("#target")).not.toHaveAttribute("data-eh-el");
-  await expect.poll(() => frame.locator("#target").evaluate((element) => document.activeElement === element)).toBe(true);
-  await expect(page.locator("#alignedCard")).toBeHidden();
-
-  await page.locator("#commentsButton").click();
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await page.locator("#cards").getByRole("button", { name: "Jump to" }).click();
-  await page.locator("#drawerClose").click();
-  await expect(page.locator("#alignedCard")).toBeVisible();
-});
-
-test("aligned direct Delete restores focus and requires one confirmed request", async ({ page, review }) => {
-  const file = writeFile(review, "comment-delete.html", "<!doctype html><p id=\"copy\">Delete target</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await addSelectionComment(page, frame, "#copy", "Delete feedback");
-  await frame.locator("mark[data-eh-mark]").click();
-
-  let deletes = 0;
-  page.on("request", (request) => {
-    if (request.method() === "DELETE" && request.url().includes("/comment/")) deletes += 1;
-  });
-  const card = page.locator("#alignedCard");
-  const deleteAction = card.getByRole("button", { name: "Delete comment", exact: true });
-  const confirm = card.getByRole("button", { name: "Delete", exact: true });
-  await expect(deleteAction).toHaveAttribute("aria-label", "Delete comment");
-  await expect(deleteAction).toHaveAttribute("title", "Delete comment");
-  await expect(deleteAction).not.toHaveAttribute("aria-haspopup", "menu");
-  await expect(card.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
-  await deleteAction.click();
-  await expect(card.getByRole("menu")).toHaveCount(0);
-  await expect(card).toContainText("Delete this comment?");
-  await expect(confirm).toBeFocused();
-  await expect(confirm).toHaveText("Delete");
-  await expect(card.getByRole("button", { name: "Cancel", exact: true })).toHaveText("Cancel");
-  expect(deletes).toBe(0);
-
-  await page.keyboard.press("Escape");
-  await expect(confirm).toHaveCount(0);
-  await expect(card).toBeVisible();
-  await expect(deleteAction).toBeFocused();
-  await deleteAction.click();
-  await expect(confirm).toBeFocused();
-  expect(deletes).toBe(0);
-  await card.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(deleteAction).toBeFocused();
-  await expect(confirm).toHaveCount(0);
-  expect(deletes).toBe(0);
-
-  await page.route("**/api/page/*/comment/*", (route) => {
-    if (route.request().method() === "DELETE") return route.abort();
-    return route.continue();
-  });
-  await deleteAction.click();
-  await confirm.click();
-  await expect(page.locator("#alignedCard")).toContainText("Delete this comment?");
-  await expect(confirm).toBeEnabled();
-  await expect(page.locator(".toast")).toBeVisible();
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-  await page.unroute("**/api/page/*/comment/*");
-
-  let releaseDelete;
-  const gate = new Promise((resolve) => {
-    releaseDelete = resolve;
-  });
-  await page.route("**/api/page/*/comment/*", async (route) => {
-    if (route.request().method() !== "DELETE") return route.continue();
-    await gate;
-    await route.continue();
-  });
-  try {
-    await confirm.evaluate((button) => {
-      button.click();
-      button.click();
-    });
-    await expect(card.getByRole("button", { name: "Deleting...", exact: true })).toBeDisabled();
-    await expect(card.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
-    await expect(deleteAction).toHaveCount(0);
-    await expect(card.getByRole("button", { name: "Edit comment", exact: true })).toHaveCount(0);
-    await expect.poll(() => deletes).toBe(2);
-  } finally { releaseDelete(); }
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
-  await page.unroute("**/api/page/*/comment/*");
 });
 
-test("Escape performs exactly one prioritized comment transition", async ({ page, review }) => {
-  const file = writeFile(review, "escape-priority.html", "<!doctype html><p id=\"copy\">Escape target</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await addSelectionComment(page, frame, "#copy", "Escape feedback");
-  await page.locator("#commentsButton").click();
-  await page.locator("#cards").getByRole("button", { name: "Jump to" }).click();
-  const deleteAction = page.locator("#cards").getByRole("button", { name: "Delete comment", exact: true });
-  await deleteAction.click();
-  await expect(page.locator("#cards").getByRole("button", { name: "Delete", exact: true })).toBeFocused();
+test("Escape cancels only the current draft; closing a host never resolves its thread", async ({ page, review }) => {
+  const { frame, ref } = await setup(page, review, "escape-priority.html");
+  await selectionMessage(page, frame, "#copy", "Keep thread");
+  await card(page).getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = page.getByRole("textbox", { name: "Reply", exact: true });
+  await reply.fill("Cancelled"); await reply.press("Escape");
+  await expect(reply).toHaveCount(0); await expect(panel(page)).toBeVisible();
+  await card(page).getByRole("button", { name: "Focus", exact: true }).click();
+  await card(page).getByRole("button", { name: "Close conversation" }).press("Escape");
+  await expect(panel(page)).toBeHidden();
+  expect((await listed(review, ref, "threads")).items[0].thread.status).toBe("open");
+});
 
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#cards").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
-  await expect(deleteAction).toBeFocused();
-  await expect(page.locator("#drawer")).toHaveClass(/open/);
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#drawer")).not.toHaveClass(/open/);
-  await expect(page.locator("#alignedCard")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#alignedCard")).toBeHidden();
+test("another explicit target cannot steal a nonempty new-message draft, including failed Save", async ({ page, review }) => {
+  const { frame, ref } = await setup(page, review, "retarget-draft.html");
+  await begin(page, frame); await draft(page).fill("Keep original owner");
+  await close(page);
+  await selectText(frame, "#other"); await frame.locator("#commentAction").click();
+  await feedback(page);
+  await expect(draft(page)).toHaveValue("Keep original owner");
+  await expect(page.locator(".conversation-new-target")).toContainText("First paragraph");
+  await intercept(page, "create-thread", (route) => failure(route, "Retain draft", "VERSION_CONFLICT"));
+  await draft(page).press("Enter");
+  await expect(page.getByRole("alert")).toContainText("Retain draft");
+  expect((await listed(review, ref, "threads")).items).toHaveLength(0);
+  await expect(draft(page)).toHaveValue("Keep original owner");
+});
+
+test("empty new composition may retarget explicitly without inventing a saved message", async ({ page, review }) => {
+  const { frame, ref } = await setup(page, review, "retarget-empty.html");
+  await begin(page, frame); await close(page);
+  await selectText(frame, "#other"); await frame.locator("#commentAction").click();
+  await expect(page.locator(".conversation-new-target")).toContainText("Second paragraph");
+  await compose(page, "Second target");
+  expect((await listed(review, ref, "threads")).items[0].thread.target.anchor.quote).toBe("Second paragraph to review.");
+});
+
+for (const action of ["save", "edit"]) test(`${action} retains editable input and selection while one logical acceptance is in flight`, async ({ page, review }) => {
+  const { frame, ref } = await setup(page, review, `flight-${action}.html`);
+  await begin(page, frame);
+  if (action === "edit") { await compose(page, "Before"); await feedback(page); await card(page).getByRole("button", { name: "Edit message" }).click(); }
+  const input = action === "save" ? draft(page) : page.getByRole("textbox", { name: "Edit message" });
+  let release, requests = 0;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await intercept(page, action === "save" ? "create-thread" : "update-message", async (route) => { requests++; const response = await route.fetch(); await gate; await route.fulfill({ response }); });
+  await input.fill("Accepted body"); await input.press("Enter"); await input.press("Enter");
+  await expect.poll(() => requests).toBe(1);
+  await input.fill("Newer typing");
+  await input.evaluate((element) => { window.savedComposer = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
+  await page.locator("#theme").click(); release();
+  await expect(page.getByRole("button", { name: "Save message", exact: true })).toBeEnabled();
+  expect(await input.evaluate((element) => element === window.savedComposer)).toBe(true);
+  expect(await input.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([2, 7]);
+  await expect(input).toHaveValue("Newer typing");
+  expect((await listed(review, ref, "threads")).items).toHaveLength(1);
+});
+
+for (const [width, height] of [[320, 480], [600, 700], [900, 300], [1440, 400]]) test(`one reachable composer without source overlay at ${width}x${height}`, async ({ page, review }) => {
+  await page.setViewportSize({ width, height });
+  const { frame } = await setup(page, review, `composer-${width}-${height}.html`);
+  await begin(page, frame); await draft(page).fill("Preserved text");
+  await expect(page.getByRole("textbox", { name: "New message", exact: true })).toHaveCount(1);
+  await page.getByRole("button", { name: "Save message", exact: true }).scrollIntoViewIfNeeded();
+  const box = await page.getByRole("button", { name: "Save message", exact: true }).boundingBox();
+  expect(box.y + box.height).toBeLessThanOrEqual(height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await draft(page).press("Escape"); await expect(draft(page)).toHaveCount(0);
+});
+
+test("saved correction remains immutable on handling; a newer pending follow-up and both anchors survive", async ({ page, review }) => {
+  const { frame, ref } = await setup(page, review, "immutable-correction.html");
+  await selectionMessage(page, frame, "#copy", "Original message");
+  await card(page).getByRole("button", { name: "Edit message" }).click();
+  await page.getByRole("textbox", { name: "Edit message" }).fill("Corrected before Send");
+  await page.getByRole("textbox", { name: "Edit message" }).press("Enter");
+  await page.locator("#send").click(); await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await card(page).getByRole("button", { name: "Reply", exact: true }).click();
+  await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Next round"); await page.getByRole("button", { name: "Save reply" }).click();
+  await handled(review, ref);
+  await expect(card(page)).toContainText("Corrected before Send");
+  await expect(card(page)).toContainText("Next round");
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
+  await expect(card(page).getByRole("button", { name: "Edit message" })).toHaveCount(1);
+  expect((await conversation(review, ref, "status")).pendingMessageCount).toBe(1);
 });
 
-test("another card cannot steal an unsaved edit", async ({ page, review }) => {
-  const file = writeFile(review, "edit-owner.html", "<!doctype html><p>Owned edits</p>");
-  const session = await openReview(page, review, file);
-  const first = (await reviewApi(review, `/api/page/${session.key}/comment`, {
-    method: "POST",
-    body: { kind: "element", quote: "First quote", anchor: { selector: "p", label: "First" }, feedback: "First comment" },
-  })).json().comment;
-  const second = (await reviewApi(review, `/api/page/${session.key}/comment`, {
-    method: "POST",
-    body: { kind: "element", quote: "Second quote", anchor: { selector: "p", label: "Second" }, feedback: "Second comment" },
-  })).json().comment;
-  await page.reload();
-  await waitForSdk(page);
-  await page.locator("#commentsButton").click();
-
-  const firstCard = page.locator(`#cards [data-id="${first.id}"]`);
-  const secondCard = page.locator(`#cards [data-id="${second.id}"]`);
-  await firstCard.getByRole("button", { name: "Edit comment" }).click();
-  await firstCard.locator("textarea").fill("Unsaved first draft");
-  await expect(secondCard.getByRole("button", { name: "Edit comment" })).toBeDisabled();
-  await expect(secondCard.getByRole("button", { name: "Delete comment", exact: true })).toBeDisabled();
-  let deletes = 0;
-  page.on("request", (request) => {
-    if (request.method() === "DELETE" && request.url().includes("/comment/")) deletes++;
-  });
-  await secondCard.getByRole("button", { name: "Delete comment", exact: true }).evaluate((button) => button.click());
-  await secondCard.locator(".body").click();
-  await expect(firstCard.locator("textarea")).toHaveValue("Unsaved first draft");
-  await expect(page.locator("#cards textarea")).toHaveCount(1);
-  await expect(secondCard.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
-  expect(deletes).toBe(0);
-  await firstCard.locator("textarea").press("Escape");
-  await expect(secondCard.getByRole("button", { name: "Delete comment", exact: true })).toBeEnabled();
-});
-
-test("delayed comment focus cannot replace a selection made in the mounted editor", async ({ page, review }) => {
-  const file = writeFile(review, "edit-focus-selection.html", "<!doctype html><p>Keep my selection</p>");
-  const session = await openReview(page, review, file);
-  await reviewApi(review, `/api/page/${session.key}/comment`, {
-    method: "POST",
-    body: { kind: "element", quote: "Keep my selection", anchor: { selector: "p", label: "Paragraph" }, feedback: "Original comment" },
-  });
-  await page.reload();
-  await waitForSdk(page);
-  await page.locator("#commentsButton").click();
-  await page.evaluate(() => {
-    const request = window.requestAnimationFrame.bind(window);
-    const cancel = window.cancelAnimationFrame.bind(window);
-    const queued = new Map();
-    let id = 0;
-    window.requestAnimationFrame = (callback) => { queued.set(--id, callback); return id; };
-    window.cancelAnimationFrame = (value) => { if (value < 0) queued.delete(value); else cancel(value); };
-    window.releaseCommentFocusFrames = () => {
-      window.requestAnimationFrame = request;
-      window.cancelAnimationFrame = cancel;
-      for (const callback of queued.values()) callback(performance.now());
-      delete window.releaseCommentFocusFrames;
-    };
-  });
-  await page.locator("#cards").getByRole("button", { name: "Edit comment" }).click();
-  const input = page.locator("#cards textarea");
-  const selection = await input.evaluate((element) => {
-    element.focus();
-    element.setSelectionRange(0, element.value.length);
-    window.releaseCommentFocusFrames();
-    return [element.selectionStart, element.selectionEnd];
-  });
-  expect(selection).toEqual([0, "Original comment".length]);
-  await page.keyboard.type("Replacement draft");
-  await expect(input).toHaveValue("Replacement draft");
-});
-
-test("closing the drawer moves its edit to the edited comment's aligned card", async ({ page, review }) => {
-  const file = writeFile(review, "edit-drawer-owner.html", "<!doctype html><p id=\"one\">First owner</p><p id=\"two\">Second owner</p>");
-  const session = await openReview(page, review, file);
-  const first = (await reviewApi(review, `/api/page/${session.key}/comment`, {
-    method: "POST",
-    body: { kind: "selection", quote: "First owner", anchor: { quote: "First owner", selector: "#one" }, feedback: "First active" },
-  })).json().comment;
-  const second = (await reviewApi(review, `/api/page/${session.key}/comment`, {
-    method: "POST",
-    body: { kind: "selection", quote: "Second owner", anchor: { quote: "Second owner", selector: "#two" }, feedback: "Second edited" },
-  })).json().comment;
-  await page.reload();
-  const frame = await waitForSdk(page);
-  await page.locator("#commentsButton").click();
-  await page.locator(`#cards [data-id="${first.id}"]`).click();
-  const secondCard = page.locator(`#cards [data-id="${second.id}"]`);
-  await secondCard.getByRole("button", { name: "Edit comment" }).click();
-  await secondCard.locator("textarea").fill("Draft for second");
-  await page.locator("#drawerClose").click();
-
-  await expect(page.locator("#alignedCard")).toContainText("Second owner");
-  await expect(page.locator("#alignedCard textarea")).toHaveValue("Draft for second");
-  await expect(page.locator("#alignedCard textarea")).toBeFocused();
-  await expect(frame.locator("mark.eh-active")).toHaveCount(1);
-});
-
-test("nested scrollers update and hide the contextual target", async ({ page, review }) => {
-  const file = writeFile(review, "scroller.html", `<!doctype html>
-    <div id="scroll" style="height:160px;overflow:auto"><div style="height:300px"></div>
-    <button id="target">Comment target</button><div style="height:300px"></div></div>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 210; });
-  await frame.locator("#target").hover();
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop += 30; });
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 0; });
-  await expect(frame.locator("#commentAction")).toBeHidden();
-});
-
-test("draft retarget submits first and a failed submit blocks retargeting", async ({ page, review }) => {
-  const file = writeFile(review, "retarget.html", "<!doctype html><p id=\"one\">One target</p><p id=\"two\">Two target</p><p id=\"three\">Three target</p><p id=\"four\">Four target</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#three");
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("First draft");
-  await expect(page.locator("#composeText")).toBeFocused();
-  await frame.locator("#two").scrollIntoViewIfNeeded();
-  await selectText(frame, "#two");
-  await page.locator("#frame").focus();
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#composeQuote")).toContainText("Two target");
-
-  await page.locator("#composeText").fill("Second draft");
-  await page.route("**/api/page/*/comment", (route) => route.abort());
-  await selectText(frame, "#one");
-  await page.locator("#frame").focus();
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeQuote")).toContainText("Two target");
-  await expect(page.locator("#composeText")).toHaveValue("Second draft");
-  await expect(page.locator("#composeError")).toBeVisible();
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-  await page.unroute("**/api/page/*/comment");
-
-  await page.locator("#composeCancel").click();
-  await expect(page.locator("#compose")).toBeHidden();
-  await expect.poll(() => frame.locator("body").evaluate(() => document.getSelection().toString())).toBe("Two target");
-  await selectText(frame, "#four");
-  await frame.locator("body").dispatchEvent("keydown", { key: "m", ctrlKey: true, altKey: true });
-  await expect(page.locator("#composeQuote")).toContainText("Four target");
-});
-
-test("retargeting an empty composer preserves the new target", async ({ page, review }) => {
-  const file = writeFile(review, "empty-retarget.html", "<!doctype html><p id=\"one\">First target</p><p id=\"two\">Second target</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#one");
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeQuote")).toContainText("First target");
-  await expect(page.locator("#composeText")).toBeFocused();
-
-  await selectText(frame, "#two");
-  await page.locator("#frame").focus();
-  await expect(page.locator("#compose")).toHaveClass(/\bpass-through\b/);
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeQuote")).toContainText("Second target");
-  await page.locator("#composeText").fill("Comment on the second target");
-  await page.locator("#composeAdd").click();
-
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveText("Second target");
-  await expect(page.locator("#alignedCard")).toBeHidden();
-});
-
-test("submitting disables cancellation until the durable comment is committed", async ({ page, review }) => {
-  const file = writeFile(review, "submit-cancel-race.html", "<!doctype html><p id=\"copy\">Durable target</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  let releaseSubmit;
-  let submitStarted;
-  const started = new Promise((resolve) => {
-    submitStarted = resolve;
-  });
-  const gate = new Promise((resolve) => {
-    releaseSubmit = resolve;
-  });
-  await page.route("**/api/page/*/comment", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    submitStarted();
-    await gate;
-    await route.continue();
-  });
-
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("Cannot cancel midway");
-  await page.locator("#composeText").press("Enter");
-  await started;
-  await expect(page.locator("#composeCancel")).toBeDisabled();
-  await expect(page.locator("#composeClose")).toBeDisabled();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#compose")).toBeVisible();
-
-  releaseSubmit();
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveText("Durable target");
-  await page.unroute("**/api/page/*/comment");
-});
-
-test("Close and Escape deactivate an aligned card without deleting its comment", async ({ page, review }) => {
-  const file = writeFile(review, "close-card.html", "<!doctype html><p id=\"copy\">Keep this highlight</p>");
-  const session = await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  const deletes = [];
-  page.on("request", (request) => {
-    if (request.method() === "DELETE" && request.url().includes("/comment/")) deletes.push(request.url());
-  });
-
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("A durable comment");
-  await page.locator("#composeText").press("Enter");
-  await frame.locator("mark[data-eh-mark]").click();
-  await expect(page.locator("#alignedCard")).toBeVisible();
-
-  await page.locator("#alignedCard").getByRole("button", { name: "Close comment card" }).click();
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await expect(page.locator("#frame")).toBeFocused();
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-  await expect(frame.locator("mark.eh-active")).toHaveCount(0);
-  expect(deletes).toHaveLength(0);
-  expect((await reviewApi(review, `/api/page/${session.key}`)).json().comments).toHaveLength(1);
-
-  await frame.locator("mark[data-eh-mark]").click();
-  await expect(page.locator("#alignedCard")).toBeVisible();
-  await page.locator("#alignedCard").getByRole("button", { name: "Close comment card" }).focus();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-  expect(deletes).toHaveLength(0);
-});
-
-test("a selection common clipping ancestor controls edge placement", async ({ page, review }) => {
-  const file = writeFile(review, "selection-clip.html", `<!doctype html>
-    <div style="height:90px"></div>
-    <div id="scroll" style="height:180px;width:560px;overflow:auto;border:2px solid">
-      <span id="first">First line</span><span id="second"> and second line</span>
-      <div style="height:500px"></div>
-    </div>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await frame.locator("#scroll").evaluate((scroll) => {
-    const range = document.createRange();
-    range.setStart(document.querySelector("#first").firstChild, 0);
-    const second = document.querySelector("#second").firstChild;
-    range.setEnd(second, second.nodeValue.length);
-    const selection = document.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-  });
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#commentAction").click();
-  const scroller = await frame.locator("#scroll").boundingBox();
-  await frame.locator("#scroll").evaluate((element) => {
-    element.scrollTop = 350;
-  });
-  await expect(page.locator("#compose")).toHaveClass(/edge-top/);
-  const compose = await page.locator("#compose").boundingBox();
-  expect(Math.abs(compose.y - (scroller.y + 14))).toBeLessThanOrEqual(5);
-});
-
-test("layout shifts reposition an attached composer without scroll or resize", async ({ page, review }) => {
-  const file = writeFile(review, "layout-shift.html", `<!doctype html>
-    <div id="spacer" style="height:20px"></div><p id="copy">Moving target</p>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  const compose = page.locator("#compose");
-  await expect(compose).toBeVisible();
-  const before = await compose.boundingBox();
-  expect(before).not.toBeNull();
-  const targetBefore = await frame.locator("#copy").boundingBox();
-  expect(targetBefore).not.toBeNull();
-  await frame.locator("#spacer").evaluate((element) => {
-    element.style.height = "240px";
-  });
-  await expect.poll(async () => (await frame.locator("#copy").boundingBox()).y).toBeGreaterThan(targetBefore.y + 150);
-  await expect.poll(async () => (await compose.boundingBox())?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(before.y + 10);
-});
-
-test("desktop composer pins to nested clipping edges, never sheets, and reveals an element", async ({ page, review }) => {
-  const file = writeFile(review, "edge-pin.html", `<!doctype html>
-    <div style="height:80px"></div>
-    <div id="scroll" style="height:220px;width:620px;overflow:auto;border:2px solid">
-      <div style="height:320px"></div><button id="target">Pinned target</button><div style="height:420px"></div>
-    </div>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 260; });
-  await frame.locator("#target").hover();
-  await expect(frame.locator("#commentAction")).toBeVisible();
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#compose")).toBeVisible();
-  await page.evaluate(() => {
-    window.__composerSheetSeen = document.querySelector("#compose").classList.contains("sheet");
-    new MutationObserver(() => {
-      if (document.querySelector("#compose").classList.contains("sheet")) window.__composerSheetSeen = true;
-    }).observe(document.querySelector("#compose"), { attributes: true, attributeFilter: ["class"] });
-  });
-
-  const scroller = await frame.locator("#scroll").boundingBox();
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect.poll(async () => {
-    const target = await frame.locator("#target").boundingBox();
-    return target.y + target.height < scroller.y;
-  }).toBe(true);
-  await expect(page.locator("#compose")).toHaveClass(/edge-top/);
-  await expect(page.locator("#composeDirectionText")).toHaveText("Selection is above");
-  let compose = await page.locator("#compose").boundingBox();
-  expect(Math.abs(compose.y - (scroller.y + 14))).toBeLessThanOrEqual(4);
-
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 0; });
-  await expect(page.locator("#compose")).toHaveClass(/edge-bottom/);
-  await expect(page.locator("#composeDirectionText")).toHaveText("Selection is below");
-  compose = await page.locator("#compose").boundingBox();
-  expect(Math.abs((compose.y + compose.height) - (scroller.y + scroller.height - 14))).toBeLessThanOrEqual(5);
-  expect(await page.evaluate(() => window.__composerSheetSeen)).toBe(false);
-
-  await page.locator("#composeReveal").click();
-  await expect(page.locator("#compose")).toHaveClass(/contextual-compose(?!.*edge-)/);
-  await expect(frame.locator("#target")).toBeInViewport();
-  await expect(page.locator("#composeText")).toHaveValue("");
-});
-
-test("Back to selection reveals a nested selection and rejects a stale generation", async ({ page, review }) => {
-  const file = writeFile(review, "reveal-selection.html", `<!doctype html>
-    <div id="scroll" style="height:180px;overflow:auto">
-      <div style="height:280px"></div><p id="one">First selection</p>
-      <div style="height:260px"></div><p id="two">Second selection</p><div style="height:260px"></div>
-    </div>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 240; });
-  await selectText(frame, "#one");
-  await frame.locator("#commentAction").click();
-  await frame.locator("#scroll").evaluate((element) => { element.scrollTop = 600; });
-  await expect(page.locator("#compose")).toHaveClass(/edge-top/);
-  await page.locator("#composeText").fill("Draft remains");
-
-  await frame.locator("body").evaluate(() => {
-    window.__oldReveal = null;
-    window.__revealDiagnostics = [];
-    const originalInfo = console.info.bind(console);
-    console.info = (...args) => {
-      if (args[0] === "[doc-review-frame]" && args[1]?.event) {
-        window.__revealDiagnostics.push(args[1].event);
-      }
-      originalInfo(...args);
-    };
-    window.addEventListener("message", (event) => {
-      if (event.data?.type === "eh:revealTarget" && !window.__oldReveal) window.__oldReveal = event.data;
-    });
-  });
-  await page.locator("#composeReveal").click();
-  await expect(frame.locator("#one")).toBeInViewport();
-  await expect(page.locator("#composeText")).toHaveValue("Draft remains");
-  expect(await frame.locator("body").evaluate(() => !!window.__oldReveal)).toBe(true);
-
-  await frame.locator("#two").scrollIntoViewIfNeeded();
-  await selectText(frame, "#two");
-  await page.locator("#frame").focus();
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeQuote")).toContainText("Second selection");
-  await frame.locator("body").evaluate(() => {
-    window.dispatchEvent(new MessageEvent("message", {
-      source: parent,
-      origin: `${location.protocol}//${location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1"}:${location.port}`,
-      data: window.__oldReveal,
-    }));
-  });
-  await expect(page.locator("#composeQuote")).toContainText("Second selection");
-  await expect.poll(() => frame.locator("body").evaluate(
-    () => window.__revealDiagnostics.includes("reveal-target-failed")
-  )).toBe(true);
-});
-
-test("Back to selection reports unavailable when clipping cannot reveal the target", async ({ page, review }) => {
-  const file = writeFile(review, "reveal-clipped.html", `<!doctype html>
-    <div style="height:80px"></div>
-    <div id="clip" style="height:120px;overflow:clip;border:2px solid">
-      <p id="copy">Clipped target</p>
-    </div>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await frame.locator("#copy").evaluate((element) => {
-    element.style.marginTop = "220px";
-  });
-  await expect(page.locator("#compose")).toHaveClass(/edge-bottom/);
-  await page.locator("#composeReveal").click();
-  await expect(page.locator("#liveRegion")).toHaveText("Selection is no longer available");
-  await expect(page.locator("#compose")).toHaveClass(/edge-bottom/);
-});
-
-test("View/Edit stays in bounds and light-dismisses across parent and hostile iframe handlers", async ({ page, review }) => {
-  const file = writeFile(review, "menu-dismiss.html", `<!doctype html><button id="hostile">Interact</button><button id="other">Other</button>
-    <script>
-      const button = document.querySelector('#hostile');
-      button.addEventListener('pointerdown', event => event.stopPropagation());
-      button.addEventListener('focusin', event => event.stopPropagation());
-    </script>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await frame.locator("#hostile").evaluate((button) => {
-    button.addEventListener("pointerdown", (event) => event.stopPropagation());
-    button.addEventListener("focusin", (event) => event.stopPropagation());
-  });
-
-  for (const size of [{ width: 1200, height: 700 }, { width: 680, height: 700 }]) {
-    await page.setViewportSize(size);
-    const mode = await page.locator("#modeButton").boundingBox();
-    expect(mode.x).toBeGreaterThanOrEqual(0);
-    expect(mode.x + mode.width).toBeLessThanOrEqual(size.width);
-    expect(mode.width).toBeGreaterThanOrEqual(44);
-    expect(mode.height).toBe(32);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+test("multiple same-block conversations preserve authored dark styles and expose a keyboard chooser", async ({ page, review }, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
+  const source = fs.readFileSync("spec.html", "utf8");
+  const { file, frame, ref } = await setup(page, review, "dark-spec.html", source);
+  const authored = await frame.locator("body").innerHTML();
+  for (const text of ["First block feedback", "Second block feedback"]) {
+    await frame.locator("h1.title").hover();
+    await expect.poll(async () => {
+      const target = await frame.locator("h1.title").boundingBox(), outline = await frame.locator("#outline").boundingBox();
+      return outline && { top: outline.y - target.y, left: outline.x - target.x };
+    }).toEqual({ top: -2, left: -2 });
+    await frame.locator("#commentAction").click();
+    await compose(page, text); await close(page);
   }
-  await page.locator("#modeButton").click();
-  await expect(page.getByRole("menuitemradio", { name: "View Editing off, comments enabled" })).toBeVisible();
-  await expect(page.getByRole("menuitemradio", { name: /^Edit/ })).toBeVisible();
-  await expect(page.locator("#feedbackButton")).toHaveCount(0);
-
-  await expect(page.locator("#modeButton")).toHaveAttribute("aria-expanded", "true");
-  await page.locator("#commentsButton").click();
-  await expect(page.locator("#modeMenu")).toBeHidden();
-  await expect(page.locator("#modeButton")).toHaveAttribute("aria-expanded", "false");
-  await page.locator("#drawerClose").click();
-
-  await page.locator("#modeButton").click();
-  await page.locator("#commentsButton").focus();
-  await expect(page.locator("#modeMenu")).toBeHidden();
-  await page.locator("#modeButton").click();
-  await frame.locator("#hostile").click();
-  await expect(page.locator("#modeMenu")).toBeHidden();
-  await frame.locator("#other").focus();
-  await page.locator("#modeButton").click();
-  await frame.locator("#hostile").focus();
-  await expect(page.locator("#modeMenu")).toBeHidden();
-
-  await page.locator("#commentsButton").click();
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).focus();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#modeMenu")).toBeHidden();
-  await expect(page.locator("#drawer")).toHaveClass(/open/);
-  await page.locator("#drawerClose").click();
-});
-
-test("comment Enter handling is IME-safe and single-flight for POST and PATCH", async ({ page, review }) => {
-  const file = writeFile(review, "comment-keys.html", "<!doctype html><p id=\"copy\">Keyboard target</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  let posts = 0;
-  let patches = 0;
-  let sends = 0;
-  page.on("request", (request) => {
-    if (request.url().includes("/comment")) {
-      if (request.method() === "POST") posts += 1;
-      if (request.method() === "PATCH") patches += 1;
-    }
-    if (request.method() === "POST" && request.url().endsWith("/send")) sends += 1;
-  });
-
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("Line one");
-  await page.locator("#composeText").press("Shift+Enter");
-  await expect(page.locator("#composeText")).toHaveValue("Line one\n");
-  expect(posts).toBe(0);
-  await page.locator("#composeText").evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
-  });
-  expect(posts).toBe(0);
-
-  await page.route("**/api/page/*/comment", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    await route.continue();
-  });
-  await page.locator("#composeText").fill("Submit once");
-  await page.locator("#composeText").evaluate((element) => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  });
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  expect(posts).toBe(1);
-  expect(sends).toBe(0);
-  await page.keyboard.press("Control+Enter");
-  expect(sends).toBe(0);
-  await page.unroute("**/api/page/*/comment");
-
-  await frame.locator("mark[data-eh-mark]").click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await page.locator("#alignedCard textarea").fill("Edited once");
-  await page.locator("#alignedCard textarea").evaluate((element) => {
-    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: false, bubbles: true }));
-    element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
-  });
-  expect(patches).toBe(0);
-  await page.route("**/api/page/*/comment/*", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    await route.continue();
-  });
-  await page.locator("#alignedCard textarea").evaluate((element) => {
-    const save = [...element.parentElement.querySelectorAll("button")].find((button) => button.textContent === "Save");
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    save.click();
-  });
-  await expect(page.locator("#alignedCard")).toContainText("Edited once");
-  expect(patches).toBe(1);
-  await page.unroute("**/api/page/*/comment/*");
-});
-
-test("editing is explicit and follows geometry plus aligned-drawer switching", async ({ page, review }) => {
-  const file = writeFile(review, "edit-state.html", `<!doctype html>
-    <div id="spacer" style="height:20px"></div><p id="copy">Geometry edit target</p>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await addSelectionComment(page, frame, "#copy", "Original wording");
-  await frame.locator("mark[data-eh-mark]").click();
-
-  let patches = 0;
-  page.on("request", (request) => {
-    if (request.method() === "PATCH" && request.url().includes("/comment/")) patches += 1;
-  });
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Save" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Cancel" })).toBeVisible();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true })).toHaveCount(0);
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Close comment card" })).toHaveCount(0);
-
-  await page.locator("#alignedCard textarea").fill("Draft follows the card");
-  await page.locator("#frame").focus();
-  await page.waitForTimeout(50);
-  expect(patches).toBe(0);
-  const textarea = page.locator("#alignedCard textarea");
-  await textarea.focus();
-  await textarea.evaluate((element) => element.setSelectionRange(3, 9));
-  const topBefore = (await page.locator("#alignedCard").boundingBox()).y;
-  await frame.locator("#spacer").evaluate((element) => {
-    element.style.height = "220px";
-  });
-  await expect.poll(async () => (await page.locator("#alignedCard").boundingBox()).y).toBeGreaterThan(topBefore + 80);
-  await expect(textarea).toBeFocused();
-  expect(await textarea.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([3, 9]);
-  await expect(textarea).toHaveValue("Draft follows the card");
-
-  await page.locator("#commentsButton").click();
-  const drawerEdit = page.locator("#cards textarea");
-  await expect(drawerEdit).toBeFocused();
-  await expect(drawerEdit).toHaveValue("Draft follows the card");
-  expect(await drawerEdit.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([3, 9]);
-  await page.locator("#drawerClose").click();
-  await expect(page.locator("#alignedCard textarea")).toBeFocused();
-  await expect(page.locator("#alignedCard textarea")).toHaveValue("Draft follows the card");
-
-  await page.locator("#alignedCard").getByRole("button", { name: "Cancel" }).click();
-  expect(patches).toBe(0);
-  await expect(page.locator("#alignedCard")).toContainText("Original wording");
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Save" }).click();
-  expect(patches).toBe(0);
-
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await page.locator("#alignedCard textarea").fill("   ");
-  await page.locator("#alignedCard").getByRole("button", { name: "Save" }).click();
-  await expect(page.locator("#alignedCard")).toContainText("Comment text is required.");
-  await expect(page.locator("#alignedCard textarea")).toBeFocused();
-  expect(patches).toBe(0);
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#alignedCard textarea")).toHaveCount(0);
-});
-
-test("middle-truncated quote tails are visibly rendered in every comment surface", async ({ page, review }) => {
-  const tail = "FINAL TAIL PHRASE";
-  const quote = `BEGIN PHRASE ${"middle content ".repeat(60)}${tail}`;
-  const file = writeFile(review, "quote-tail.html", `<!doctype html><p id="copy">${quote}</p>`);
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-
-  const assertTailVisible = async (locator) => {
-    await expect(locator).toContainText("BEGIN PHRASE");
-    await expect(locator).toContainText(tail);
-    expect(await locator.evaluate((element, finalPhrase) => {
-      const style = getComputedStyle(element);
-      const text = element.textContent;
-      const at = text.lastIndexOf(finalPhrase);
-      const range = document.createRange();
-      range.setStart(element.firstChild, at);
-      range.setEnd(element.firstChild, at + finalPhrase.length);
-      const phrase = range.getBoundingClientRect();
-      const quoteRect = element.getBoundingClientRect();
-      return {
-        unclamped: !style.webkitLineClamp || style.webkitLineClamp === "none",
-        overflowVisible: style.overflow !== "hidden",
-        inside: phrase.top >= quoteRect.top - 1 && phrase.bottom <= quoteRect.bottom + 1,
-      };
-    }, tail)).toEqual({ unclamped: true, overflowVisible: true, inside: true });
-  };
-
-  await assertTailVisible(page.locator("#composeQuote"));
-  await page.locator("#composeText").fill("Preserve both ends");
-  await page.locator("#composeAdd").click();
-  await page.locator("#commentsButton").click();
-  await assertTailVisible(page.locator("#cards .quote"));
-  await page.locator("#drawerClose").click();
-  await frame.locator("mark[data-eh-mark]").click();
-  await assertTailVisible(page.locator("#alignedCard .quote"));
-});
-
-test("acknowledgement clears idle and in-flight edit or delete state without resurrection", async ({ page, review }) => {
-  const file = writeFile(review, "ack-races.html", "<!doctype html><p id=\"copy\">Race target</p>");
-  const session = await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-
-  const deliverCurrent = async () => {
-    await reviewApi(review, `/api/page/${session.key}/send`, {
-      method: "POST",
-      body: { sessionId: session.sessionId, note: "" },
-    });
-    return pollBatch(review, file);
-  };
-
-  await addSelectionComment(page, frame, "#copy", "Idle edit");
-  await frame.locator("mark[data-eh-mark]").click();
-  let batch = await deliverCurrent();
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await acknowledgeBatch(review, file, batch.batch_id);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  await expect(page.locator("textarea[data-comment-edit]")).toHaveCount(0);
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
-
-  await addSelectionComment(page, frame, "#copy", "Patch race");
-  await frame.locator("mark[data-eh-mark]").click();
-  batch = await deliverCurrent();
-  let releasePatch;
-  let patchStarted;
-  const patchGate = new Promise((resolve) => {
-    releasePatch = resolve;
-  });
-  const patchStart = new Promise((resolve) => {
-    patchStarted = resolve;
-  });
-  await page.route("**/api/page/*/comment/*", async (route) => {
-    if (route.request().method() !== "PATCH") return route.continue();
-    patchStarted();
-    await patchGate;
-    await route.continue();
-  });
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await page.locator("#alignedCard textarea").fill("Late patch");
-  await page.locator("#alignedCard").getByRole("button", { name: "Save" }).click();
-  await patchStart;
-  await acknowledgeBatch(review, file, batch.batch_id);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  releasePatch();
-  await page.waitForTimeout(150);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
-  await page.unroute("**/api/page/*/comment/*");
-
-  await addSelectionComment(page, frame, "#copy", "Confirmation race");
-  await frame.locator("mark[data-eh-mark]").click();
-  batch = await deliverCurrent();
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
-  await acknowledgeBatch(review, file, batch.batch_id);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  await expect(page.getByText("Delete this comment?")).toHaveCount(0);
-
-  await addSelectionComment(page, frame, "#copy", "Delete race");
-  await frame.locator("mark[data-eh-mark]").click();
-  batch = await deliverCurrent();
-  let releaseDelete;
-  let deleteStarted;
-  const deleteGate = new Promise((resolve) => {
-    releaseDelete = resolve;
-  });
-  const deleteStart = new Promise((resolve) => {
-    deleteStarted = resolve;
-  });
-  await page.route("**/api/page/*/comment/*", async (route) => {
-    if (route.request().method() !== "DELETE") return route.continue();
-    deleteStarted();
-    await deleteGate;
-    await route.continue();
-  });
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true }).click();
-  await deleteStart;
-  await acknowledgeBatch(review, file, batch.batch_id);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  releaseDelete();
-  await page.waitForTimeout(150);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
-  await page.unroute("**/api/page/*/comment/*");
-});
-
-test("drawer inventory and secondary handoff scroll without moving primary send controls", async ({ page, review }) => {
-  await page.setViewportSize({ width: 900, height: 430 });
-  const file = writeFile(review, "drawer-layout.html", "<!doctype html><p>Drawer layout</p>");
-  const session = await openReview(page, review, file);
-  for (let index = 0; index < 18; index += 1) {
-    await reviewApi(review, `/api/page/${session.key}/comment`, {
-      method: "POST",
-      body: {
-        kind: "element",
-        quote: `Item ${index}`,
-        anchor: { selector: "p", label: "Drawer layout" },
-        feedback: `Feedback ${index}`,
-      },
-    });
+  const targets = (await listed(review, ref, "threads")).items.map(item => item.thread.target);
+  expect(targets).toHaveLength(2);
+  expect(targets[1]).toEqual(targets[0]);
+  const badge = frame.getByRole("button", { name: "Open 2 conversations", exact: true });
+  await expect(badge).toBeVisible();
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", theme);
+    await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(23, 23, 15)");
+    expect(await frame.locator("body").innerHTML()).toBe(authored);
+    await badge.focus(); await badge.press("Enter");
+    const chooser = page.getByRole("combobox", { name: "Conversation at this target" });
+    await expect(chooser).toBeVisible();
+    const values = await chooser.locator("option").evaluateAll((nodes) => nodes.map((node) => node.value));
+    await chooser.selectOption(values[1]);
+    await expect(panel(page)).toContainText("Second block feedback");
+    await page.screenshot({ path: testInfo.outputPath(`block-conversations-${theme}.png`), animations: "disabled" });
+    await panel(page).getByRole("button", { name: "Close conversation" }).click();
   }
-  await page.reload();
-  await waitForSdk(page);
-  await page.locator("#commentsButton").click();
-  const noteBefore = await page.locator("#note").boundingBox();
-  const sendBefore = await page.locator("#send").boundingBox();
-  await page.locator("#commentsSection").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  expect((await page.locator("#note").boundingBox()).y).toBe(noteBefore.y);
-  expect((await page.locator("#send").boundingBox()).y).toBe(sendBefore.y);
-
-  await page.locator("#note").fill("Send this batch");
-  await page.locator("#send").click();
-  await expect(page.locator("#handoff")).toBeVisible();
-  const primaryAfterSend = await page.locator("#send").boundingBox();
-  const secondaryScrollable = await page.locator(".send-secondary").evaluate(
-    (element) => element.scrollHeight > element.clientHeight
-  );
-  expect(secondaryScrollable).toBe(true);
-  await page.locator(".send-secondary").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect(page.locator("#endReview")).toBeVisible();
-  expect((await page.locator("#send").boundingBox()).y).toBe(primaryAfterSend.y);
-  expect(await page.evaluate(() =>
-    document.documentElement.scrollWidth <= window.innerWidth &&
-    document.documentElement.scrollHeight <= window.innerHeight
-  )).toBe(true);
+  expect(fs.readFileSync(file, "utf8")).toBe(source);
+  await page.reload(); await waitForSdk(page);
+  await expect(page.frameLocator("#frame").getByRole("button", { name: "Open 2 conversations", exact: true })).toBeVisible();
 });
 
-test("feedback-only edit persistence blocks mode changes until retry succeeds", async ({ page, review }) => {
-  const markdown = writeFile(review, "durable.md", "# Draft\n\nOriginal");
-  const session = await openReview(page, review, markdown);
-  const frame = await enterEditMode(page);
-  await page.route("**/api/page/*/edit", (route) => route.abort());
-  await frame.locator("p").evaluate((element) => {
-    element.textContent = "Queued edit";
-    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
-  });
-
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).click();
-  await expect(page.locator("#modeLabel")).toHaveText("Edit");
-  await expect(frame.locator("body")).toHaveAttribute("contenteditable", "true");
-  await expect(page.locator(".toast").last()).toContainText("Stay in Edit");
-
-  await page.unroute("**/api/page/*/edit");
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).click();
-  await expect(page.locator("#modeLabel")).toHaveText("View");
-  await expect.poll(async () => {
-    const response = await reviewApi(review, `/api/page/${session.key}`);
-    return response.json().edits.length;
-  }).toBeGreaterThan(0);
-});
-
-test("correction replacement stays active and acknowledgement removes only shipped anchors", async ({ page, review }) => {
-  const file = writeFile(review, "ack-anchors.html", "<!doctype html><p id=\"copy\">Selected sentence</p>");
-  const session = await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("Original feedback");
-  await page.locator("#composeAdd").click();
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-  await frame.locator("mark[data-eh-mark]").click();
-
-  await reviewApi(review, `/api/page/${session.key}/send`, {
-    method: "POST",
-    body: { sessionId: session.sessionId, note: "" },
-  });
-  const delivered = await pollBatch(review, file);
-
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await page.locator("#alignedCard textarea").fill("Corrected feedback");
-  await page.locator("#alignedCard textarea").press("Enter");
-  await expect(page.locator("#alignedCard")).toContainText("Corrected feedback");
-  await expect(frame.locator("mark.eh-active")).toHaveCount(1);
-
-  await acknowledgeBatch(review, file, delivered.batch_id);
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#alignedCard")).toContainText("Corrected feedback");
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(1);
-
-  await reviewApi(review, `/api/page/${session.key}/send`, {
-    method: "POST",
-    body: { sessionId: session.sessionId, note: "" },
-  });
-  const correction = await pollBatch(review, file);
-  await acknowledgeBatch(review, file, correction.batch_id);
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
-  await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
-});
-
-test("a delayed correction exposes only disabled Save and Cancel until it settles", async ({ page, review }) => {
-  const file = writeFile(review, "close-correction-race.html", "<!doctype html><p id=\"copy\">Selected sentence</p>");
-  const session = await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("Original feedback");
-  await page.locator("#composeText").press("Enter");
-  await frame.locator("mark[data-eh-mark]").click();
-  await reviewApi(review, `/api/page/${session.key}/send`, {
-    method: "POST",
-    body: { sessionId: session.sessionId, note: "" },
-  });
-  await pollBatch(review, file);
-
-  let releasePatch;
-  let patchStarted;
-  const started = new Promise((resolve) => {
-    patchStarted = resolve;
-  });
-  const gate = new Promise((resolve) => {
-    releasePatch = resolve;
-  });
-  await page.route("**/api/page/*/comment/*", async (route) => {
-    if (route.request().method() !== "PATCH") return route.continue();
-    patchStarted();
-    await gate;
-    await route.continue();
-  });
-  await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-  await page.locator("#alignedCard textarea").fill("Corrected feedback");
-  await page.locator("#alignedCard").getByRole("button", { name: "Save" }).click();
-  await started;
-  await expect(page.locator("#alignedCard").getByRole("button", { name: /^Saving/ })).toBeDisabled();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Cancel" })).toBeDisabled();
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Close comment card" })).toHaveCount(0);
-  await expect(page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true })).toHaveCount(0);
-  releasePatch();
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#alignedCard")).toContainText("Corrected feedback");
-  await page.locator("#alignedCard").getByRole("button", { name: "Close comment card" }).click();
-  await expect(page.locator("#alignedCard")).toBeHidden();
-  await expect(frame.locator("mark.eh-active")).toHaveCount(0);
-  await page.unroute("**/api/page/*/comment/*");
-});
-
-test("a save conflict keeps Edit active when switching to View", async ({ page, review }) => {
-  const file = writeFile(review, "conflict.html", "<!doctype html><p id=\"copy\">Original</p>");
-  await openReview(page, review, file);
-  const frame = await enterEditMode(page);
-  await frame.locator("#copy").evaluate((element) => {
-    element.textContent = "Unsaved edit";
-    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
-  });
-  await page.route("**/api/page/*/save", (route) => route.fulfill({
-    status: 409,
-    contentType: "application/json",
-    body: JSON.stringify({ error: "file changed" }),
-  }));
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).click();
-  await expect(page.locator("#modeLabel")).toHaveText("Edit");
-  await expect(frame.locator("body")).toHaveAttribute("contenteditable", "true");
-  await expect(page.locator(".toast")).toContainText("save conflict");
-});
-
-test("wide short screens keep desktop composition instead of transient sheets", async ({ page, review }) => {
-  await page.setViewportSize({ width: 900, height: 300 });
-  const file = writeFile(review, "wide-short.html", "<!doctype html><p id=\"copy\">Wide short selection</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#compose")).toBeVisible();
-  await expect(page.locator("#compose")).not.toHaveClass(/sheet/);
-  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
-});
-
-test("narrow screens use compact toolbar and bottom-sheet composition", async ({ page, review }) => {
-  await page.setViewportSize({ width: 600, height: 700 });
-  const file = writeFile(review, "narrow.html", "<!doctype html><p id=\"copy\">Narrow selection</p>");
-  await openReview(page, review, file);
-  const frame = await waitForSdk(page);
-  await selectText(frame, "#copy");
-  await frame.locator("#commentAction").click();
-  await expect(page.locator("#compose")).toHaveClass(/sheet/);
-  await expect(page.locator("#toolbarCount")).toBeVisible();
-  await expect(page.locator(".shell-comments-label")).toBeHidden();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+test("Markdown direct changes stay source-pending through View and immutable completion", async ({ page, review }) => {
+  const source = "# Markdown\n\nOriginal paragraph.\n";
+  const { file, ref, frame } = await setup(page, review, "markdown-mode.md", source);
+  await enterEditMode(page); await frame.locator("p").click(); await selectText(frame, "p"); await page.keyboard.insertText("Exact preview wording");
+  await expect.poll(async () => (await listed(review, ref, "edits")).items.length).toBe(1);
+  await selectReviewMode(page, "View");
+  expect(fs.readFileSync(file, "utf8")).toBe(source);
+  await feedback(page); await page.locator("#send").click();
+  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  const { work } = await handled(review, ref);
+  expect(work.edits[0].content.after).toBe("Exact preview wording");
+  await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
+  await page.locator(".conversation-submission").first().locator(":scope > summary").click();
+  await expect(page.getByText(/deferred: Preserved/)).toBeVisible();
+  expect(fs.readFileSync(file, "utf8")).toBe(source);
 });
 
 test("comment action keeps its paragraph owner across a real pointer approach", async ({ page, review }) => {
@@ -1247,9 +225,10 @@ test("comment action keeps its paragraph owner across a real pointer approach", 
   expect(await action.boundingBox()).toEqual(original);
   expect(await page.evaluate(() => window.commentTargets.at(-1).targetGeneration)).toBe(generation);
   await action.click();
-  await expect(page.locator("#composeKind")).toHaveText("Element");
-  await expect(page.locator("#composeQuote")).toContainText("Alpha beta gamma");
+  await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "element");
+  await expect(page.locator(".conversation-new-target")).toContainText("Alpha");
   await page.keyboard.press("Escape");
+  await close(page);
 
   await frame.locator("#copy").hover({ position: { x: 100, y: 12 } });
   await expect(action).toBeVisible();
@@ -1271,17 +250,18 @@ test("native word and paragraph selections comment in View and Edit", async ({ p
     await frame.locator("#copy").dblclick({ position: { x: 15, y: 12 } });
     await expect(frame.locator("#commentAction")).toBeVisible();
     await frame.locator("#commentAction").click();
-    await expect(page.locator("#composeKind")).toHaveText("Selection");
-    await expect(page.locator("#composeQuote")).toHaveText("Alpha");
+    await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "selection");
+    await expect(page.locator(".conversation-new-target")).toHaveText("Alpha");
     await page.keyboard.press("Escape");
+    await close(page);
 
     await frame.locator("#copy").click({ clickCount: 3, position: { x: 15, y: 12 } });
     await expect(frame.locator("#commentAction")).toBeVisible();
     await frame.locator("#copy").press("Control+Alt+m");
-    await expect(page.locator("#composeKind")).toHaveText("Selection");
-    await expect(page.locator("#composeQuote")).toHaveText("Alpha beta gamma paragraph with several words to select.");
-    await page.locator("#composeText").fill(`Native paragraph in ${mode}`);
-    await page.locator("#composeAdd").click();
+    await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "selection");
+    await expect(page.locator(".conversation-new-target")).toHaveText("Alpha beta gamma paragraph with several words to select.");
+    await page.getByRole("textbox", { name: "New message", exact: true }).fill(`Native paragraph in ${mode}`);
+    await page.getByRole("button", { name: "Save message", exact: true }).click();
     await expect(frame.locator("#copy mark[data-eh-mark]")).toHaveText("Alpha beta gamma paragraph with several words to select.");
     await expect(frame.locator("#next mark[data-eh-mark]")).toHaveCount(0);
   }
@@ -1321,82 +301,17 @@ test("equivalent selection events keep one generation and collapse restores the 
   });
   await expect(frame.locator("#commentAction")).toBeVisible();
   await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeQuote")).toHaveText("Alpha bold words and ending.");
+  await expect(page.locator(".conversation-new-target")).toHaveText("Alpha bold words and ending.");
   expect(await page.evaluate(() => [...new Set(window.selectionGenerations)])).toEqual([generation]);
   await page.keyboard.press("Escape");
+  await close(page);
 
   await frame.locator("#copy").click({ position: { x: 15, y: 12 } });
   await expect(frame.locator("#commentAction")).toBeVisible();
   const copy = await frame.locator("#copy").boundingBox();
   await page.mouse.move(copy.x + 25, copy.y + 12, { steps: 5 });
   await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeKind")).toHaveText("Element");
-});
-
-test("actual dark spec keeps multiple saved block comments visible and cycles accessible badge activation", async ({ page, review }, testInfo) => {
-  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await page.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.abort());
-  const source = fs.readFileSync("spec.html", "utf8");
-  const file = writeFile(review, "dark-spec.html", source);
-  await openReview(page, review, file);
-  let frame = await waitForSdk(page);
-  await expect.poll(() => frame.locator("body").evaluate((body) => getComputedStyle(body).backgroundColor)).toBe("rgb(23, 23, 15)");
-  const originalBody = await frame.locator("body").innerHTML();
-  for (const feedback of ["First block feedback", "Second block feedback"]) {
-    await frame.locator("h1.title").hover();
-    await expect(frame.locator("#commentAction")).toBeVisible();
-    await frame.locator("#commentAction").click();
-    await expect(page.locator("#compose")).toBeVisible();
-    await expect(page.locator("#composeKind")).toHaveText("Element");
-    await page.locator("#composeText").fill(feedback);
-    await page.locator("#composeAdd").click();
-    await expect(page.locator("#compose")).toBeHidden();
-    const count = feedback === "First block feedback" ? 1 : 2;
-    await expect(frame.getByRole("button", { name: new RegExp(`^${count} block comments? on`) })).toBeVisible();
-  }
-  const badge = frame.getByRole("button", { name: /^2 block comments on/ });
-  await expect(badge).toBeVisible();
-  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "light");
-  await expect(badge).not.toHaveAttribute("data-dark");
-  await expect(badge).toHaveCSS("background-color", "rgb(255, 241, 217)");
-  await page.locator("#theme").click();
-  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "dark");
-  await expect(badge).toHaveCSS("background-color", "rgb(61, 48, 32)");
-  await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(23, 23, 15)");
-  await expect(badge).toHaveAttribute("aria-pressed", "false");
-  await expect(frame.locator(".block-marker")).toHaveCount(1);
-  expect(await frame.locator("body").innerHTML()).toBe(originalBody);
-  expect(fs.readFileSync(file, "utf8")).toBe(source);
-  await badge.focus();
-  await badge.press("Enter");
-  await expect(page.locator("#alignedCard")).toContainText("First block feedback");
-  await expect(badge).toHaveAttribute("aria-pressed", "true");
-  await expect(frame.locator(".block-marker")).toHaveAttribute("data-active", "true");
-  await badge.press("Space");
-  await expect(page.locator("#alignedCard")).toContainText("Second block feedback");
-  await page.screenshot({ path: testInfo.outputPath("dark-block-comments.png") });
-  await page.locator("#alignedCard").getByRole("button", { name: "Close comment card" }).click();
-  await expect(badge).toHaveAttribute("aria-pressed", "false");
-  await expect(badge).toBeVisible();
-  await page.reload();
-  frame = await waitForSdk(page);
-  await expect(frame.getByRole("button", { name: /^2 block comments on/ })).toBeVisible();
-  await expect(frame.locator("[data-eh-el]")).toHaveCount(0);
-  await frame.getByRole("button", { name: /^2 block comments on/ }).click();
-  await expect(page.locator("#alignedCard")).toContainText("First block feedback");
-  await page.emulateMedia({ colorScheme: "light" });
-  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "dark");
-  await expect(frame.locator(".block-badge")).toHaveCSS("background-color", "rgb(61, 48, 32)");
-  await expect(frame.locator(".block-badge")).not.toHaveAttribute("data-dark");
-  await page.locator("#theme").click();
-  await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", "light");
-  await expect(frame.locator(".block-badge")).toHaveCSS("background-color", "rgb(255, 241, 217)");
-  await page.screenshot({ path: testInfo.outputPath("light-block-comments.png") });
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete comment", exact: true }).click();
-  await page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true }).click();
-  await expect(frame.getByRole("button", { name: /^1 block comment on/ })).toBeVisible();
-  await frame.getByRole("button", { name: /^1 block comment on/ }).click();
-  await expect(page.locator("#alignedCard")).toContainText("Second block feedback");
+  await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "element");
 });
 
 test("block overlays follow geometry without covering authored controls or leaking into edits", async ({ page, review }) => {
@@ -1407,10 +322,11 @@ test("block overlays follow geometry without covering authored controls or leaki
   const frame = await waitForSdk(page);
   await frame.locator("#target").focus();
   await frame.locator("#target").press("Control+Alt+m");
-  await page.locator("#composeText").fill("Button feedback");
-  await page.locator("#composeAdd").click();
+  await page.getByRole("textbox", { name: "New message", exact: true }).fill("Button feedback");
+  await page.getByRole("button", { name: "Save message", exact: true }).click();
   const badge = frame.locator(".block-badge");
   await expect(badge).toBeVisible();
+  await close(page);
   const original = await frame.locator("#target").boundingBox();
   const badgeBox = await badge.boundingBox();
   expect(badgeBox.x + badgeBox.width <= original.x || badgeBox.x >= original.x + original.width ||
@@ -1428,8 +344,8 @@ test("block overlays follow geometry without covering authored controls or leaki
     element.textContent = "Human edit";
     element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
   });
-  await expect.poll(async () => (await reviewApi(review, `/api/page/${session.key}`)).json().edits.length).toBeGreaterThan(0);
-  const persisted = (await reviewApi(review, `/api/page/${session.key}`)).json();
+  await expect.poll(async () => (await listed(review, session, "edits")).items.length).toBeGreaterThan(0);
+  const persisted = { edits: (await listed(review, session, "edits")).items };
   expect(JSON.stringify(persisted.edits)).not.toMatch(/block-marker|block-badge|data-eh-el|blockAnnotations/);
   await frame.locator("#target").evaluate((button) => button.remove());
   await expect(badge).toHaveCount(0);
@@ -1449,8 +365,9 @@ test("pointer sweeps wait for dwell while selection, composition, and navigation
   await frame.locator("#two").hover();
   await expect(frame.locator("#commentAction")).toBeVisible();
   await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeQuote")).toContainText("Second candidate");
+  await expect(page.locator(".conversation-new-target")).toContainText("Second");
   await page.keyboard.press("Escape");
+  await close(page);
   await frame.locator("#one").evaluate((element) => {
     element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
@@ -1470,8 +387,8 @@ test("pointer sweeps wait for dwell while selection, composition, and navigation
   await frame.locator("#two").hover();
   await page.waitForTimeout(220);
   await frame.locator("#commentAction").click();
-  await expect(page.locator("#composeKind")).toHaveText("Selection");
-  await expect(page.locator("#composeQuote")).toContainText("First candidate");
+  await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "selection");
+  await expect(page.locator(".conversation-new-target")).toContainText("First candidate");
 });
 
 async function observeSdkMessages(page, frame) {

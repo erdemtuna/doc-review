@@ -1,3 +1,4 @@
+import { openResponse, read, mutate, content, request as conversationRequest } from "./fixtures/review.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -78,12 +79,7 @@ test("the local server refuses strangers", async (t) => {
   });
 
   await t.test("api calls with the token succeed", async () => {
-    const res = await request(port, {
-      method: "POST",
-      route: "/api/session",
-      headers: { "x-doc-review-token": token },
-      body: { file },
-    });
+    const res = await openResponse({ port: port, token: token }, file);
     assert.equal(res.status, 200);
   });
 
@@ -120,24 +116,14 @@ test("the local server refuses strangers", async (t) => {
   });
 
   await t.test("status reports idle before any feedback is sent", async () => {
-    const res = await request(port, {
-      route: `/api/status?file=${encodeURIComponent(file)}`,
-      headers: { "x-doc-review-token": token },
-    });
-    assert.equal(res.status, 200);
-    const body = JSON.parse(res.raw);
-    assert.equal(body.status, "idle");
-    assert.equal(body.feedback_waiting, false);
-    assert.equal(body.server_running, true);
+    const opened = await openResponse({ port, token }, file);
+    const body = await read({ port, token }, opened.body, "status");
+    assert.equal(body.review.state, "open");
+    assert.equal(body.work, null);
   });
 
   await t.test("the raw route hands back the on-disk html", async () => {
-    const opened = await request(port, {
-      method: "POST",
-      route: "/api/session",
-      headers: { "x-doc-review-token": token },
-      body: { file },
-    });
+    const opened = await openResponse({ port: port, token: token }, file);
     const { key } = JSON.parse(opened.raw);
     const res = await request(port, {
       route: `/api/page/${key}/raw`,
@@ -150,12 +136,7 @@ test("the local server refuses strangers", async (t) => {
   await t.test("static file reviews execute only the nonce-authorized SDK and remain writable", async () => {
     const source = '<!doctype html><html><body><h1>Review me</h1><button>Comment target</button><script type="application/json">{"example":"onclick"}</script></body></html>';
     fs.writeFileSync(file, source);
-    const opened = await request(port, {
-      method: "POST",
-      route: "/api/session",
-      headers: { "x-doc-review-token": token },
-      body: { file },
-    });
+    const opened = await openResponse({ port: port, token: token }, file);
     const { key, sessionId } = JSON.parse(opened.raw);
     const render = await registerRender(port, token, sessionId, key);
     assert.doesNotMatch(render.path, new RegExp(render.capability));
@@ -184,9 +165,7 @@ test("the local server refuses strangers", async (t) => {
     const scriptedFile = path.join(tmp, "scripted-recovery.html");
     const source = '<!doctype html><html><body><h1>Review me</h1><script>parent.postMessage({type:"eh:html",html:"owned"},"*")</script><button onclick="alert(1)">Comment target</button></body></html>';
     fs.writeFileSync(scriptedFile, source);
-    const opened = await request(port, {
-      method: "POST", route: "/api/session", headers: { "x-doc-review-token": token }, body: { file: scriptedFile },
-    });
+    const opened = await openResponse({ port: port, token: token }, scriptedFile);
     assert.equal(opened.status, 200);
     const { key, sessionId } = JSON.parse(opened.raw);
     const automatic = await registerRender(port, token, sessionId, key);
@@ -218,12 +197,17 @@ test("the local server refuses strangers", async (t) => {
     assert.equal(metadata.executionMode, "static");
     assert.equal(metadata.savePolicy, "feedback-only");
     assert.equal(metadata.feedbackOnly, true);
-    const save = await request(port, {
-      method: "POST", route: `/api/page/${key}/save`, headers: { "x-doc-review-token": token },
-      body: { sessionId, renderId: render.renderId, generation: render.generation, baseHash: metadata.sourceHash, html: "<p>Runtime</p>" },
+    const recorded = await mutate({ port, token }, opened.body, "record-edit", {
+      pageKey: key, content: content("Review me", "Runtime"),
+    });
+    const save = await conversationRequest({ port, token }, {
+      operation: "save-edit", reviewId: opened.body.reviewId, entryKey: opened.body.entryKey,
+      requestId: "scripted-write", expectedVersion: (await read({ port, token }, opened.body)).version,
+      pageKey: key, editId: recorded.value.editId, editVersion: 1,
+      expectedSourceHash: metadata.sourceHash, html: "<p>Runtime</p>",
     });
     assert.equal(save.status, 409);
-    assert.equal(JSON.parse(save.raw).code, "file_feedback_only");
+    assert.equal(save.body.error.code, "SAVE_EVIDENCE_CONFLICT");
     assert.equal(fs.readFileSync(scriptedFile, "utf8"), source);
   });
 

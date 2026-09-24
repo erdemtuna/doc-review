@@ -3,6 +3,7 @@ import path from "node:path";
 import ts from "typescript";
 import { test, expect, openReview, waitForSdk, writeFile, enterEditMode } from "./helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
+import { TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
 
 const chromeOrigin = "http://127.0.0.1:32123";
 const artifactOrigin = "http://localhost:32123";
@@ -33,8 +34,8 @@ async function openSdk(page, background = "#ffffff") {
       </body></html>` });
       return;
     }
-    if (!/^\/[a-z-]+\.js$/.test(url.pathname)) { await route.abort(); return; }
-    const file = path.join(process.cwd(), "src", url.pathname.slice(1));
+    if (!TRUSTED_SDK_MODULE_PATHS.includes(url.pathname)) { await route.abort(); return; }
+    const file = path.join(process.cwd(), "src", ...url.pathname.slice(1).split("/"));
     let body;
     try {
       body = await fs.readFile(file, "utf8");

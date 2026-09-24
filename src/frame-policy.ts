@@ -9,6 +9,7 @@ export const TRUSTED_SDK_MODULE_PATHS = Object.freeze([
   "/editing.js", "/frame-channel.js", "/icons.js", "/review-mode.js",
   "/semantic-snapshot.js", "/serialize.js", "/positioning.js",
   "/revision-schema.js", "/view-identity.js",
+  "/thread-anchor-controller.js", "/contracts/frame.js", "/contracts/feedback.js", "/contracts/validation.js",
 ]);
 
 export function interactiveFileCsp(sdkOrigin: string | URL): string {

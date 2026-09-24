@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, enterEditMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, message, handled, expectEditBlocked } from "./helpers.js";
 
 test("confirmed source updates survive paused shell painting without requiring reload", async ({ page, review }) => {
   test.setTimeout(30_000);
@@ -47,7 +47,7 @@ test("confirmed source updates survive paused shell painting without requiring r
     await expect(page.locator("#previousFrame")).toHaveCount(1);
     // The real five-second deadline must elapse while protocol messages still flow.
     await page.waitForTimeout(5500);
-    await expect(page.locator("#reloadNotice")).toBeHidden();
+    await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeHidden();
     await expect(page.locator("#frame")).toHaveAttribute("data-sdk-ready", "true");
     await expect(page.locator("#previousFrame")).toHaveCount(1);
     await page.evaluate(() => window.paintProbe.resume());
@@ -56,7 +56,7 @@ test("confirmed source updates survive paused shell painting without requiring r
   }
   const frame = await enterEditMode(page);
   await expect(frame.locator("h1")).toHaveText("Agent revision 2");
-  await expect(page.locator("#reloadNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeHidden();
 });
 
 test("an unconfirmed source update still offers recovery and can retry", async ({ page, review }) => {
@@ -75,13 +75,14 @@ test("an unconfirmed source update still offers recovery and can retry", async (
   await page.evaluate(() => { window.blockConfigurationAck = true; });
   writeFile(review, "missing-confirmation.html", "<h1>Updated document</h1>");
   await expect(page.frameLocator("#frame").locator("h1")).toHaveText("Updated document");
-  await expect(page.locator("#reloadNotice")).toContainText("The page did not confirm its review settings", { timeout: 10_000 });
+  await expect(page.locator(".conversation-global-status")).toContainText("did not confirm", { timeout: 10_000 });
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeVisible();
   await expect(page.locator("#frame")).not.toHaveAttribute("data-sdk-ready");
   await page.evaluate(() => { window.blockConfigurationAck = false; });
-  await page.locator("#safeReload").click();
+  await page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true }).click();
   await waitForSdk(page);
   await expect(page.locator("#previousFrame")).toHaveCount(0);
-  await expect(page.locator("#reloadNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeHidden();
   await expect(page.frameLocator("#frame").locator("body")).toHaveAttribute("contenteditable", "true");
 });
 
@@ -97,16 +98,25 @@ test("Review and Changes keep the same iframe and authored runtime state", async
         document.getElementById("counter").textContent = String(++count);
       };
     </script></body></html>`);
-  await openReview(page, review, file);
+  const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
+  await message(page, "Explain without changing source");
+  await page.locator("#send").click();
+  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await handled(review, ref);
+  await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
+  await page.locator(".conversation-submission").first().locator(":scope > summary").click();
+  await expect(page.getByRole("button", { name: "Source changes", exact: true })).toBeVisible();
+  await page.locator("#commentsButton").click();
   await frame.getByRole("button", { name: "Increment" }).click();
   await frame.getByLabel("Draft").fill("Keep this input");
   await page.locator("#frame").evaluate((element) => { window.reviewFrameBeforeSwitch = element; });
+  await page.locator("#commentsButton").click();
   for (let round = 0; round < 3; round++) {
-    await page.locator("#seeChanges").click();
-    await expect(page.locator("#historyPanel")).toBeVisible();
-    await page.locator("#latestVersion").click();
-    await expect(page.locator("#historyPanel")).toBeHidden();
+    await page.getByRole("button", { name: "Source changes", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Saved comparison", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close comparison", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Saved comparison", exact: true })).toBeHidden();
   }
   expect(await page.locator("#frame").evaluate((element) => element === window.reviewFrameBeforeSwitch)).toBe(true);
   await expect(frame.getByLabel("Draft")).toHaveValue("Keep this input");
@@ -114,17 +124,18 @@ test("Review and Changes keep the same iframe and authored runtime state", async
   expect(await frame.locator("body").evaluate(() => window.boots)).toBe(1);
 });
 
-test("ending review disposes shell interaction without replacing the authored document", async ({ page, review }) => {
+test("ending review keeps a read-only observer without replacing the authored document", async ({ page, review }) => {
   const file = writeFile(review, "controller-end.html", "<h1>End this review</h1><p>Content stays here.</p>");
   await openReview(page, review, file);
   await waitForSdk(page);
   await page.locator("#frame").evaluate((element) => { window.reviewFrameBeforeEnd = element; });
   await page.locator("#commentsButton").click();
   await page.locator("#endReview").click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "End review", exact: true }).click();
-  await expect(page.locator(".ended")).toBeVisible();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   expect(await page.locator("#frame").evaluate((element) => element === window.reviewFrameBeforeEnd)).toBe(true);
-  await page.locator("#seeChanges").evaluate((element) => element.click());
-  await expect(page.locator("#historyPanel")).toBeHidden();
-  await expect(page.locator(".ended")).toHaveCount(1);
+  await expectEditBlocked(page, true);
+  await page.locator("#theme").click();
+  await expect(page.getByRole("region", { name: "Saved comparison", exact: true })).toBeHidden();
+  await expect(page.locator(".conversation-lifecycle")).toHaveCount(1);
 });

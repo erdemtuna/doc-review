@@ -201,7 +201,7 @@ test("failed ack and result persistence never publish cleanup or endpoint change
   assert.ok(store.getRound(key, roundId).deliveredFeedback);
 });
 
-test("retention keeps five completed rounds plus active and unsent-pinned revisions", () => {
+test("retention keeps all completed rounds plus active and unsent-pinned revisions", () => {
   const { store, key } = setup();
   const first = send(store, key);
   ack(store, key, first.record);
@@ -212,15 +212,16 @@ test("retention keeps five completed rounds plus active and unsent-pinned revisi
     ack(store, key, sent.record);
     complete(store, key, sent.roundId, `After ${i}`);
   }
-  assert.equal(store.listHistory(key).filter((round) => round.completedAt).length, 6);
+  assert.equal(store.listHistory(key).filter((round) => round.completedAt).length, 7);
   assert.ok(store.getRound(key, first.roundId));
   store.removeComment(key, "pinned");
-  assert.equal(store.listHistory(key).filter((round) => round.completedAt).length, 5);
+  assert.equal(store.listHistory(key).filter((round) => round.completedAt).length, 7);
   const pending = send(store, key);
   ack(store, key, pending.record);
-  assert.equal(store.listHistory(key).length, 6);
+  assert.equal(store.listHistory(key).length, 8);
   store.collectHistoryGarbage({ olderThan: Date.now() + 1000 });
   assert.ok(store.revisions.get(pending.baselineRevisionId));
+  assert.ok(store.revisions.get(first.baselineRevisionId));
 });
 
 test("missing or old source cannot silently prune unsent feedback and pending batches", () => {

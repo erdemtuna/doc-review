@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import {
-  createDeadline, DEFAULT_POLL_SECONDS, pollUntilDeadline, requestRaw,
+  createDeadline, DEFAULT_POLL_SECONDS, mutationUntilDeadline, pollUntilDeadline, requestRaw,
 } from "../lib/poll-transport.js";
+import { conversationFixture } from "./fixtures/conversation-contracts.js";
+import { ContractError } from "../lib/contracts/index.js";
+
+const reference = { reviewId: "review-1", entryKey: "entry" };
 
 function fakeClock({ automatic = false } = {}) {
   let now = 0;
@@ -42,7 +46,7 @@ test("the default deadline is exactly 12 hours including discovery and capped re
   let discoveries = 0;
   let polls = 0;
   const result = await pollUntilDeadline({
-    target: "review.html", deadline,
+    reference, deadline,
     discover: async (received) => {
       assert.equal(received, deadline);
       discoveries++;
@@ -52,8 +56,9 @@ test("the default deadline is exactly 12 hours including discovery and capped re
     poll: async () => { polls++; throw dropped(); },
   });
   assert.equal(DEFAULT_POLL_SECONDS, 43200);
-  assert.equal(result.status, "timeout");
-  assert.equal(result.waited_seconds, 43200);
+  assert.equal(result.state, "timeout");
+  assert.deepEqual({ reviewId: result.reviewId, entryKey: result.entryKey }, reference);
+  assert.equal(deadline.seconds, 43200);
   assert.equal(time.now(), 43200000);
   assert.equal(discoveries, 12);
   assert.equal(polls, 11);
@@ -64,14 +69,15 @@ test("an explicit deadline is spent on startup without allowing a subsequent pol
   const time = fakeClock({ automatic: true });
   const deadline = createDeadline(0.05, time);
   const result = await pollUntilDeadline({
-    target: "review.html", deadline,
+    reference, deadline,
     discover: async (received) => {
       await received.sleep(100);
       assert.fail("startup must not outlive the deadline");
     },
     poll: () => assert.fail("no budget for polling"),
   });
-  assert.equal(result.waited_seconds, 0.05);
+  assert.equal(result.state, "timeout");
+  assert.equal(deadline.seconds, 0.05);
   assert.equal(time.now(), 50);
 });
 
@@ -79,38 +85,41 @@ test("retry backoff is bounded by the original explicit deadline", async () => {
   const time = fakeClock({ automatic: true });
   let attempts = 0;
   const result = await pollUntilDeadline({
-    target: "review.html", deadline: createDeadline(0.6, time),
+    reference, deadline: createDeadline(0.6, time),
     discover: async () => ({}),
     poll: async () => { attempts++; throw dropped(); },
   });
-  assert.equal(result.status, "timeout");
+  assert.equal(result.state, "timeout");
   assert.equal(attempts, 2);
   assert.equal(time.now(), 600);
 });
 
-test("recovery exceeds three drops, rediscovering and retrying only the exact explicit ack", async () => {
+test("recovery exceeds three drops, rediscovering and retrying only the exact response body", async () => {
   const time = fakeClock({ automatic: true });
-  const acknowledgements = [];
+  const requests = [];
   const servers = [];
   const delays = [];
   let discoveries = 0;
   const deadline = createDeadline(100, time);
   const sleep = deadline.sleep;
   deadline.sleep = (ms) => { delays.push(ms); return sleep(ms); };
-  const batch = { status: "feedback", batch_id: "b_new", pages: [] };
-  const result = await pollUntilDeadline({
-    target: "review.html", ackId: "b_explicit", deadline,
+  const { response, receipt } = conversationFixture();
+  const accepted = { ok: true, receipt };
+  const original = JSON.stringify(response);
+  const result = await mutationUntilDeadline({
+    body: response, deadline,
     discover: async () => ({ instance: ++discoveries }),
-    poll: async (server, _target, ackId) => {
+    send: async (server, body) => {
       servers.push(server.instance);
-      acknowledgements.push(ackId);
+      requests.push(JSON.stringify(body));
+      response.resultNote = "Caller mutation must not change the in-flight request.";
       if (discoveries < 10) throw dropped();
-      return batch;
+      return accepted;
     },
   });
-  assert.equal(result, batch);
+  assert.deepEqual(result, accepted);
   assert.deepEqual(servers, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-  assert.deepEqual(acknowledgements, Array(10).fill("b_explicit"));
+  assert.deepEqual(requests, Array(10).fill(original));
   assert.deepEqual(delays, [250, 500, 1000, 2000, 4000, 5000, 5000, 5000, 5000]);
 });
 
@@ -118,11 +127,51 @@ test("unclassified errors are terminal rather than retried for twelve hours", as
   for (const code of ["EACCES", "SERVER_RESPONSE_INVALID", "SERVER_RESPONSE_ERROR", "ABORT_ERR"]) {
     let calls = 0;
     await assert.rejects(pollUntilDeadline({
-      target: "review.html",
+      reference,
       discover: async () => { calls++; throw Object.assign(new Error(code), { code }); },
     }), { code });
     assert.equal(calls, 1);
   }
+});
+
+test("terminal abandonment is never retried, even at the deadline", async () => {
+  const time = fakeClock();
+  let calls = 0;
+  await assert.rejects(mutationUntilDeadline({
+    body: conversationFixture().response, deadline: createDeadline(1, time), discover: async () => ({}),
+    send: async () => { calls++; time.advance(1000); throw new ContractError("SUBMISSION_ABANDONED", "Abandonment won."); },
+  }), { code: "SUBMISSION_ABANDONED" });
+  assert.equal(calls, 1);
+});
+
+test("a mismatched receipt or exhausted response transport is unknown, never successful", async () => {
+  for (const corrupt of [false, true]) {
+    const time = fakeClock({ automatic: true });
+    const f = conversationFixture();
+    await assert.rejects(mutationUntilDeadline({
+      body: f.response, deadline: createDeadline(0.6, time), discover: async () => ({}),
+      send: async () => {
+        if (!corrupt) throw dropped();
+        return { ok: true, receipt: { ...f.receipt, requestId: "another-request" } };
+      },
+    }), (error) => error.code === "TRANSPORT_UNKNOWN" && error.outcome.requestId === f.response.requestId);
+    assert.equal(time.now(), 600);
+  }
+});
+
+test("failed rediscovery after an uncertain response cannot retroactively claim rejection", async () => {
+  const time = fakeClock({ automatic: true });
+  const body = conversationFixture().response;
+  let discoveries = 0;
+  await assert.rejects(mutationUntilDeadline({
+    body, deadline: createDeadline(2, time),
+    discover: async () => {
+      if (++discoveries > 1) throw new Error("Incompatible replacement; do not stop it.");
+      return {};
+    },
+    send: async () => { throw dropped(); },
+  }), (error) => error.code === "TRANSPORT_UNKNOWN" && error.outcome.requestId === body.requestId &&
+    /Incompatible replacement/.test(error.message));
 });
 
 function fakeTransport() {

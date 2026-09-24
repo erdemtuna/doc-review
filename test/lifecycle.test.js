@@ -1,3 +1,4 @@
+import { openResponse } from "./fixtures/review.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -31,7 +32,7 @@ function post(review, route, body) {
   }).then(async (response) => ({ status: response.status, body: await response.json() }));
 }
 
-function beginPoll(review, file) {
+function observe(review, sessionId) {
   let startedResolve;
   const started = new Promise((resolve) => {
     startedResolve = resolve;
@@ -41,7 +42,7 @@ function beginPoll(review, file) {
       {
         host: "127.0.0.1",
         port: review.port,
-        path: `/api/poll?target=${encodeURIComponent(file)}`,
+        path: `/events/${sessionId}`,
         headers: { "x-doc-review-token": review.token },
       },
       (res) => {
@@ -60,7 +61,7 @@ function beginPoll(review, file) {
   return { started, completed };
 }
 
-test("25 complete start, open, poll, and dispose cycles terminate naturally", async () => {
+test("25 durable open, observer, and dispose cycles terminate naturally without claiming End", async () => {
   const file = path.join(tmp, "cycle.html");
   fs.writeFileSync(file, "<p>cycle</p>");
 
@@ -68,15 +69,17 @@ test("25 complete start, open, poll, and dispose cycles terminate naturally", as
     await within(
       (async () => {
         const review = await start();
-        const opened = await post(review, "/api/session", { file });
+        const opened = await openResponse(review, file);
         assert.equal(opened.status, 200);
 
-        const poll = beginPoll(review, file);
+        const poll = observe(review, opened.body.sessionId);
         await poll.started;
         const firstDispose = review.dispose();
         assert.strictEqual(review.dispose(), firstDispose, "dispose returns its cached promise");
         await firstDispose;
-        assert.equal(await poll.completed, "", "shutdown interrupts the poll without impersonating a user-closed review");
+        const events = await poll.completed;
+        assert.match(events, /event: invalidate/);
+        assert.doesNotMatch(events, /event: ended/, "shutdown does not impersonate a shared End");
         assert.equal(fs.existsSync(serverLockPath()), false);
         assert.equal(fs.existsSync(serverPath()), false);
       })(),

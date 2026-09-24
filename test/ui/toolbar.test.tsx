@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createToolbarController, type ToolbarState } from "../../src/toolbar-controller.js";
-import { Toolbar } from "@/components/toolbar";
+import { Toolbar, ToolbarControls } from "@/components/toolbar";
 
 afterEach(cleanup);
 
@@ -98,4 +98,29 @@ it("blocks unavailable and ended commands even before a stale snapshot is republ
   expect(commands.setComparing).not.toHaveBeenCalled();
   expect(commands.openComments).not.toHaveBeenCalled();
   expect(commands.toggleTheme).not.toHaveBeenCalled();
+});
+
+it("extends the former controls with ended read-only navigation without mounting the legacy controller", async () => {
+  const { state, commands } = fixture();
+  state.ended = true;
+  const user = userEvent.setup();
+  render(<ToolbarControls state={state} commands={commands} readOnlyNavigation changesId="conversationChanges" />);
+  expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
+  const changes = screen.getByRole("button", { name: "Changes" });
+  expect(changes).toHaveAttribute("aria-controls", "conversationChanges");
+  await user.click(changes); await user.click(screen.getByRole("button", { name: "Review" }));
+  await user.click(screen.getByRole("button", { name: "Feedback" }));
+  await user.click(screen.getByRole("button", { name: "Switch review tools to dark" }));
+  expect(commands.setComparing.mock.calls).toEqual([[true], [false]]);
+  expect(commands.openComments).toHaveBeenCalledTimes(1);
+  expect(commands.toggleTheme).toHaveBeenCalledTimes(1);
+});
+
+it("write exclusion disables only Edit in the open menu and accurately labels attention evidence", () => {
+  const { state, commands } = fixture();
+  state.modeMenuOpen = true;
+  render(<ToolbarControls state={state} commands={commands} editDisabled readOnlyNavigation feedbackCountLabel="conversations with new activity" />);
+  expect(screen.getByRole("menuitemradio", { name: /^Edit/ })).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("menuitemradio", { name: /^View/ })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("3 conversations with new activity");
 });

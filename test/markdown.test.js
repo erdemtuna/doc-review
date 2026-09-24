@@ -1,3 +1,4 @@
+import { openResponse, read, mutate, thread, send, list, content, request as conversationRequest } from "./fixtures/review.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -95,9 +96,10 @@ test("a markdown review is rendered, flagged, and never writable", async (t) => 
   fs.writeFileSync(file, "# Notes\n\nFirst draft.\n\nSee [the spec](./spec.md).\n");
   fs.writeFileSync(path.join(tmp, "spec.md"), "# Spec\n\nDetails.\n");
 
-  const opened = await request(port, token, { method: "POST", route: "/api/session", body: { file } });
+  const opened = await openResponse({ port: port, token: token }, file);
   assert.equal(opened.status, 200);
   const { key, sessionId } = JSON.parse(opened.raw);
+  const scope = opened.body;
 
   await t.test("the artifact route serves rendered html with the sdk injected", async () => {
     const registered = await request(port, token, {
@@ -119,46 +121,46 @@ test("a markdown review is rendered, flagged, and never writable", async (t) => 
   });
 
   await t.test("saves are refused so the source file survives", async () => {
-    const res = await request(port, token, {
-      method: "POST",
-      route: `/api/page/${key}/save`,
-      body: { html: "<!DOCTYPE html><html><body>overwritten</body></html>" },
+    const recorded = await mutate({ port, token }, scope, "record-edit", {
+      pageKey: key, content: content("First draft.", "Overwritten"),
     });
-    assert.equal(res.status, 400);
+    const res = await conversationRequest({ port, token }, {
+      operation: "save-edit", reviewId: scope.reviewId, entryKey: scope.entryKey,
+      requestId: "markdown-refused", expectedVersion: (await read({ port, token }, scope)).version,
+      pageKey: key, editId: recorded.value.editId, editVersion: 1,
+      expectedSourceHash: (await read({ port, token }, scope, "read-page", { pageKey: key })).page.sourceHash,
+      html: "<!DOCTYPE html><html><body>overwritten</body></html>",
+    });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.error.code, "SAVE_EVIDENCE_CONFLICT");
     assert.equal(fs.readFileSync(file, "utf8"), "# Notes\n\nFirst draft.\n\nSee [the spec](./spec.md).\n");
   });
 
   await t.test("navigation can follow a link to a sibling markdown page", async () => {
     const res = await request(port, token, {
       method: "POST",
-      route: `/api/session/${sessionId}/navigate`,
+      route: `/api/session/${sessionId}/resolve-target`,
       body: { href: "./spec.md" },
     });
     assert.equal(res.status, 200);
-    const nav = JSON.parse(res.raw);
-    assert.equal(nav.page.markdown, true);
-    assert.equal(nav.page.filename, "spec.md");
+    const joined = await mutate({ port, token }, scope, "join-page", { target: JSON.parse(res.raw).target });
+    const nav = await request(port, token, { method: "POST", route: `/api/session/${sessionId}/goto`,
+      body: { key: joined.value.pageKey } });
+    assert.equal(nav.status, 200);
+    const page = JSON.parse((await request(port, token, { route: `/api/session/${sessionId}/page` })).raw).page;
+    assert.equal(page.markdown, true);
+    assert.equal(page.filename, "spec.md");
   });
 
-  await t.test("comments on a markdown page ship in the batch with the md path", async () => {
-    await request(port, token, {
-      method: "POST",
-      route: `/api/page/${key}/comment`,
-      body: { kind: "selection", quote: "First draft.", feedback: "Add a timeline." },
-    });
-    const sent = await request(port, token, {
-      method: "POST",
-      route: `/api/page/${key}/send`,
-      body: { sessionId, note: "" },
-    });
-    assert.equal(sent.status, 200);
-    const polled = await request(port, token, { route: `/api/poll?file=${encodeURIComponent(file)}` });
-    const batch = JSON.parse(polled.raw);
-    assert.equal(batch.status, "feedback");
-    // The server canonicalizes paths (symlinked tmpdirs on macOS), so match on realpath.
-    const page = batch.pages.find((p) => p.file === fs.realpathSync(file));
-    assert.equal(page.comments[0].feedback, "Add a timeline.");
-    assert.match(batch.next_step, /Markdown source/);
+  await t.test("messages on a Markdown page ship with its true source identity and explicit intent", async () => {
+    const message = await thread({ port, token }, scope, { body: "Add a timeline.", intent: "request-change",
+      target: { kind: "selection", anchor: { quote: "First draft.", prefix: "", suffix: "" } } });
+    await send({ port, token }, scope, [message]);
+    const work = (await read({ port, token }, scope, "poll")).submission;
+    assert.deepEqual(work.pageKeys, [key]);
+    assert.equal((await read({ port, token }, scope, "read-page", { pageKey: key })).page.target.path, fs.realpathSync(file));
+    assert.equal(work.messages[0].message.body, "Add a timeline.");
+    assert.equal(work.messages[0].message.intent, "request-change");
   });
 });
 
@@ -170,18 +172,12 @@ test("an external Markdown write refreshes rendering without losing unsent edits
   const { port, token } = review;
   const file = path.join(tmp, "external-write.md");
   fs.writeFileSync(file, "# Original\n\nBefore.\n");
-  const opened = JSON.parse((await request(port, token, {
-    method: "POST", route: "/api/session", body: { file },
-  })).raw);
-  await request(port, token, {
-    method: "POST", route: `/api/page/${opened.key}/edit`,
-    body: { label: "Body", before: "Before.", after: "My unsent wording.", after_html: "<strong>My unsent wording.</strong>" },
-  });
-  await request(port, token, {
-    method: "POST", route: `/api/page/${opened.key}/comment`,
-    body: { quote: "Before.", feedback: "Keep my feedback." },
-  });
-  const edits = structuredClone(review.store.page(opened.key).edits);
+  const opened = JSON.parse((await openResponse({ port: port, token: token }, file)).raw);
+  const recorded = await mutate(review, opened, "record-edit", { pageKey: opened.key,
+    content: content("Before.", "My unsent wording.", { after_html: "<strong>My unsent wording.</strong>" }) });
+  const message = await thread(review, opened, { body: "Keep my feedback.",
+    target: { kind: "selection", anchor: { quote: "Before.", prefix: "", suffix: "" } } });
+  const edits = (await list(review, opened, "edits")).items;
   fs.writeFileSync(file, "# External revision\n\nBefore, reformatted.\n");
 
   const deadline = Date.now() + 5000;
@@ -189,21 +185,16 @@ test("an external Markdown write refreshes rendering without losing unsent edits
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   assert.match(review.store.page(opened.key).pristine, /External revision/);
-  assert.deepEqual(review.store.page(opened.key).edits, edits);
+  assert.deepEqual((await list(review, opened, "edits")).items, edits);
   const registered = JSON.parse((await request(port, token, {
     method: "POST", route: `/api/session/${opened.sessionId}/render`,
     body: { key: opened.key, generation: 1 },
   })).raw);
   assert.match((await request(port, token, { route: registered.path })).raw, /External revision/);
-  await request(port, token, {
-    method: "POST", route: `/api/page/${opened.key}/send`,
-    body: { sessionId: opened.sessionId, note: "" },
-  });
-  const batch = JSON.parse((await request(port, token, {
-    route: `/api/poll?target=${encodeURIComponent(file)}`,
-  })).raw);
-  assert.equal(batch.pages[0].edits[0].after, "My unsent wording.");
-  assert.equal(batch.pages[0].edits[0].after_html, "<strong>My unsent wording.</strong>");
-  assert.equal(batch.pages[0].comments[0].feedback, "Keep my feedback.");
+  await send(review, opened, [message], [{ pageKey: opened.key, editId: recorded.value.editId, version: 1 }]);
+  const work = (await read(review, opened, "poll")).submission;
+  assert.equal(work.edits[0].content.after, "My unsent wording.");
+  assert.equal(work.edits[0].content.after_html, "<strong>My unsent wording.</strong>");
+  assert.equal(work.messages[0].message.body, "Keep my feedback.");
   assert.match(fs.readFileSync(file, "utf8"), /External revision/);
 });

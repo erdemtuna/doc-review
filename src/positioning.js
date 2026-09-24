@@ -105,3 +105,43 @@ export function alignedCardPosition(rects, { frameRect, viewport, width = 300, h
     top: Math.max(viewport.top + 12, Math.min(viewport.top + viewport.height - height - 12, top)),
   };
 }
+
+/** Extend the former placement, but never accept its clamped overlapping fallback. */
+export function placeNewMessageSurface(geometry, options) {
+  if (options.viewport.width < 900) return null;
+  const placement = placeContextualSurface(geometry, { ...options, narrow: false });
+  if (!("left" in placement) || placement.kind === "sheet") return null;
+  const { viewport, frameRect, surfaceHeight, toolbarHeight } = options;
+  const clip = frameRectToChrome(geometry.clip, frameRect);
+  if (placement.left < viewport.left + GAP || placement.left + placement.width > viewport.left + viewport.width - GAP ||
+      placement.top < viewport.top + toolbarHeight + GAP ||
+      placement.top + surfaceHeight > viewport.top + viewport.height - GAP ||
+      placement.top < clip.top || placement.top + surfaceHeight > clip.bottom) return null;
+  if (geometry.rects.some((rect) => {
+    const target = frameRectToChrome(rect, frameRect);
+    return placement.left < target.right + GAP && placement.left + placement.width > target.left - GAP &&
+      placement.top < target.bottom + GAP && placement.top + surfaceHeight > target.top - GAP;
+  })) return null;
+  return { ...placement, height: surfaceHeight };
+}
+
+/** Use document margins, not apparently empty space inside authored content. */
+export function placeConversationSurface(state, { frameRect, viewport, toolbarHeight = 88, width = 360, height = 560 }) {
+  if (state?.state !== "found" || state.relation !== "visible" || viewport.width < 900) return null;
+  const available = viewport.height - toolbarHeight - GAP * 2;
+  if (available < 340 || !state.rects.length) return null;
+  const measuredHeight = Math.min(height, available);
+  const rects = state.rects.map((rect) => frameRectToChrome(rect, frameRect));
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const top = clamp(Math.min(...rects.map((rect) => rect.top)),
+    viewport.top + toolbarHeight + GAP, viewport.top + viewport.height - measuredHeight - GAP);
+  const rightEdge = Number.isFinite(frameRect.right) ? Math.max(right, frameRect.right) : right;
+  const leftEdge = Number.isFinite(frameRect.left) ? Math.min(left, frameRect.left) : left;
+  for (const x of [rightEdge + GAP, leftEdge - width - GAP]) {
+    if (x >= viewport.left + GAP && x + width <= viewport.left + viewport.width - GAP) {
+      return { left: x, top, width, height: measuredHeight };
+    }
+  }
+  return null;
+}

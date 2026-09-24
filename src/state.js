@@ -8,6 +8,8 @@ import { atomicWrite } from "./atomic-write.js";
 import { RevisionStore } from "./revision-store.js";
 import { CAPTURE_LEASE_MS, HISTORY_SCHEMA_VERSION, normalizeHistoryTargets, revisionError } from "./revision-schema.js";
 import { historyRevisionReferences, retainHistory } from "./history-policy.js";
+import { Conversations, emptyConversations, validateConversations } from "./conversation-store.js";
+import { ContractError } from "./contracts/validation.js";
 
 /** Anything untouched this long is review debris, not work in progress. */
 const PRUNE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -15,7 +17,7 @@ const DELIVERY_STATES = new Set(["queued", "possibly_delivered", "delivered"]);
 
 const fresh = (entry, now) => !!entry && now - (entry.updatedAt || 0) < PRUNE_AGE_MS;
 const batchId = () => `b_${crypto.randomBytes(12).toString("hex")}`;
-const emptyState = () => ({ pages: {}, batches: {}, receipts: {}, histories: {} });
+const emptyState = () => ({ schemaVersion: 1, conversations: emptyConversations(), pages: {}, batches: {}, receipts: {}, histories: {} });
 const historyId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
 
 function historyRound(data, entryKey, roundId) {
@@ -54,7 +56,8 @@ function finishCapture(round) {
 function pruneData(data, now = Date.now()) {
   let changed = retainHistory(data);
   for (const [key, page] of Object.entries(data.pages)) {
-    const protectedPage = page.comments?.length || page.edits?.length || page.revisionRefs?.length ||
+    const protectedPage = Object.values(data.conversations?.reviews || {}).some((record) => Object.hasOwn(record.pages, key)) ||
+      page.comments?.length || page.edits?.length || page.revisionRefs?.length ||
       data.batches[key] || Object.values(data.batches).some((record) => record.cleanup.some((item) => item.key === key)) ||
       Object.values(data.histories).some((history) => history.rounds.some((round) =>
         round.targets.some((target) => target.key === key)));
@@ -77,10 +80,13 @@ function pruneData(data, now = Date.now()) {
 }
 
 function normalizeState(parsed, makeBatchId) {
+  validateConversations(parsed);
   if (!parsed || typeof parsed !== "object" || !parsed.pages || typeof parsed.pages !== "object") {
     throw new Error("Invalid doc-review state: expected a pages object.");
   }
   const data = {
+    schemaVersion: parsed.schemaVersion,
+    conversations: parsed.conversations,
     pages: parsed.pages,
     batches: parsed.batches && typeof parsed.batches === "object" ? parsed.batches : {},
     receipts: parsed.receipts && typeof parsed.receipts === "object" ? parsed.receipts : {},
@@ -163,12 +169,13 @@ function normalizeState(parsed, makeBatchId) {
  * means "your feedback is safe" stays true across server restarts.
  */
 export class Store {
-  constructor({ write = atomicWrite, makeBatchId = batchId, revisions = new RevisionStore() } = {}) {
+  constructor({ write = atomicWrite, makeBatchId = batchId, revisions = new RevisionStore(), writeSource = atomicWrite } = {}) {
     this.data = emptyState();
     this.write = write;
     this.makeBatchId = makeBatchId;
     this.revisions = revisions;
     this.load();
+    this.conversations = new Conversations(this, { writeSource });
   }
 
   load() {
@@ -177,7 +184,10 @@ export class Store {
       const raw = fs.readFileSync(statePath(), "utf8");
       parsed = JSON.parse(raw);
     } catch (err) {
-      if (err.code === "ENOENT") return this.data;
+      if (err.code === "ENOENT") {
+        this.persist(this.data);
+        return this.data;
+      }
       throw err;
     }
     const normalized = normalizeState(parsed, this.makeBatchId);
@@ -188,8 +198,13 @@ export class Store {
   }
 
   persist(data) {
-    ensureStateDir();
-    this.write(statePath(), JSON.stringify(data, null, 2));
+    try {
+      ensureStateDir();
+      this.write(statePath(), JSON.stringify(data, null, 2));
+    }
+    catch (error) {
+      throw new ContractError("STATE_PERSIST_FAILED", `State was not accepted: ${error.message}. Source writes, if any, must be reconciled separately.`);
+    }
   }
 
   /** Replace durable state once, then publish the committed draft in memory. */
@@ -202,7 +217,7 @@ export class Store {
     pruneData(draft);
     this.persist(draft);
     this.data = draft;
-    return result;
+    return structuredClone(result);
   }
 
   /** Persist deliberate direct changes used by maintenance and tests. */
