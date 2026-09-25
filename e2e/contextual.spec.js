@@ -37,7 +37,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     expect(box.y + box.height).toBeLessThanOrEqual(900);
     await expect(panel).not.toHaveAttribute("aria-modal", "true");
     await page.screenshot({ path: info.outputPath(`composer-${theme}-${width}.png`), animations: "disabled" });
-    await page.getByRole("button", { name: "Save message", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(field).toHaveCount(0);
     const card = page.locator(".conversation-thread");
     await expect(card).toHaveCount(1);
@@ -65,6 +65,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     expect(await edit.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
       .toEqual({ same: true, selection: [2, 7] });
     await edit.press("Escape");
+    await page.getByRole("button", { name: "Discard", exact: true }).click();
     let deletes = 0;
     page.on("request", (request) => {
       if (request.url().endsWith("/api/conversation") && request.postDataJSON()?.operation === "delete-thread") deletes++;
@@ -141,8 +142,10 @@ test("late successful save after source reload clears only its captured draft, n
     await expect(page.locator("#frame")).not.toHaveAttribute("src", previous);
     await waitForSdk(page); release();
     await expect(field).toHaveValue("Newer draft retained during reload");
-    await expect(page.getByRole("button", { name: "Save message", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
     expect((await listed(review, ref, "threads")).totalCount).toBe(1);
-    await field.press("Escape"); await expect(field).toHaveCount(0);
+    await field.press("Escape");
+    await page.getByRole("button", { name: "Discard", exact: true }).click();
+    await expect(field).toHaveCount(0);
   } finally { release(); }
 });

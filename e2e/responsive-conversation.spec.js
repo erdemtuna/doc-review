@@ -137,7 +137,7 @@ test("saved and source-pending edit evidence remains initially readable and inde
       await filter.click(); await expect(card).toBeHidden();
       await filter.click(); await expect(card).toBeVisible();
       expect(await editor.evaluate(node => [node === window.responsiveEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 9]);
-      await expect(card.getByRole("button", { name: "Save reply" })).toBeDisabled();
+      await expect(card.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
       await card.getByRole("button", { name: "Conversation actions" }).click();
       await expect(page.getByRole("menuitem", { name: "Resolve", exact: true })).toBeEnabled();
       await page.keyboard.press("Escape");
@@ -169,7 +169,7 @@ async function auditHost(page, card, message, editor, host, info) {
     if (field) {
       expect.soft(field.same).toBe(true); expect.soft(field.selection).toEqual([4, 12]);
       expect.soft(field.visible + 0.1, `draft initially readable at ${width}x${height}`).toBeGreaterThanOrEqual(Math.min(36, field.height));
-      await expect.soft(card.getByRole("button", { name: "Save reply" })).toBeDisabled();
+      await expect.soft(card.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
     }
     await expect.soft(page.locator("#theme")).toBeFocused();
   }
@@ -181,7 +181,7 @@ async function auditHost(page, card, message, editor, host, info) {
     await permission.scrollIntoViewIfNeeded();
     await permission.click();
     await expect(permission).toBeChecked();
-    const save = card.getByRole("button", { name: "Save reply" });
+    const save = card.getByRole("button", { name: "Save", exact: true });
     await save.scrollIntoViewIfNeeded();
     expect(await save.evaluate(node => {
       const box = node.getBoundingClientRect();

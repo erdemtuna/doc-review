@@ -56,8 +56,10 @@ test("collapse and host transfer preserve the one editable message through valid
   await page.locator("#theme").click(); await toggle.click();
   expect(await editor.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
     .toEqual({ same: true, selection: [3, 9] });
-  await editor.fill("   "); await expect(thread.getByRole("button", { name: "Save message", exact: true })).toBeDisabled();
-  await editor.press("Escape"); await expect(editor).toHaveCount(0);
+  await editor.fill("   "); await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await editor.press("Escape");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(editor).toHaveCount(0);
   await thread.getByRole("button", { name: "Edit message", exact: true }).click();
   await editor.fill("Saved revised feedback");
   await editor.evaluate((element) => { window.savedEditor = element; });
@@ -66,7 +68,7 @@ test("collapse and host transfer preserve the one editable message through valid
   await intercept(page, "update-message", async (route) => { await gate; await route.continue(); });
   try {
     await editor.press("Enter");
-    await expect(thread.getByRole("button", { name: "Save message", exact: true })).toBeDisabled();
+    await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
     await toggle.click(); await toggle.click();
     await expect(editor).toHaveValue("Saved revised feedback");
     await thread.getByRole("button", { name: "Focus", exact: true }).click();

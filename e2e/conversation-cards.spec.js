@@ -121,7 +121,7 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await editor.fill("My independent reply");
   await expect(card.getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
   await card.getByRole("checkbox", { name: "Request a change" }).check();
-  await card.getByRole("button", { name: "Save reply" }).click();
+  await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(card.getByText("Change requested", { exact: true })).toBeVisible();
   await expect(card.getByText("Discussion", { exact: true })).toBeVisible();

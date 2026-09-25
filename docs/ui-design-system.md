@@ -25,7 +25,7 @@ shared Checkbox primitive; selecting feedback does not change its permission.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
 pages merge by stable identity; reconnect must not leave an unreachable gap.
-Save reply queues it; Send submits the selected saved pending items across
+Save retains unsent feedback; Send submits the selected saved pending items across
 authorized review pages. Immutable sent corrections are new messages.
 Each new message/note defaults to Discussion. The change checkbox appears only
 during composition/edit; saved intent is a badge, not an editable permission.
@@ -82,8 +82,19 @@ Below 900px, in short keyboard-like viewports, or without sufficient clear
 space, Feedback is an overlay. Fallback preserves input and never changes
 thread status. It does not automatically jump back to adjacent placement.
 
-New comments extend the former 340px contextual surface (Badge, quote, Textarea,
-unchecked Checkbox and explicit Save/Cancel), not the saved-thread gutter.
+New comments extend the former 340px contextual surface with one title, a subdued
+target cue, Textarea, and unchecked Request a change / Save on one horizontal row.
+Save's tooltip and accessible description explain Save versus Send and keyboard
+shortcuts without a permanent help row. There is no Element badge, duplicate
+New message heading, permanent Cancel, or host-transfer action.
+New/reply/edit X and Escape use controller-owned cancellation: empty new/reply
+drafts (including whitespace) and unchanged edits close immediately; meaningful
+text or an existing edit's changed permission requires Keep editing / Discard.
+Keep editing restores the same input and caret. IME and active/uncertain saves
+block cancellation; Discard cannot retract an accepted mutation. Feedback's outer
+X remains hide/preserve. Cancel retires frame target generations and SDK composition
+state, preventing late intents from reopening the editor. Heading labels include
+the selected heading itself; stored anchors and selectors are never rewritten.
 The same mounted `new` draft remains in the inventory while its host changes.
 Contextual composition neither makes the authored stage inert nor adds a backdrop.
 `placeNewMessageSurface` reuses former placement but rejects overlapping/clipped

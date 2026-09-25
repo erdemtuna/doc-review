@@ -44,8 +44,11 @@ permission for that request only; the agent can answer, clarify, apply, or defer
 2. **Point out what matters.** Select text or choose an element to leave a
    comment. Switch to **Edit** for direct changes to wording, formatting, images,
    or layout. Commenting works in either mode. New comments open beside the target
-   when space permits, with a safe Feedback fallback. **Save message** retains the
-   comment in the review without sending it.
+   when space permits, with a safe Feedback fallback. **Save** retains the
+   comment in the review without sending it. Enter saves; Shift+Enter adds a line.
+   The editor's X or Escape closes an empty/unchanged draft immediately and asks
+   **Keep editing / Discard** for unsaved changes. Feedback's outer X only hides
+   the panel and preserves your drafts.
 3. **Send feedback.** Open **Feedback**, select saved pending messages and edits,
    optionally add an overall note, and choose **Send**. Each new message defaults
    to Discussion; check **Request a change** only for that message's permission.

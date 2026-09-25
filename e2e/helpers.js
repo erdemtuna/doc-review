@@ -139,7 +139,7 @@ export async function compose(page, text, change = false) {
   const composer = page.locator('[data-composer="new"]');
   await composer.getByRole("textbox").fill(text);
   await composer.getByLabel("Request a change").setChecked(change);
-  await composer.getByRole("button", { name: "Save message" }).click();
+  await composer.getByRole("button", { name: "Save", exact: true }).click();
   await expect(composer).toHaveCount(0);
 }
 

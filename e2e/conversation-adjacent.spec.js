@@ -73,7 +73,7 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   });
   await card(page, one).getByRole("button", { name: "Focus", exact: true }).click();
   await expect(panel(page)).toHaveAttribute("data-host", "focus");
-  await expect(card(page, one).getByRole("button", { name: "Save reply" })).toBeDisabled();
+  await expect(card(page, one).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await card(page, one).getByRole("button", { name: "Back to Feedback" }).click();
   await (await threadAction(page, card(page, one), "Beside target")).click();
   expect(await editor.evaluate((node) => [node === window.savedEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
@@ -90,11 +90,11 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
     if (route.request().postDataJSON().operation === "reply") { picked(); await hold; }
     await route.continue();
   });
-  await card(page, one).getByRole("button", { name: "Save reply" }).click();
+  await card(page, one).getByRole("button", { name: "Save", exact: true }).click();
   await waiting;
   await editor.fill("Newer text stays in the same editor");
   await card(page, one).getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(card(page, one).getByRole("button", { name: "Save reply" })).toBeDisabled();
+  await expect(card(page, one).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   release();
   await expect(card(page, one).getByText("Keep this composition and selected text", { exact: true })).toBeVisible();
   await expect(editor).toHaveValue("Newer text stays in the same editor");
@@ -195,7 +195,7 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
   }).toBeLessThanOrEqual(400);
   await card(page, id).getByRole("button", { name: "Focus", exact: true }).click();
   expect((await card(page, id).locator(".conversation-transcript").boundingBox()).height).toBeGreaterThanOrEqual(48);
-  const keyboardSave = await card(page, id).getByRole("button", { name: "Save reply" }).boundingBox();
+  const keyboardSave = await card(page, id).getByRole("button", { name: "Save", exact: true }).boundingBox();
   expect(keyboardSave.y + keyboardSave.height).toBeLessThanOrEqual(400);
   await card(page, id).getByRole("button", { name: "Back to Feedback" }).click();
   await page.evaluate(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event("resize")); });
@@ -209,8 +209,8 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
       const box = await panel(page).boundingBox();
       expect(box.y + box.height).toBeLessThanOrEqual(height);
       await card(page, id).getByRole("button", { name: "Focus", exact: true }).click();
-      await card(page, id).getByRole("button", { name: "Save reply" }).scrollIntoViewIfNeeded();
-      await expect(card(page, id).getByRole("button", { name: "Save reply" })).toBeInViewport();
+      await card(page, id).getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
+      await expect(card(page, id).getByRole("button", { name: "Save", exact: true })).toBeInViewport();
       expect((await card(page, id).locator(".conversation-transcript").boundingBox()).height).toBeGreaterThanOrEqual(48);
       await page.screenshot({ path: testInfo.outputPath(`conversation-${theme}-${width}-${height}.png`), animations: "disabled" });
       await card(page, id).getByRole("button", { name: "Back to Feedback" }).click();

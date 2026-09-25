@@ -29,7 +29,7 @@ async function controller(t, configure = {}) {
   return { f, ref, target, owner, calls, intercept(value) { intercept = value; } };
 }
 const target = { kind: "element", anchor: { selector: "p", label: "Paragraph" } };
-test("UX baseline: empty hidden drafts retarget and reset permission; whitespace remains a guarded draft", async (t) => {
+test("empty and whitespace-only drafts retarget and reset permission consistently with Save eligibility", async (t) => {
   const c = await controller(t);
   const other = { kind: "element", anchor: { selector: "h2", label: "Second heading" } };
   c.owner.commands.begin(c.ref.entryKey, target, true);
@@ -42,18 +42,21 @@ test("UX baseline: empty hidden drafts retarget and reset permission; whitespace
   await c.owner.commands.saveDraft("new");
   assert.equal(c.calls.filter((body) => body.operation === "create-thread").length, 0);
   c.owner.commands.open(false);
-  assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target, true), /Save or cancel/);
-  assert.equal(c.owner.getSnapshot().newMessage.draft.text, " \n\t ");
+  assert.equal(c.owner.commands.begin(c.ref.entryKey, target, true), true);
+  assert.equal(c.owner.getSnapshot().newMessage.draft.text, "");
   c.owner.commands.cancelDraft("new");
   assert.equal(c.owner.commands.begin(c.ref.entryKey, target, true), true);
 });
 
-test("UX baseline: dirty and IME drafts survive panel hiding; explicit cancel currently discards without confirmation", async (t) => {
+test("dirty and IME drafts survive hiding; cancellation requires explicit discard and preserves caret", async (t) => {
   const c = await controller(t);
   c.owner.commands.begin(c.ref.entryKey, target, true);
   c.owner.commands.update("new", { composing: true, selectionStart: 0, selectionEnd: 0 });
   c.owner.commands.open(false);
   assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target), /Save or cancel/);
+  c.owner.commands.cancelDraft("new");
+  assert.equal(c.owner.getSnapshot().draftCancellation, null);
+  assert.ok(c.owner.getSnapshot().newMessage);
   c.owner.commands.compose();
   c.owner.commands.update("new", { composing: false, text: "Keep this wording", selectionStart: 2, selectionEnd: 7 });
   const before = structuredClone(c.owner.getSnapshot().newMessage);
@@ -62,6 +65,11 @@ test("UX baseline: dirty and IME drafts survive panel hiding; explicit cancel cu
   assert.deepEqual(c.owner.getSnapshot().newMessage, before);
   assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target), /Save or cancel/);
   c.owner.commands.cancelDraft("new");
+  assert.equal(c.owner.getSnapshot().draftCancellation, "new");
+  c.owner.commands.keepEditing();
+  assert.deepEqual(c.owner.getSnapshot().newMessage, before);
+  c.owner.commands.cancelDraft("new");
+  c.owner.commands.discardDraft();
   assert.equal(c.owner.getSnapshot().newMessage, null);
   assert.equal(c.owner.getSnapshot().confirmation, null);
 });
@@ -128,6 +136,75 @@ async function draft(c, body, intent = "discuss") {
   await c.owner.commands.saveDraft("new");
   return c.owner.getSnapshot().threads[0].thread.threadId;
 }
+
+test("reply and saved-edit cancellation compares text and independent permission against the saved baseline", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Saved baseline", "request-change");
+  const message = c.owner.getSnapshot().threads[0].latestExchange.reviewer;
+  c.owner.commands.reply(id);
+  c.owner.commands.update(id, { text: " \n ", intent: "request-change" });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().threads[0].draft, null);
+  assert.equal(c.owner.getSnapshot().draftCancellation, null);
+  c.owner.commands.edit(message);
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().threads[0].draft, null);
+  c.owner.commands.edit(message);
+  c.owner.commands.update(id, { intent: "discuss", selectionStart: 2, selectionEnd: 5 });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().draftCancellation, id);
+  assert.throws(() => c.owner.commands.edit(message), /Save or cancel/);
+  c.owner.commands.keepEditing();
+  assert.deepEqual(c.owner.getSnapshot().threads[0].draft, {
+    text: message.body, intent: "discuss", selectionStart: 2, selectionEnd: 5, composing: false,
+    messageId: message.messageId, messageVersion: message.version,
+  });
+  c.owner.commands.update(id, { intent: message.intent });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().threads[0].draft, null);
+  c.owner.commands.edit(message);
+  c.owner.commands.update(id, { text: "" });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().draftCancellation, id);
+  c.owner.commands.discardDraft();
+  assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.body, "Saved baseline");
+  assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.intent, "request-change");
+  assert.equal(c.calls.filter(body => body.operation === "update-message").length, 0);
+  c.owner.commands.reply(id);
+  assert.equal(c.owner.getSnapshot().threads[0].draft.intent, "discuss");
+  c.owner.commands.update(id, { text: "A meaningful reply" });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().draftCancellation, id);
+  c.owner.commands.keepEditing();
+  assert.equal(c.owner.getSnapshot().threads[0].draft.text, "A meaningful reply");
+});
+
+test("a newer saved-message edit compares cancellation against the exact newly accepted baseline", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Original");
+  c.owner.commands.edit(c.owner.getSnapshot().threads[0].latestExchange.reviewer);
+  c.owner.commands.update(id, { text: "Accepted edit", intent: "request-change" });
+  let started, release;
+  const reached = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  c.intercept(async (body, response) => {
+    if (body.operation === "update-message") { started(); await gate; }
+    return response;
+  });
+  const saving = c.owner.commands.saveDraft(id);
+  await reached;
+  c.owner.commands.update(id, { text: "Newer text", selectionStart: 3, selectionEnd: 7 });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().draftCancellation, null);
+  release(); await saving;
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().draftCancellation, id);
+  c.owner.commands.keepEditing();
+  c.owner.commands.update(id, { text: "Accepted edit" });
+  c.owner.commands.cancelDraft(id);
+  assert.equal(c.owner.getSnapshot().threads[0].draft, null);
+  assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.body, "Accepted edit");
+});
 
 test("new intent is discuss; shared drafts survive collapse, filters and Focus; Save is not Send", async (t) => {
   const c = await controller(t);
@@ -475,6 +552,7 @@ test("Resolve pending guards and stale mutations retain the thread and local dra
   c.owner.commands.reply(id); c.owner.commands.update(id, { text: "Local only" });
   assert.throws(() => c.owner.commands.confirm("resolve", id), /Save or cancel/);
   c.owner.commands.cancelDraft(id);
+  c.owner.commands.discardDraft();
   c.owner.commands.confirm("resolve", id);
   await assert.rejects(c.owner.commands.confirmAction(), /Pending or outstanding/);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");

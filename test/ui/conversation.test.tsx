@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createConversationController } from "../../src/conversation-controller";
 import { createControllerStore } from "../../src/controller-store";
 import type { ConversationShell } from "../../src/conversation-shell";
@@ -61,7 +61,7 @@ it("short reply composition groups the same independent overall note without los
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(document.getElementById("draft-note")).toBe(note);
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(reply);
-  expect(screen.getByRole("button", { name: "Save reply" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.click(toggle);
   expect(screen.getByRole("textbox", { name: "Overall note" })).toBe(note);
   expect(note).toHaveValue("Retained overall note");
@@ -95,19 +95,21 @@ it("new composition uses one editor and unchecked permission across contextual/F
   expect(permission).toHaveAttribute("data-slot", "checkbox"); expect(permission).not.toBeChecked();
   fireEvent.change(editor, { target: { value: "Exact draft", selectionStart: 1, selectionEnd: 4 } });
   fireEvent.compositionStart(editor);
-  fireEvent.click(screen.getByRole("button", { name: "Open in Feedback" }));
+  fireEvent.click(screen.getByRole("button", { name: "Feedback" }));
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save message" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   expect(screen.getByRole("complementary", { name: "Feedback" })).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Beside selection" }));
+  act(() => owner.commands.compose());
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
   expect(owner.getSnapshot().newMessage?.draft.selectionStart).toBe(1);
   fireEvent.compositionEnd(editor);
   fireEvent.click(screen.getByRole("button", { name: "Close comment" }));
-  expect(editor).toBeInTheDocument(); expect(editor).not.toBeVisible();
-  act(() => owner.commands.compose());
+  expect(editor).toBeInTheDocument();
+  expect(screen.getByRole("alertdialog")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
   fireEvent.keyDown(editor, { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
   expect(editor).not.toBeInTheDocument();
   shell.dispose();
 });
@@ -145,7 +147,7 @@ it("only new-composer host or inventory-size changes reveal clipped input withou
   height = 80; act(resized);
   expect(inventory.scrollTop).toBe(200);
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save message" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   expect(theme).toHaveFocus();
   shell.dispose();
 });
@@ -157,7 +159,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   fireEvent.compositionStart(editor);
   fireEvent.click(screen.getByRole("button", { name: "Focus" }));
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save reply" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
   fireEvent.click(screen.getByRole("button", { name: /Paragraph/, expanded: true }));
   expect(editor).toBeInTheDocument(); expect(editor).not.toBeVisible();
@@ -200,7 +202,7 @@ it("new replies default to Discussion and existing saved messages have no permis
   expect(boxes).toHaveLength(2); expect(boxes[0]).not.toBeChecked();
   fireEvent.click(boxes[0]);
   expect(owner.getSnapshot().threads[0].draft?.intent).toBe("request-change");
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close reply" }));
   fireEvent.click(screen.getByRole("button", { name: "Reply" }));
   expect(owner.getSnapshot().threads[0].draft?.intent).toBe("discuss");
   shell.dispose();
@@ -260,7 +262,7 @@ it("adjacent, Focus and Feedback keep the same composing editor and closing neve
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   fireEvent.click(screen.getByRole("button", { name: "Focus" }));
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save reply" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
   expect(editor).toBeVisible();
   expect(owner.getSnapshot().filters.open).toBe(true);
@@ -307,6 +309,9 @@ it.each(["new", "reply", "edit"] as const)("%s composer restores Enter, Shift+En
   expect(fireEvent.keyDown(editor, { key: "Enter" })).toBe(false);
   expect(save).toHaveBeenCalledExactlyOnceWith(mode === "new" ? "new" : "thread");
   expect(fireEvent.keyDown(editor, { key: "Escape" })).toBe(false);
+  expect(editor).toBeInTheDocument();
+  expect(screen.getByRole("alertdialog")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
   expect(editor).not.toBeInTheDocument();
   shell.dispose();
 });
@@ -321,6 +326,34 @@ it("overall note keys remain multiline and never save, send or cancel the note",
   }
   expect(note).toHaveValue("Submission only\nSecond line");
   expect(save).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
+  shell.dispose();
+});
+
+it.each(["new", "reply", "edit"] as const)("%s has one Save row, protective X, and Keep editing restores the caret", async (mode) => {
+  const { owner, shell } = await fixture();
+  act(() => {
+    if (mode === "new") owner.commands.begin("page", { kind: "element", anchor: { selector: "h2", label: "Heading" } });
+    else if (mode === "reply") owner.commands.reply("thread");
+    else owner.commands.edit({ ...owner.getSnapshot().threads[0].latestExchange!.reviewer, submissionId: null });
+  });
+  const id = mode === "new" ? "new" : "thread";
+  const editor = document.getElementById(`draft-${id}`) as HTMLTextAreaElement;
+  fireEvent.change(editor, { target: { value: "Keep this text", selectionStart: 2, selectionEnd: 8 } });
+  const save = screen.getByRole("button", { name: "Save" });
+  expect(save).toHaveAccessibleDescription(/Save does not send/);
+  expect(save.parentElement).toHaveClass("conversation-composer-actions");
+  expect(save.parentElement?.querySelector('[data-slot="checkbox"]')).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: mode === "new" ? "Close comment" : `Close ${mode}` }));
+  expect(screen.getByRole("button", { name: "Keep editing" })).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  await waitFor(() => expect(editor).toHaveFocus());
+  expect([editor.selectionStart, editor.selectionEnd]).toEqual([2, 8]);
+  fireEvent.compositionStart(editor);
+  expect(screen.getByRole("button", { name: mode === "new" ? "Close comment" : `Close ${mode}` })).toBeDisabled();
+  fireEvent.keyDown(editor, { key: "Escape" });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  fireEvent.compositionEnd(editor);
   shell.dispose();
 });
 

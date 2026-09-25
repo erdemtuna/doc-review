@@ -47,6 +47,7 @@ let resizing = null; // live drag state while the grip is held
 let suppressUntil = 0; // ignore the mouseup/click that ends a resize drag
 let saveTimer = null;
 let composeOpen = false;
+let retiredComposeGeneration = 0;
 let commentOpenRequestGeneration = null;
 let activeCommentId = null;
 let modeMenuOpen = false;
@@ -912,6 +913,7 @@ function cssPath(el) {
 
 /** The heading a block sits under, used to name edits in arbitrary HTML. */
 function precedingHeading(el) {
+  if (/^h[1-6]$/i.test(el.tagName) && el.textContent.trim()) return el.textContent.trim();
   let node = el;
   while (node && node !== document.body) {
     let sib = node.previousElementSibling;
@@ -1307,9 +1309,11 @@ function restoreTargetFocus(target) {
   if (!target) return;
   if (target.kind === "element" && target.element?.isConnected) {
     const element = target.element;
+    const focused = document.activeElement;
+    if (document.hasFocus() && focused !== document.body && focused !== element && !isOurs(focused)) return;
     element.focus({ preventScroll: true });
     requestAnimationFrame(() => {
-      if (element.isConnected && document.activeElement !== element) {
+      if (element.isConnected && document.activeElement === document.body) {
         element.focus({ preventScroll: true });
       }
     });
@@ -1425,6 +1429,7 @@ function openPendingCompose() {
 function acceptCommentOpen(msg) {
   hoverIntent?.cancel();
   const requested = Number(msg.requestedGeneration);
+  if (requested <= retiredComposeGeneration) return;
   if (commentOpenRequestGeneration === requested) commentOpenRequestGeneration = null;
   if (!msg.accepted) {
     const authoritative = Number(msg.targetGeneration);
@@ -2835,6 +2840,8 @@ function boot() {
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
         {
           const discardThrough = Number(msg.discardThroughGeneration) || Number(msg.targetGeneration) || 0;
+          retiredComposeGeneration = Math.max(retiredComposeGeneration, discardThrough);
+          if (commentOpenRequestGeneration <= discardThrough) commentOpenRequestGeneration = null;
           const newerRetarget = retarget && retarget.generation > discardThrough ? retarget : null;
           if (msg.restoreFocus && !newerRetarget) restoreTargetFocus(pending);
           clearPending({ keepRetarget: !!newerRetarget || !!msg.preserveRetarget });

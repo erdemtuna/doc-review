@@ -44,6 +44,8 @@ export function createConversationController(options: Options) {
   let historyCursor: string | null = null, historyDepth = 50;
   let historyLoading: Promise<void> | null = null;
   const contexts = new Map<string, Context>(), drafts = new Map<string, ConversationDraft>();
+  const editBaselines = new Map<string, { text: string; intent: ConversationDraft["intent"] }>();
+  let draftCancellation: string | null = null;
   const savingDrafts = new Set<string>();
   const historyOpened = new Set<string>();
   const submissions = new Map<string, Submission>(), collapsed = new Set<string>(), attention = new Set<string>();
@@ -109,7 +111,7 @@ export function createConversationController(options: Options) {
     })),
     submissions: [...submissions.entries()].map(([id, value]) => ({ id, value })),
     excluded: [...excluded], note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected,
-    confirmation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
+    confirmation, draftCancellation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
     busy: busy || confirming || dispatching, loading, savingDraftIds: [...savingDrafts], sendBlocked: sendBlocked(), draftCount: draftCount(), attentionCount: attention.size,
     selection: selectionSummary(),
     unsavedMessageDraftCount: [...drafts.values(), ...(newMessage ? [newMessage.draft] : [])].filter((draft) => draft.text.length > 0).length,
@@ -208,6 +210,23 @@ export function createConversationController(options: Options) {
   }
   const draftEqual = (a: ConversationDraft, b: ConversationDraft) =>
     a.text === b.text && a.intent === b.intent && a.messageId === b.messageId && !a.composing;
+  const getDraft = (id: string) => id === "new" ? newMessage?.draft : drafts.get(id);
+  function dirtyDraft(id: string, draft: ConversationDraft) {
+    const baseline = editBaselines.get(id);
+    return draft.messageId ? !baseline || draft.text !== baseline.text || draft.intent !== baseline.intent : !!draft.text.trim();
+  }
+  function canCancelDraft(id: string) {
+    return writable() && !busy && !confirming && !dispatching && !savingDrafts.has(id) && !getDraft(id)?.composing;
+  }
+  function discardDraft(id: string) {
+    if (id === "new") {
+      newMessage = null;
+      if (host === "compose") open = false;
+    } else drafts.delete(id);
+    editBaselines.delete(id);
+    draftCancellation = null;
+    publish();
+  }
   async function accept(pending: Pending) {
     const result = await post(pending.body, acceptedMutationSchema);
     if (result.receipt.reviewId !== reference.reviewId || result.receipt.entryKey !== reference.entryKey ||
@@ -261,8 +280,10 @@ export function createConversationController(options: Options) {
         const current = id === "new" ? newMessage?.draft : drafts.get(id);
         if (current === draft && draftEqual(draft, saved)) {
           if (id === "new") newMessage = null; else drafts.delete(id);
+          editBaselines.delete(id);
         } else if (current === draft && saved.messageVersion !== null) {
           draft.messageVersion = saved.messageVersion + 1;
+          editBaselines.set(id, { text: saved.text, intent: saved.intent });
         }
       }, undefined, id);
     } finally {
@@ -366,7 +387,7 @@ export function createConversationController(options: Options) {
       compose() { if (newMessage) { open = true; focusId = null; host = "compose"; publish(); } },
       begin(pageKey: string, target: ConversationTarget, contextual = false) {
         if (!writable()) return false;
-        if (newMessage && (newMessage.draft.text || newMessage.draft.composing || savingDrafts.has("new"))) {
+        if (newMessage && (dirtyDraft("new", newMessage.draft) || newMessage.draft.composing || savingDrafts.has("new") || draftCancellation === "new")) {
           throw new Error("Save or cancel the existing new-message draft first.");
         }
         newMessage = { pageKey, target, draft: conversationDraft() }; open = true; focusId = null; host = contextual ? "compose" : "feedback"; publish();
@@ -376,7 +397,8 @@ export function createConversationController(options: Options) {
       edit(message: ReviewerMessage) {
         if (!writable() || message.submissionId !== null) return;
         const current = drafts.get(message.threadId);
-        if (current?.text) throw new Error("Save or cancel this thread's draft first.");
+        if (current && (dirtyDraft(message.threadId, current) || current.composing || savingDrafts.has(message.threadId) || draftCancellation === message.threadId)) throw new Error("Save or cancel this thread's draft first.");
+        editBaselines.set(message.threadId, { text: message.body, intent: message.intent });
         drafts.set(message.threadId, { ...conversationDraft(), text: message.body, intent: message.intent,
           selectionStart: message.body.length, selectionEnd: message.body.length, messageId: message.messageId, messageVersion: message.version });
         publish();
@@ -386,9 +408,14 @@ export function createConversationController(options: Options) {
         if (review?.state === "open" && draft) { Object.assign(draft, value); publish(); }
       },
       cancelDraft(id: string) {
-        if (review?.state !== "open" || savingDrafts.has(id)) return;
-        if (id === "new") newMessage = null; else drafts.delete(id);
-        publish();
+        const draft = getDraft(id);
+        if (!draft || !canCancelDraft(id)) return;
+        if (dirtyDraft(id, draft)) { draftCancellation = id; publish(); }
+        else discardDraft(id);
+      },
+      keepEditing() { draftCancellation = null; publish(); },
+      discardDraft() {
+        if (draftCancellation !== null && canCancelDraft(draftCancellation)) discardDraft(draftCancellation);
       },
       saveDraft, send, refresh,
       async earlier(id: string) {

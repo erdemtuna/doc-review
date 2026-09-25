@@ -515,7 +515,7 @@ test("long mutation errors occupy an on-demand recovery row below real pointer c
   await intercept(page, "create-thread", (route) => failure(route, "Source and review evidence could not be verified. ".repeat(8)));
   await feedback(page); await page.getByRole("button", { name: "New message", exact: true }).click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Keep this draft");
-  await page.getByRole("button", { name: "Save message", exact: true }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("could not be verified");
   await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator(".conversation-global-status").getByRole("alert")).toBeVisible();

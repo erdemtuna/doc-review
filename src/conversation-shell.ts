@@ -145,8 +145,8 @@ export function createConversationShell() {
     }
     const current = owner.getSnapshot();
     if (hadNewMessage && !current.newMessage && pendingTarget !== null) {
-      retiredTarget = Math.max(retiredTarget, pendingTarget);
-      frame.send({ type: "eh:cancel", targetGeneration: pendingTarget, restoreFocus: true });
+      retiredTarget = Math.max(retiredTarget, targetHighWater, pendingTarget);
+      frame.send({ type: "eh:cancel", targetGeneration: pendingTarget, discardThroughGeneration: retiredTarget, restoreFocus: true });
       pendingTarget = null;
       newTarget = null; composer = null; composerNotice = "";
       if (current.host === "compose") owner.commands.open(false);

@@ -57,17 +57,18 @@
   .conversation-thread .conversation-actions [data-reply] { margin-left: auto; }
   .conversation-response { border-left: 2px solid var(--border); margin-top: 12px; padding-left: 10px; }
   .conversation-composer { padding: 8px; min-width: 0; display: grid; gap: 6px; background: var(--background); }
+  .conversation-composer-heading, .conversation-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .conversation-composer-heading > label { font-weight: 600; }
+  .conversation-composer > label:first-child { font-weight: 600; }
+  .conversation-composer-actions > button { flex-shrink: 0; }
   .conversation-new-target { margin: 8px; padding-left: 8px; border-left: 2px solid var(--border); max-height: 6em; overflow: auto; overflow-wrap: anywhere; }
   .conversation-panel.is-composing { border: 1px solid var(--border); border-radius: var(--radius); padding: 0; box-shadow: var(--shadow-lg); overflow: visible; }
   .is-composing .conversation-inventory { flex: none; min-height: 0; padding: 0; overflow: visible; scrollbar-gutter: auto; }
   .conversation-new-message { padding: 12px; }
   .conversation-new-message .compose-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-  .conversation-new-message .compose-head > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .conversation-new-message .quote { margin: 0 0 10px; font-size: 12px; color: var(--muted-foreground); }
   .conversation-new-message .conversation-composer { padding: 0; background: transparent; }
-  .conversation-new-message .compose-help { margin: 8px 0 0; font-size: 12px; color: var(--muted-foreground); }
   .conversation-composer textarea { min-height: 56px; height: 72px; max-height: 24dvh; resize: vertical; font-size: 13px; }
-  .conversation-composer > label:first-child { font-weight: 600; }
   .conversation-intent { display: flex; align-items: center; gap: 6px; font-size: 12px; }
   .conversation-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
   .conversation-actions label, .conversation-edits label { display: inline-flex; align-items: center; gap: 6px; }

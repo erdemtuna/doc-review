@@ -28,7 +28,7 @@ async function message(page, text, checked = false) {
   await page.getByRole("button", { name: "New message", exact: true }).click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill(text);
   if (checked) await page.locator('[data-composer="new"]').getByLabel("Request a change").check();
-  await page.locator('[data-composer="new"]').getByRole("button", { name: "Save message" }).click();
+  await page.locator('[data-composer="new"]').getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator('[data-composer="new"]')).toHaveCount(0);
 }
 async function pasteImage(paragraph) {
@@ -71,7 +71,7 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await expect(draft).toHaveValue("An unsaved follow-up");
   await (await threadAction(page, thread, "Resolve")).click();
   await expect(page.getByRole("alert").getByText(/Save or cancel/)).toBeVisible();
-  await thread.getByRole("button", { name: "Save reply" }).click();
+  await thread.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("An unsaved follow-up", { exact: true })).toBeVisible();
   const other = await context.newPage();
   await other.goto(page.url()); await waitForSdk(other);
@@ -96,6 +96,7 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await thread.getByRole("button", { name: "Edit message", exact: true }).click();
   const edit = page.getByRole("textbox", { name: "Edit message", exact: true });
   await edit.fill("Cancelled correction"); await edit.press("Escape");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(edit).toHaveCount(0);
   await expect(thread.getByText("First line\nSecond line", { exact: true })).toBeVisible();
   await thread.getByRole("button", { name: "Edit message", exact: true }).click();
@@ -115,18 +116,20 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await thread.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = thread.getByRole("textbox", { name: "Reply", exact: true });
   await reply.fill("One saved reply");
-  await thread.getByRole("button", { name: "Save reply" }).evaluate((button) => { button.click(); button.click(); });
+  await thread.getByRole("button", { name: "Save", exact: true }).evaluate((button) => { button.click(); button.click(); });
   await expect.poll(() => replies.length).toBe(1);
-  await expect(thread.getByRole("button", { name: "Save reply" })).toBeDisabled();
+  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await expect(reply).toBeEditable();
   await reply.fill("Newer unsent typing");
   await reply.evaluate((element) => element.setSelectionRange(3, 8));
   release();
-  await expect(thread.getByRole("button", { name: "Save reply" })).toBeEnabled();
+  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
   await expect(thread.getByText("One saved reply", { exact: true })).toHaveCount(1);
   await expect(reply).toHaveValue("Newer unsent typing");
   expect(await reply.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([3, 8]);
-  await reply.press("Escape"); await expect(reply).toHaveCount(0);
+  await reply.press("Escape");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(reply).toHaveCount(0);
   await thread.getByRole("button", { name: "Reply", exact: true }).click();
   await reply.fill("Keyboard saved reply"); await reply.press("Enter");
   await expect(reply).toHaveCount(0);
@@ -139,7 +142,9 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await newMessage.press("Enter"); await newMessage.press("Escape");
   await expect(newMessage).toBeVisible();
   await newMessage.evaluate((element) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
-  await newMessage.press("Escape"); await expect(newMessage).toHaveCount(0);
+  await newMessage.press("Escape");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(newMessage).toHaveCount(0);
   const note = page.getByRole("textbox", { name: "Overall note", exact: true });
   await note.fill("Overall"); await note.press("Enter"); await page.keyboard.insertText("More");
   await note.press("Escape"); await expect(note).toHaveValue("Overall\nMore");
@@ -255,7 +260,7 @@ test("checked intent editing and ended late results retain read-only observer", 
   await page.getByRole("button", { name: "Edit message", exact: true }).click();
   await expect(page.locator(".conversation-thread").getByLabel("Request a change")).toBeChecked();
   await page.locator(".conversation-thread").getByLabel("Request a change").uncheck();
-  await page.getByRole("button", { name: "Save message", exact: true }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received")).toBeVisible();
   await page.locator("#endReview").click();
@@ -322,16 +327,16 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await input.fill("Composition survives");
   await input.evaluate((element) => { element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "x" })); });
   await thread.getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(thread.getByRole("button", { name: "Save reply" })).toBeDisabled();
+  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await input.evaluate((element) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
-  await expect(thread.getByRole("button", { name: "Save reply" })).toBeEnabled();
+  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const [width, height] of [[320, 400], [390, 400], [320, 480], [390, 520], [768, 560], [1440, 800]]) {
       await page.setViewportSize({ width, height });
       await expect(page.getByText("Reviewing", { exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      for (const button of [thread.getByRole("button", { name: "Save reply" }), thread.getByRole("button", { name: "Back to Feedback" })]) {
+      for (const button of [thread.getByRole("button", { name: "Save", exact: true }), thread.getByRole("button", { name: "Back to Feedback" })]) {
         const box = await button.boundingBox();
         expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
       }
@@ -611,7 +616,7 @@ test("source results expose real comparisons and reply-only results never replac
   const before = await page.locator("#frame").getAttribute("src");
   await page.locator(".conversation-thread").getByRole("button", { name: "Reply", exact: true }).click();
   await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Explain without more changes");
-  await page.getByRole("button", { name: "Save reply" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
   const discussion = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(discussion, { resultNote: "Explanation only, no new version." }));
@@ -634,7 +639,7 @@ test("typed selection projection shares target metadata only and keeps drafts th
   });
   await frame.locator("#commentAction").click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Private reviewer body is not frame metadata");
-  await page.locator('[data-composer="new"]').getByRole("button", { name: "Save message" }).click();
+  await page.locator('[data-composer="new"]').getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator(".conversation-thread")).toHaveCount(1);
   const anchors = await frame.locator("body").evaluate(() => window.anchorMessages);
   expect(anchors.length).toBeGreaterThan(0);

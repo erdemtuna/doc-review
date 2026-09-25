@@ -89,7 +89,7 @@ test("textarea and selection survive unrelated updates, a rejected edit, and exp
   await input.press("Enter");
   await expect(page.getByRole("alert")).toContainText("Try editing again");
   await expect(input).toHaveValue("Keep the edited draft"); await expect(input).toBeFocused();
-  await expect(button(card, "Save message")).toBeEnabled();
+  await expect(button(card, "Save")).toBeEnabled();
   await input.press("Enter");
   await expect(input).toHaveCount(0);
   await expect(card).toContainText("Keep the edited draft");
@@ -159,14 +159,14 @@ test("message editing validates text, respects composition and coalesces Save wh
   const card = page.locator(".conversation-thread");
   await button(card, "Edit message").click();
   const input = card.getByRole("textbox", { name: "Edit message", exact: true });
-  await input.fill("   "); await expect(button(card, "Save message")).toBeDisabled();
+  await input.fill("   "); await expect(button(card, "Save")).toBeDisabled();
   let updates = 0, release;
   const gate = new Promise((resolve) => { release = resolve; });
   await intercept(page, "update-message", async (route) => { updates++; await gate; await route.continue(); });
   try {
     await input.fill("Composition draft"); await input.dispatchEvent("compositionstart");
     await input.dispatchEvent("keydown", { key: "Enter", isComposing: true });
-    await expect(input).toHaveValue("Composition draft"); await expect(button(card, "Save message")).toBeDisabled();
+    await expect(input).toHaveValue("Composition draft"); await expect(button(card, "Save")).toBeDisabled();
     expect(updates).toBe(0);
     await input.dispatchEvent("compositionend");
     await input.evaluate((element) => {
@@ -175,10 +175,10 @@ test("message editing validates text, respects composition and coalesces Save wh
     });
     await expect.poll(() => updates).toBe(1);
     await expect(input).toBeEditable();
-    await expect(button(card, "Cancel")).toBeDisabled();
+    await expect(button(card, "Close edit")).toBeDisabled();
     await input.fill("Newer unsaved correction");
   } finally { release(); }
-  await expect(button(card, "Save message")).toBeEnabled();
+  await expect(button(card, "Save")).toBeEnabled();
   await expect(input).toHaveValue("Newer unsaved correction");
   expect((await listed(review, ref, "threads")).items[0].latestExchange.reviewer.body).toBe("Composition draft");
   expect(updates).toBe(1);

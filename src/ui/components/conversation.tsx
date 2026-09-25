@@ -50,19 +50,50 @@ function rememberExchange(owner: ConversationController, id: string, transcript:
 }
 function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationController; id: string; draft: Readonly<ConversationDraft>; disabled: boolean; saving: boolean }) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const state = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
+  const cancelling = state.draftCancellation === id;
+  const selection = useRef({ start: 0, end: 0 });
   useLayoutEffect(() => {
     if (id !== "note" && !disabled) {
       input.current?.focus({ preventScroll: true });
       input.current?.setSelectionRange(draft.selectionStart, draft.selectionEnd);
     }
   }, []); // The editor stays mounted across collapse, filters, Feedback and Focus.
+  useLayoutEffect(() => {
+    if (id === "note" || id === "new" || state.host !== "feedback" || !state.open) return;
+    const field = input.current, inventory = field?.closest<HTMLElement>(".conversation-inventory");
+    if (!field || !inventory) return;
+    const preserveReading = !!owner.readingAnchor(id);
+    let width = preserveReading ? inventory.clientWidth : -1, height = preserveReading ? inventory.clientHeight : -1;
+    const observer = new ResizeObserver(() => {
+      if (!inventory.clientHeight || !inventory.clientWidth ||
+          (width === inventory.clientWidth && height === inventory.clientHeight)) return;
+      width = inventory.clientWidth; height = inventory.clientHeight;
+      const bounds = inventory.getBoundingClientRect(), editor = field.getBoundingClientRect();
+      if (!editor.height || editor.top < bounds.top || editor.top >= bounds.bottom) return;
+      const firstLine = Math.min(36, editor.height);
+      if (editor.top + firstLine > bounds.bottom) inventory.scrollTop += editor.top + firstLine - bounds.bottom;
+    });
+    observer.observe(inventory);
+    return () => observer.disconnect();
+  }, [id, state.host, state.open]);
   const label = id === "note" ? "Overall note" : id === "new" ? "New message" : draft.messageId ? "Edit message" : "Reply";
-  return <div className="conversation-composer" data-composer={id}>
-    <label htmlFor={`draft-${id}`}>{label}</label>
+  return <div className="conversation-composer" data-composer={id} onKeyDown={(event) => {
+    if (id === "note" || event.key !== "Escape" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || draft.composing) return;
+    event.stopPropagation(); event.preventDefault();
+    owner.commands.cancelDraft(id);
+  }}>
+    {id === "note" ? <label htmlFor={`draft-${id}`}>{label}</label> : <div className={id === "new" ? "sr-only" : "conversation-composer-heading"}>
+      <label htmlFor={`draft-${id}`}>{label}</label>
+      {id !== "new" && !disabled && <Button variant="ghost" size="icon-xs"
+        aria-label={`Close ${draft.messageId ? "edit" : "reply"}`} disabled={saving || draft.composing}
+        onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
+    </div>}
     <Textarea ref={input} className="min-h-9" id={`draft-${id}`} rows={id === "note" ? 2 : undefined}
       placeholder={id === "note" ? "Overall note…" : undefined} value={draft.text} readOnly={disabled}
       onChange={(event) => owner.commands.update(id, { text: event.target.value, selectionStart: event.target.selectionStart, selectionEnd: event.target.selectionEnd })}
       onSelect={(event) => owner.commands.update(id, { selectionStart: event.currentTarget.selectionStart, selectionEnd: event.currentTarget.selectionEnd })}
+      onBlur={(event) => owner.commands.update(id, { selectionStart: event.currentTarget.selectionStart, selectionEnd: event.currentTarget.selectionEnd })}
       onCompositionStart={() => owner.commands.update(id, { composing: true })}
       onCompositionEnd={(event) => owner.commands.update(id, { composing: false, text: event.currentTarget.value })}
       onKeyDown={(event) => {
@@ -76,12 +107,30 @@ function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationCont
         else act(owner, () => owner.commands.saveDraft(id));
       }}
     />
-    {!disabled && <label className="conversation-intent"><Checkbox checked={draft.intent === "request-change"}
-      onCheckedChange={(checked) => owner.commands.update(id, { intent: checked === true ? "request-change" : "discuss" })} />Request a change</label>}
-    {id !== "note" && !disabled && <div className="conversation-actions">
-      <Button disabled={saving || !draft.text.trim() || draft.composing} onClick={() => act(owner, () => owner.commands.saveDraft(id))}>{draft.messageId ? "Save message" : id === "new" ? "Save message" : "Save reply"}</Button>
-      <Button disabled={saving} variant="ghost" onClick={() => owner.commands.cancelDraft(id)}>Cancel</Button>
+    {!disabled && <div className="conversation-composer-actions">
+      <label className="conversation-intent"><Checkbox checked={draft.intent === "request-change"}
+        onCheckedChange={(checked) => owner.commands.update(id, { intent: checked === true ? "request-change" : "discuss" })} />Request a change</label>
+      {id !== "note" && <TooltipProvider><Tooltip><TooltipTrigger asChild>
+        <Button aria-describedby={`save-help-${id}`} disabled={saving || !draft.text.trim() || draft.composing}
+          onClick={() => act(owner, () => owner.commands.saveDraft(id))}>Save</Button>
+      </TooltipTrigger><TooltipContent>Enter to save · Shift+Enter for a new line. Save does not send.</TooltipContent></Tooltip></TooltipProvider>}
+      {id !== "note" && <span className="sr-only" id={`save-help-${id}`}>Enter to save. Shift+Enter for a new line. Save does not send; choose Send in Feedback.</span>}
     </div>}
+    <AlertDialog open={cancelling} onOpenChange={(open) => { if (!open) owner.commands.keepEditing(); }}>
+      <AlertDialogContent onOpenAutoFocus={() => {
+        selection.current = { start: input.current?.selectionStart ?? draft.selectionStart, end: input.current?.selectionEnd ?? draft.selectionEnd };
+      }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          input.current?.focus({ preventScroll: true });
+          input.current?.setSelectionRange(selection.current.start, selection.current.end);
+        }}>
+        <AlertDialogHeader><AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+          <AlertDialogDescription>Your unsaved text and permission changes will be discarded. Saved feedback is not removed.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel onClick={owner.commands.keepEditing}>Keep editing</AlertDialogCancel>
+          <Button disabled={saving || draft.composing} variant="destructive" onClick={owner.commands.discardDraft}>Discard</Button></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>;
 }
 function NewMessage({ shell, snapshot, chrome }: {
@@ -129,25 +178,21 @@ function NewMessage({ shell, snapshot, chrome }: {
   const edge = chrome.composerRelation === "above" || chrome.composerRelation === "below";
   return <div ref={element} className="conversation-new-message" hidden={!!snapshot.focusId}>
     <header className="compose-head">
-      <div><Badge variant="secondary">{item.target.kind === "element" ? "Element" : "Selection"}</Badge><strong>Add comment</strong></div>
+      <strong>Add comment</strong>
       <Button variant="ghost" size="icon" aria-label="Close comment" title="Close comment"
-        onClick={() => shell.owner.commands.open(false)}><Icon name="x" /></Button>
+        disabled={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes("new") || item.draft.composing || snapshot.review?.state !== "open"}
+        onClick={() => shell.owner.commands.cancelDraft("new")}><Icon name="x" /></Button>
     </header>
     {chrome.composerNotice && <p className="conversation-notice" role="status">{chrome.composerNotice}</p>}
-    <div className="contextual-direction" hidden={!edge && !chrome.canComposeBeside && !contextual}>
+    <div className="contextual-direction" hidden={!edge}>
       {edge && <span>{item.target.kind === "selection" ? "Selection" : "Element"} is {chrome.composerRelation}</span>}
       {edge && <Button size="xs" variant="ghost" onClick={shell.commands.revealSelection}>Back to selection</Button>}
-      <Button size="xs" variant="ghost" disabled={!contextual && !chrome.canComposeBeside}
-        onClick={contextual ? () => shell.owner.commands.focus(null) : shell.commands.composeBeside}>
-        {contextual ? "Open in Feedback" : "Beside selection"}
-      </Button>
     </div>
     <blockquote className="conversation-new-target quote" data-new-target-kind={item.target.kind}>
       {item.target.kind === "selection" ? item.target.anchor.quote : item.target.anchor.label ?? item.target.anchor.selector}
     </blockquote>
     <Draft owner={shell.owner} id="new" draft={item.draft} disabled={snapshot.review?.state !== "open"}
       saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes("new")} />
-    <p className="compose-help">Enter to save · Shift+Enter for a new line. Save does not send.</p>
   </div>;
 }
 function ThreadCard({ owner, item, snapshot, shell, chrome }: {
@@ -427,8 +472,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     className={`conversation-panel review-ui${snapshot.focusId ? " has-focus" : ""}${contextual ? ` is-composing contextual-compose ${chrome.composer?.kind ?? ""}` : ""}${snapshot.host === "adjacent" && chrome.adjacent ? " is-adjacent" : ""}`}
     style={{ ...(contextual && composerBounds ? composerBounds : snapshot.host === "adjacent" && chrome.adjacent ? chrome.adjacent : fallbackBounds), right: "auto", bottom: "auto" }}
     hidden={!snapshot.open || chrome.comparisonOpen} inert={!snapshot.open || chrome.comparisonOpen} onKeyDown={(event) => {
-      if (event.key === "Escape" && !event.nativeEvent.isComposing && !snapshot.threads.some((item) => item.draft?.composing) &&
-          !(event.target instanceof HTMLTextAreaElement)) { event.preventDefault(); owner.commands.open(false); }
+      if (event.key === "Escape" && !event.nativeEvent.isComposing && !snapshot.newMessage?.draft.composing && !snapshot.threads.some((item) => item.draft?.composing) &&
+          !(event.target instanceof HTMLTextAreaElement)) {
+        event.preventDefault();
+        if (contextual) owner.commands.cancelDraft("new"); else owner.commands.open(false);
+      }
     }}>
     <header className="conversation-panel-header" hidden={!!snapshot.focusId || contextual}><h2>Feedback</h2>
       <Button variant="ghost" size="icon" aria-label="Close" title="Close feedback" onClick={() => owner.commands.open(false)}><Icon name="x" /></Button></header>

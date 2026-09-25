@@ -48,11 +48,14 @@ or switch to **Edit** to change content. Comments are available in both modes.
 
 Select text, or hover or focus an element, then use its nearby comment icon.
 On desktop, a new comment opens beside the selection or element without resizing
-the document. **Open in Feedback** and **Beside selection** transfer the same
-unsaved editor. A narrow viewport, unavailable geometry or insufficient clear
+the document. The toolbar's **Feedback** opens the same unsaved editor in the
+panel. A narrow viewport, unavailable geometry or insufficient clear
 space uses Feedback instead. Offscreen composition is pinned to the target's
-clipping edge and offers **Back to selection**. Close only hides this draft;
-Save or explicitly Cancel before switching to a different target.
+clipping edge and offers **Back to selection**. An editor's X or Escape closes
+empty/unchanged work immediately; meaningful unsaved text or a saved message's
+changed permission prompts **Keep editing / Discard**. Keep editing restores
+your caret. Save or discard dirty work before switching its target.
+Feedback's outer X only hides the panel and preserves drafts.
 
 For saved conversations, **Show target** returns to the document; **Focus** gives one conversation a larger transcript with its
 header and composer reachable. Activate an existing highlight with a click,
@@ -74,9 +77,9 @@ reattachment control. A recovered target does not reopen a card automatically.
 | Action | Control |
 | --- | --- |
 | Comment on the current selection | `Ctrl+Alt+M`, or `Cmd+Option+M` on macOS |
-| Save a pending message, reply or edit | `Enter`, **Save message** or **Save reply**; this does not dispatch |
+| Save a pending message, reply or edit | `Enter` or **Save**; this does not dispatch |
 | Add a line inside a message | `Shift+Enter` |
-| Cancel a local draft | `Escape` or **Cancel** |
+| Cancel a local draft | `Escape` or the editor's X; confirm **Discard** for unsaved changes |
 | Find a thread's target | **Show target** |
 | Return to an offscreen target | **Back to target** |
 | Dismiss the conversation host | **Close conversation**, or `Escape` from its controls (not a composing editor) |
@@ -85,13 +88,13 @@ reattachment control. A recovered target does not reopen a card automatically.
 Saving queues a message. Every new message starts with **Request a change**
 unchecked. Saved messages display **Discussion** or **Change requested**;
 only unsent messages have Edit controls. Correct sent instructions with a new
-message instead of changing immutable history. Closing or collapsing only hides
-content. **Resolve** and **Reopen** in **Conversation actions** are separate shared actions; save or cancel a
+message instead of changing immutable history. Closing Feedback or collapsing a
+thread only hides content. **Resolve** and **Reopen** in **Conversation actions** are separate shared actions; save or cancel a
 local draft first. Pending/outstanding messages prevent Resolve.
 
 While Save is in flight, typing and selection remain available but another Save
-is locked through acceptance or reconciliation. Newer typing is retained.
-Active IME composition never triggers Save or Cancel. The overall note remains
+and editor cancellation are locked through acceptance or reconciliation. Newer typing is retained.
+Active IME composition never triggers Save or cancellation. The overall note remains
 multiline: Enter never sends or saves it independently.
 
 ![An anchored comment beside highlighted Field Notes copy, asking what readers can collect and how it helps them](../assets/doc-review.png)
