@@ -41,6 +41,7 @@ function occurrences(text, quote) {
 function bestHit(text, hits, quote, prefix, suffix) {
   let best = hits[0];
   let bestScore = -1;
+  let candidateCount = 0;
   for (const at of hits) {
     const before = text.slice(Math.max(0, at - prefix.length), at);
     const after = text.slice(at + quote.length, at + quote.length + suffix.length);
@@ -48,9 +49,10 @@ function bestHit(text, hits, quote, prefix, suffix) {
     if (score > bestScore) {
       bestScore = score;
       best = at;
-    }
+      candidateCount = 1;
+    } else if (score === bestScore) candidateCount++;
   }
-  return { at: best, score: bestScore };
+  return { at: best, score: bestScore, candidateCount };
 }
 
 const collapse = (s) => String(s || "").replace(/\s+/g, " ");
@@ -65,7 +67,7 @@ function collapseWithMap(text) {
       if (pendingWs === -1) pendingWs = i;
       continue;
     }
-    if (pendingWs !== -1 && flat) {
+    if (pendingWs !== -1) {
       flat += " ";
       map.push(pendingWs);
     }
@@ -73,36 +75,43 @@ function collapseWithMap(text) {
     flat += text[i];
     map.push(i);
   }
+  if (pendingWs !== -1) {
+    flat += " ";
+    map.push(pendingWs);
+  }
   return { flat, map };
 }
 
 /**
  * Locate `ctx.quote` in `text`, using prefix/suffix to disambiguate repeats.
- * Returns `{ start, end, exact }` or null when the quote is gone entirely.
+ * Returns a unique match, a missing target, or tied equally plausible candidates.
  */
-export function findQuote(text, ctx) {
+export function resolveQuote(text, ctx) {
   const quote = ctx && ctx.quote;
-  if (!quote) return null;
-
-  const hits = occurrences(text, quote);
-  if (hits.length === 1) {
-    return { start: hits[0], end: hits[0] + quote.length, exact: true };
-  }
-  if (hits.length > 1) {
-    const { at, score } = bestHit(text, hits, quote, ctx.prefix || "", ctx.suffix || "");
-    return { start: at, end: at + quote.length, exact: score > 0 };
-  }
+  if (!quote) return { state: "missing" };
 
   // Reformatting (a prettier run, an agent rewrite) reflows whitespace without
-  // changing any words. Match again on whitespace-collapsed text and map the
-  // hit back to real offsets, so those comments survive instead of orphaning.
+  // changing identity. Rank exact and reflowed candidates together so an exact
+  // duplicate cannot steal a target whose original whitespace changed.
   const { flat, map } = collapseWithMap(text);
   const flatQuote = collapse(quote).trim();
-  if (!flatQuote || !map.length) return null;
+  if (!flatQuote || !map.length) return { state: "missing" };
   const flatHits = occurrences(flat, flatQuote);
-  if (!flatHits.length) return null;
-  const { at } = bestHit(flat, flatHits, flatQuote, collapse(ctx.prefix || ""), collapse(ctx.suffix || ""));
-  return { start: map[at], end: map[at + flatQuote.length - 1] + 1, exact: false };
+  if (!flatHits.length) return { state: "missing" };
+  const prefix = collapse(`${ctx.prefix || ""}${/^\s/.test(quote) ? " " : ""}`);
+  const suffix = collapse(`${/\s$/.test(quote) ? " " : ""}${ctx.suffix || ""}`);
+  const { at, candidateCount } = bestHit(flat, flatHits, flatQuote, prefix, suffix);
+  if (candidateCount > 1) return { state: "ambiguous", candidateCount };
+  const start = map[at], end = map[at + flatQuote.length - 1] + 1;
+  const exact = occurrences(text, quote).find((offset) => offset <= start && offset + quote.length >= end);
+  return exact === undefined ? { state: "found", start, end, exact: false }
+    : { state: "found", start: exact, end: exact + quote.length, exact: true };
+}
+
+/** Legacy callers cannot distinguish unavailable targets, but must never guess. */
+export function findQuote(text, ctx) {
+  const result = resolveQuote(text, ctx);
+  return result.state === "found" ? { start: result.start, end: result.end, exact: result.exact } : null;
 }
 
 /** Collapse runs of whitespace for display in a comment card. */

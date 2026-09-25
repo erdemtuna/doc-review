@@ -1,4 +1,12 @@
 import type { FeedbackBatch } from "./feedback.js";
+import {
+  agentMessageSchema, conversationThreadSchema, directEditSchema, reviewerMessageSchema,
+  type AgentMessage, type ReviewerMessage,
+} from "./feedback.js";
+import {
+  array, canonicalJson, ContractError, CONTRACT_LIMITS, enumeration, id, integer, literal, nullable,
+  object, optional, refine, reject, text, timestamp, type Infer, type Schema,
+} from "./validation.js";
 
 export type InlineMark = "strong" | "em" | "underline" | "strike" | "delete" | "insert" |
   "code" | "kbd" | "samp" | "sub" | "sup" | "mark";
@@ -241,3 +249,172 @@ export interface ComparisonInput {
   rows?: readonly SavedRow[];
   changes?: readonly SavedChange[];
 }
+
+export const pagingScopeSchema = refine(object({
+  reviewId: id, entryKey: id,
+  collection: enumeration(["threads", "context", "history", "pages", "edits", "comparisons"]),
+  pageKey: nullable(id), threadId: nullable(id), submissionId: nullable(id),
+  status: enumeration(["open", "resolved", "all"]),
+}), (scope) => {
+  if ((scope.collection === "context") !== (scope.threadId !== null)) reject("INVALID_INPUT", "Only context requires a thread.");
+  if ((scope.collection === "comparisons") !== (scope.submissionId !== null)) reject("INVALID_INPUT", "Only comparisons requires a submission.");
+  if (scope.collection !== "threads" && scope.status !== "all") reject("INVALID_INPUT", "Status filter applies only to threads.");
+});
+export type PagingScope = Infer<typeof pagingScopeSchema>;
+export const pageQuerySchema = object({
+  limit: optional(integer(1, CONTRACT_LIMITS.pageMaximum)), cursor: optional(text()),
+});
+export const conversationListRequestSchema = object({
+  operation: literal("list"), scope: pagingScopeSchema, query: pageQuerySchema,
+});
+export const pageCursorSchema = object({
+  scope: pagingScopeSchema, highWater: integer(), before: integer(1),
+});
+export type PageCursor = Infer<typeof pageCursorSchema>;
+export function encodePageCursor(cursor: PageCursor): string {
+  return canonicalJson(pageCursorSchema.parse(cursor));
+}
+export function decodePageCursor(raw: string, scope: PagingScope): PageCursor {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return reject("INVALID_CURSOR", "Malformed cursor.");
+  }
+  let cursor: PageCursor;
+  try { cursor = pageCursorSchema.parse(parsed); }
+  catch (error) {
+    if (!(error instanceof ContractError)) throw error;
+    return reject("INVALID_CURSOR", "Invalid cursor shape.");
+  }
+  if (canonicalJson(cursor.scope) !== canonicalJson(pagingScopeSchema.parse(scope)) || cursor.before > cursor.highWater) {
+    reject("INVALID_CURSOR", "Cursor belongs to different filters/review or exceeds its high-water mark.");
+  }
+  return cursor;
+}
+export function pagedSchema<T>(item: Schema<T>): Schema<{
+  items: T[]; nextCursor: string | null; totalCount: number; highWater: number;
+}> {
+  return refine(object({
+    items: array(item, CONTRACT_LIMITS.pageMaximum), nextCursor: nullable(text()), totalCount: integer(), highWater: integer(),
+  }), (page) => {
+    if (page.totalCount < page.items.length || (!page.items.length && page.nextCursor !== null)) {
+      reject("INVALID_INPUT", "Inconsistent page counts/cursor.");
+    }
+  });
+}
+export function validatePageOutput<T extends { sequence: number }>(
+  input: unknown, item: Schema<T>, scope: PagingScope, queryInput: unknown,
+) {
+  const page = pagedSchema(item).parse(input);
+  const query = pageQuerySchema.parse(queryInput);
+  const cursor = query.cursor === undefined ? null : decodePageCursor(query.cursor, scope);
+  if (page.items.length > (query.limit ?? CONTRACT_LIMITS.pageDefault) ||
+      (cursor && page.highWater !== cursor.highWater)) reject("INVALID_INPUT", "Page exceeds requested window.");
+  const sequences = page.items.map((entry) => entry.sequence);
+  const ordered = [...sequences].sort((a, b) => scope.collection === "context" ? a - b : b - a);
+  if (new Set(sequences).size !== sequences.length || canonicalJson(ordered) !== canonicalJson(sequences) ||
+      sequences.some((sequence) => sequence > page.highWater || (cursor && sequence >= cursor.before))) {
+    reject("INVALID_INPUT", "Page order/high-water mismatch.");
+  }
+  if (page.nextCursor !== null) {
+    const next = decodePageCursor(page.nextCursor, scope);
+    if (next.highWater !== page.highWater || next.before !== Math.min(...sequences)) {
+      reject("INVALID_CURSOR", "Next cursor does not continue this page.");
+    }
+  }
+  return page;
+}
+/** Inputs are the authorized, filtered collection. Sequence is immutable and review-wide. */
+export function paginate<T extends { sequence: number }>(
+  records: readonly T[], scopeInput: PagingScope, queryInput: unknown, currentSequence: number,
+): { items: T[]; nextCursor: string | null; totalCount: number; highWater: number } {
+  const scope = pagingScopeSchema.parse(scopeInput);
+  const query = pageQuerySchema.parse(queryInput);
+  const limit = query.limit ?? CONTRACT_LIMITS.pageDefault;
+  const cursor = query.cursor === undefined ? null : decodePageCursor(query.cursor, scope);
+  const sequences = records.map((record) => integer(1).parse(record.sequence));
+  if (new Set(sequences).size !== sequences.length) reject("INVALID_INPUT", "Duplicate creation sequence.");
+  integer().parse(currentSequence);
+  if (cursor && cursor.highWater > currentSequence) reject("INVALID_CURSOR", "Cursor exceeds the review's current sequence.");
+  const highWater = cursor?.highWater ?? currentSequence;
+  const bounded = records.filter((record) => record.sequence <= highWater).sort((a, b) => b.sequence - a.sequence);
+  const remaining = bounded.filter((record) => !cursor || record.sequence < cursor.before);
+  const selected = remaining.slice(0, limit);
+  const nextCursor = remaining.length > selected.length
+    ? encodePageCursor({ scope, highWater, before: selected[selected.length - 1]!.sequence }) : null;
+  // Context windows load backwards but read chronologically.
+  return { items: scope.collection === "context" ? selected.reverse() : selected, nextCursor, totalCount: bounded.length, highWater };
+}
+
+export const exchangeSchema = refine(object({
+  sequence: integer(1), reviewer: reviewerMessageSchema, response: nullable(agentMessageSchema),
+}), ({ sequence, reviewer, response }) => {
+  if (sequence !== reviewer.sequence) reject("INVALID_INPUT", "Exchange ordering belongs to its reviewer message.");
+  if (response && (response.replyToMessageId !== reviewer.messageId || response.threadId !== reviewer.threadId ||
+      response.reviewId !== reviewer.reviewId || response.submissionId !== reviewer.submissionId ||
+      (reviewer.intent === "discuss" && response.outcome === "applied"))) {
+    reject("INVALID_INPUT", "Reply is not associated with this reviewer message.");
+  }
+});
+export type ConversationExchange = Infer<typeof exchangeSchema>;
+export function latestExchange(
+  messages: readonly ReviewerMessage[], replies: readonly AgentMessage[], highWater = Number.MAX_SAFE_INTEGER,
+): ConversationExchange | null {
+  const latest = messages.filter((message) => message.sequence <= highWater).sort((a, b) => b.sequence - a.sequence)[0];
+  if (!latest) return null;
+  const matches = replies.filter((reply) => reply.replyToMessageId === latest.messageId && reply.sequence <= highWater);
+  if (matches.length > 1) reject("INVALID_INPUT", "Multiple replies to one submitted message.");
+  return exchangeSchema.parse({ sequence: latest.sequence, reviewer: latest, response: matches[0] ?? null });
+}
+export const threadSummarySchema = refine(object({
+  thread: conversationThreadSchema, sequence: integer(1),
+  messageCount: integer(), pendingMessageCount: integer(),
+  latestExchange: nullable(exchangeSchema),
+}), (summary) => {
+  if (summary.sequence !== summary.thread.sequence || summary.pendingMessageCount > summary.messageCount ||
+      ((summary.messageCount === 0) !== (summary.latestExchange === null)) ||
+      (summary.latestExchange && (summary.latestExchange.reviewer.threadId !== summary.thread.threadId ||
+        summary.latestExchange.reviewer.reviewId !== summary.thread.reviewId))) {
+    reject("INVALID_INPUT", "Invalid thread summary association/counts.");
+  }
+});
+export const threadPageSchema = pagedSchema(threadSummarySchema);
+export const contextPageSchema = pagedSchema(exchangeSchema);
+export function contextWindow(
+  messages: readonly ReviewerMessage[], replies: readonly AgentMessage[],
+  scope: PagingScope, query: unknown, currentSequence: number,
+) {
+  if (scope.collection !== "context" || scope.threadId === null) reject("INVALID_INPUT", "Context requires one thread.");
+  for (const message of [...messages, ...replies]) {
+    if (message.reviewId !== scope.reviewId || message.threadId !== scope.threadId) reject("SCOPE_MISMATCH", "Foreign context message.");
+  }
+  const parsedQuery = pageQuerySchema.parse(query);
+  const highWater = parsedQuery.cursor === undefined ? currentSequence : decodePageCursor(parsedQuery.cursor, scope).highWater;
+  const exchanges = messages.filter((message) => message.sequence <= highWater).map((message) =>
+    latestExchange([message], replies, highWater)!);
+  return validatePageOutput(paginate(exchanges, scope, query, currentSequence), exchangeSchema, scope, query);
+}
+export const resultSummarySchema = object({
+  resultId: id, body: text(), createdAt: timestamp,
+  title: enumeration(["What changed", "Agent response"]), effect: enumeration(["reply-only", "changes-reported"]),
+});
+export const submissionHistoryItemSchema = refine(object({
+  sequence: integer(1), reviewId: id, submissionId: id, createdAt: timestamp,
+  state: enumeration(["queued", "delivered", "handled", "abandoned"]),
+  result: nullable(resultSummarySchema),
+  comparisonStatus: enumeration(["not-requested", "pending", "ready", "partial", "failed", "unavailable"]),
+  comparisonCount: integer(),
+}), (item) => {
+  if ((item.state === "handled") !== (item.result !== null)) reject("INVALID_INPUT", "Only handled history has a result.");
+});
+export const submissionHistoryPageSchema = pagedSchema(submissionHistoryItemSchema);
+export const comparisonReferenceSchema = object({
+  sequence: integer(1), reviewId: id, submissionId: id, pageKey: id,
+  baselineRevisionId: nullable(id), resultRevisionId: nullable(id),
+  status: enumeration(["not-requested", "pending", "ready", "partial", "failed", "unavailable"]),
+  reason: nullable(text()),
+});
+export const comparisonReferencePageSchema = pagedSchema(comparisonReferenceSchema);
+/** Only review-local unsubmitted edits; submitted versions remain in submission reads. */
+export const directEditPageSchema = pagedSchema(directEditSchema);

@@ -1,399 +1,322 @@
 # UI design foundations
 
-The new UI is being introduced through explicit visual review checkpoints.
-Each production shell surface stays intact until its corresponding checkpoint.
-The G1 gallery is a developer-only fixture, not a new product screen.
+The production entry is `ConversationApp`. Every review uses the same durable
+workflow; the isolated component gallery is not another product entry.
 
-## Preview
+## Ownership and surfaces
 
-Run `npm run preview:ui` and open the printed localhost URL. The command builds
-the gallery to `.ui-preview` and serves that fixed output with a small local
-Node server. No CDN, downloaded fonts, runtime Vite server, or production API
-is involved. Stop the preview before rebuilding it so a manual review remains
-stable. An optional `--port=12345` selects a port.
+`conversation-controller.ts` owns Feedback, Focus, adjacent and new-composition hosting: drafts,
+caret/selection/composition, expansion, loaded exchanges/history, reading
+positions, pending selection, mutation locks and uncertain acceptance.
+`conversation-shell.ts` owns frames, navigation, reconnect, source-save barriers,
+capture and comparison requests. React renders these owners rather than creating
+parallel state. Drafts are never saved to storage or synced across tabs.
 
-The preview source is in `src/ui/preview`. It is not part of the production
-entry or the published package. Its buttons and confirmation dialogs act only
-on sample state.
+Both Open and Resolved filters start enabled with expanded latest exchanges.
+Their shared segmented controls retain selected paint without hover or focus.
+Each discussion has one gently rounded bordered card over a subtly different
+inventory background, with clear inter-card gaps. Reviewer and agent messages
+are unboxed, share author/avatar/time metadata and retain 13px body text.
+Ordinary Discussion and answered states have no pill; explicit Change requested,
+non-default response outcomes, pending-unsent and read-only cues remain per-message.
+Sidebar target context occupies its own full-width, up-to-two-line row, above the
+compact Jump to/action/activity row. Adjacent discussions omit the entire repeated
+target control while the verified highlight is visible; named Collapse conversation /
+Expand conversation menu actions retain keyboard access without an empty chevron or border.
+Readable timestamps expose the full date/time through a keyboard-
+accessible, hoverable tooltip. The thread's Conversation actions menu holds
+Resolve/Reopen, eligible Delete thread and host transfers; this is not a
+restoration of the removed global More menu. Focus and Edit remain compact named
+icon controls; every sidebar card has a visible **Jump to** label with a locate icon.
+Reply is a visible outlined action. Include in Send and draft permissions use the
+shared Checkbox primitive; selecting feedback does not change its permission.
+Each exchange associates its original reviewer message with the actual reply.
+New messages signal attention without forcing expansion or scrolling. Earlier
+pages merge by stable identity; reconnect must not leave an unreachable gap.
+Save retains unsent feedback; Send submits the selected saved pending items across
+authorized review pages. Immutable sent corrections are new messages.
+Each new message/note defaults to Discussion. The change checkbox appears only
+during composition/edit; saved Change requested intent is a badge, not an editable permission.
 
-## Component ownership
+One mounted thread/editor moves across Feedback, Focus and adjacent geometry.
+No transfer clones a textarea. Collapse and Close preserve drafts and reading
+state; neither resolves a thread. Explicit Resolve/Reopen is server-guarded
+and refuses to discard a local draft. Enter saves, Shift+Enter inserts a newline,
+Escape cancels; active IME composition is never intercepted. The overall note
+stays multiline and submission-only: Enter must not Send. Comments and Your edits
+collapse independently without unmounting their contents. The optional overall
+note starts collapsed, shows Draft when nonempty, retains its own permission and
+cannot collapse during composition. Collapse/resize preserves its node and caret.
 
-`components.json` selects the Radix-backed `radix-nova` shadcn family and
-CSS-variable theming. Generated component source lives in
-`src/ui/components/ui`; we own and maintain it. Use the pinned shadcn CLI to
-preview changes before regenerating components. Do not run a new-project
-scaffold over this repository.
+Feedback is a flush-right 380px overlay below the measured toolbar, including at
+720px narrow-PC widths, clamped to the available viewport below 380px. Opening any host does not resize or replace the
+authored iframe. Its backdrop and inert authored stage prevent interaction
+behind the panel without disabling toolbar navigation, theme, or Close.
+The inventory scrolls independently from the restrained overall note and bottom
+actions; footer support text has its own overflow area. End stays left and Send
+right. The note-only Request a change checkbox uses the shared Radix primitive
+and defaults unchecked; it does not grant permission to other messages.
+Focus/adjacent has one transcript scroll area with a reachable header
+and composer. Status/error overflow must not push actions off-screen.
+Synchronous per-draft Save locks prevent double delivery while typing stays
+available. A newer draft survives acceptance of an older saved value.
+Confirm/Send locks begin before asynchronous barriers. Dialogs initially focus
+Cancel and restore focus after the authoritative update, not before it.
 
-Keep the root TypeScript `@/*` alias aligned with `components.json` for CLI
-discovery. Review generated imports: use our local `cn` helper and `Icon`
-adapter rather than adding replacement runtime packages. Preserve the scoped
-portal classes, Radix state variants, focus styling and reduced-motion behavior.
-The adapted components retain their MIT license alongside their source; the
-build includes it and the icon license in the packaged third-party notices.
+Only one global lifecycle headline is shown: Reviewing, Waiting for agent, or
+Review ended. Submission-specific queued/received/handled/abandoned evidence
+is separate; received is not agent liveness. End retains the read-only observer
+for late results. Source conflicts, deferred edits, capture availability and
+response success remain independently visible. Unknown acceptance uses the
+original request identity and explicit reconciliation.
 
-Radix handles interaction behavior, Tailwind supplies utilities, and semantic
-tokens define appearance. Not every control needs a primitive: the styled
-native select remains available in the component gallery. Changes selections
-use styled radio menus to match View/Edit. Icons reuse the
-existing Lucide allowlist through a typed SVG adapter, without HTML injection
-or a second icon library.
+## Target safety and placement
 
-Review/Changes and Content/Source share `SegmentedControl` and
-`SegmentedControlItem`, while keeping separate labelled groups and their
-existing commands. The shell scopes a compact treatment to Review/Changes;
-it does not change the sizing of the Content/Source control.
+`conversation-anchor-controller.ts` validates frame identity and exact projected
+membership. `thread-anchor-controller.ts` reconciles original metadata in the
+SDK. Frames receive IDs/targets, never message bodies, permissions, results or
+the API token. Correlated geometry/status is presentation, not source authority.
 
-## Brand and toolbar
+Explicit highlight activation opens one adjacent conversation. Shared targets
+offer a count/chooser. Missing, ambiguous, hidden/not-measurable, loading,
+render-changed and failed/unavailable renders have distinct explanations.
+Offscreen is not missing: Jump to scrolls only a verified target. A successful jump
+hides the overlay at every width so the passage is actually visible. Feedback
+returns to the retained inventory position and drafts. Cross-page jumps wait for
+the source barrier and current scoped projection; unavailable targets retain
+their explanation and disabled action. Resolved and ended threads remain navigable.
+There is no manual reattachment or automatic anchor mutation.
 
-The brand is one paper comment bubble with compact opposing arrow cutouts,
-on a teal rounded-square tile. `src/assets/doc-review.svg` owns the geometry:
-a 64 by 64 canvas with a 14-unit corner radius. Its fixed teal `#17685F`
-and paper `#FFFDF7` colors do not invert with the theme. This custom artwork
-is separate from the generated Lucide action icons.
+`placeConversationSurface` and `placeNewMessageSurface` share measured side,
+then above/below placement against every visible target rectangle, clipping edge,
+toolbar and visual viewport. Local surfaces may cover unselected prose, never
+the selected target; there is no document gutter or width-only placement failure.
+Thread height comes from its actual header, transcript and controls. Short threads
+fit their contents; long transcripts shrink to the available space while reserving
+Reply or the editor and its actions. Initial measurement is noninteractive and
+hidden until a placement exists. Host transitions wait for matching layout and
+fresh frame geometry; observers do not move keyboard focus or reset reading.
+Adjacent cards never use the Feedback backdrop or inert authored stage. Only
+unavailable geometry or insufficient usable target-safe space falls back to
+Feedback, with an explanation. Insufficient-space fallback retains the focused
+conversation so a long transcript cannot push its active editor below the inventory.
+Unavailable targets return to the inventory with their target-specific explanation.
+Fallback preserves input and never changes thread status. It does not automatically
+jump back to adjacent placement.
 
-`scripts/generate-brand.js` validates the artwork against the canonical brand
-colors and derives the toolbar image and encoded SVG favicon. The favicon is
-embedded in the outer shell only. Do not change the reviewed document's title,
-favicon, or head; the outer tab retains its filename/path title behavior.
+New comments extend the former 340px contextual surface with one title, a subdued
+target cue, Textarea, and unchecked Request a change / Save on one horizontal row.
+Save's tooltip and accessible description explain Save versus Send and keyboard
+shortcuts without a permanent help row. There is no Element badge, duplicate
+New message heading, permanent Cancel, or host-transfer action.
+New/reply/edit X and Escape use controller-owned cancellation: empty new/reply
+drafts (including whitespace) and unchanged edits close immediately; meaningful
+text or an existing edit's changed permission requires Keep editing / Discard.
+Keep editing restores the same input and caret. IME and active/uncertain saves
+block cancellation; Discard cannot retract an accepted mutation. Feedback's outer
+X remains hide/preserve. Cancel retires frame target generations and SDK composition
+state, preventing late intents from reopening the editor. Heading labels include
+the selected heading itself; stored anchors and selectors are never rewritten.
+The same mounted `new` draft remains in the inventory while its host changes.
+Contextual composition neither makes the authored stage inert nor adds a backdrop.
+`placeNewMessageSurface` uses the measured complete composer height and rejects
+overlapping placements. Its target is clipped to the authored scroll region, but
+the parent popover can extend outside that region without covering the target.
+No usable placement keeps the draft in Feedback with its explanation.
+On Feedback host entry or a change to the available inventory dimensions, a
+clipped new-message textarea is revealed by scrolling that inventory only.
+This does not move keyboard focus or recreate the editor. Theme/status renders
+and deliberate inventory scrolling do not trigger repositioning; saved-thread
+reading positions keep their existing behavior.
 
-The toolbar mark is a named, noninteractive 32 by 32 image beside the original
-Review destination button group, separated by 8px. Both selector and button
-hit areas are 32px tall at normal text size. Its border is inset rather than
-adding layout height; the selected background is inset 3px. The group radius
-is 8px and the decorative selection radius is 5px. Focus outlines remain
-outside the buttons. Text can reflow rather than clip at larger text sizes.
-The ordinary narrow toolbar keeps its two-row layout.
+The existing `eh:openComment` / `eh:targetGeometry` boundary supplies
+`targetGeneration`, anchor and optional presentation geometry. The frame channel
+still checks source, capability, page and frame generation before consumption.
+No protocol field/version or public/storage schema changes are required.
+`readNewMessageTarget` validates the durable target and positive safe generation,
+clips usable rectangles to the effective clip, and treats missing geometry as
+Feedback-only. Geometry cannot replace the accepted anchor. Retired intents
+cannot reopen a saved/cancelled draft; a rejected retarget leaves the original
+generation authoritative. Frame replacement removes placement, not draft text.
+Existing-thread geometry still uses the separately revisioned projection contract.
 
-## Tokens and styling
+## Components and tokens
 
-`src/review-palette.js` is the canonical light/dark color map. Build-time
-generation derives semantic UI colors, legacy shell aliases and the SDK's
-embedded review-tool colors from it. `src/ui/styles/tokens.css` retains the
-non-color density, typography, layer and motion tokens:
+`components.json` selects Radix-backed `radix-nova` shadcn components.
+Owned generated source is in `src/ui/components/ui`. Preview changes with the
+pinned CLI rather than running a new-project scaffold over this repository.
+Keep the `@/*` alias aligned with `components.json`; use the existing `cn` and
+typed SVG `Icon` adapter. Retain scoped portals, focus, Radix state variants and
+reduced-motion behavior. Component and icon licenses ship in third-party notices.
 
-| Family | Purpose |
+Button, Badge, Textarea, ChoiceMenu and SegmentedControl are shared by production
+surfaces. Native controls are appropriate where they preserve accessible
+behavior. Radio menus have one open owner and Escape returns focus to the
+trigger. Do not add a second icon library or HTML-based icon injection.
+
+`src/review-palette.js` owns the light/dark color map. Build-time generation
+updates semantic UI tokens, shell aliases and SDK tool colors together.
+`src/ui/styles/tokens.css` owns non-color density, typography, layering and
+motion. Keep generated outputs synchronized, never manually recolored.
+
+| Token family | Purpose |
 | --- | --- |
-| background, card, popover | Canvas, surface and floating layers |
-| foreground and paired foregrounds | Readable content on each surface |
-| primary, secondary, muted, accent | Action hierarchy and supporting states |
-| destructive | Failed operations and destructive actions |
-| border, input, ring | Separators, controls and visible keyboard focus |
-| review-added/removed/modified | Dedicated historical comparison semantics |
-| review-insert/delete | Inline comparison emphasis |
-| review-count-added/modified/removed | Olive/amber/rose count and legend inks; separate from comparison backgrounds |
-| review-control-height, radius, spacing, type | Shared compact density |
-| review-layer-*, review-duration | Predictable layers and reduced motion |
+| background/card/popover, paired foregrounds | Surfaces and readable text |
+| primary/secondary/muted/accent | Action hierarchy and supporting states |
+| destructive | Failure and destructive action |
+| border/input/ring | Decoration, essential input boundaries and keyboard focus |
+| review-added/removed/modified | Comparison backgrounds with paired foregrounds |
+| review-count-added/modified/removed | Olive/amber/rose count and legend inks |
+| review-insert/delete | Inline change emphasis |
+| radius/spacing/type/control-height/layer/duration | Consistent density and motion |
 
-Keep `doc-review:theme` and `data-theme="light|dark"` as the theme contract.
-Light is the default unless the stored preference is exactly `dark`.
-Semantic values and the control baseline are scoped to `review-ui`, including
-portalled controls. A generated legacy alias bridge gives the remaining shell
-surfaces the same palette. The isolated preview marks its root with `review-ui`.
-Teal denotes actions and focus, not successful saves. Added, removed and
-modified comparisons keep separate olive, rose and amber semantics and labels.
-`--review-added`, `--review-removed` and `--review-modified` are backgrounds,
-not text inks. Use their paired foregrounds for text. Essential input boundaries
-use `--input`, not the quieter decorative `--border`.
+Use `--input`, not quieter `--border`, for essential input boundaries. Comparison
+backgrounds are not text inks. Labels/symbols accompany color. Teal indicates
+actions/focus, not successful saves. `--radius-md` aliases `--radius` on the same
+surface scope so compact controls remain rounded.
 
-Keep `--radius-md` on that same scope as an alias of `--radius`. The adapted
-shadcn compact controls reference it directly in arbitrary utilities; a
-root-level alias cannot resolve the surface-scoped token and leaves square
-corners. The Changes toolbar uses 12px horizontal padding to keep its controls
-inset from the comparison edge.
+Tailwind theme/utilities are imported without global Preflight. Baselines and
+tokens are scoped to `.review-ui`, including portals. Never inject shell styles
+or tokens into authored HTML/body. The SDK themes only review-owned tools,
+highlights and selection cues; it does not serialize theme metadata into source.
 
-The UI stylesheet deliberately imports Tailwind theme/utilities without global
-Preflight. Its baseline is scoped to `.review-ui`; historical typography will
-be explicit rather than relying on browser defaults. Do not inject shell
-styles or root tokens into the authored-document iframe. The SDK themes only
-review-owned tools, highlight styles and selection cues. It does not recolor the
-authored HTML/body or serialize theme metadata into the user's document.
+## Brand, toolbar and theme
 
-The shell owns the desired theme and sends a separately validated, revisioned
-`eh:setTheme` command. The SDK applies it in place and acknowledges
-`eh:themeApplied`; theme changes do not invoke review-mode configuration.
-Initial annotation tools remain gated until the first application. A timeout
-surfaces **Retry theme**, which retries the latest preference without replacing
-the iframe or losing drafts. During an iframe handoff, the retained previous
-frame has a separate theme-only channel, never an edit channel. Mode, save,
-delivery and history semantics are unchanged.
+`src/assets/doc-review.svg` owns the paper comment-bubble mark: opposing arrow
+cutouts on a teal rounded-square tile, 64x64 with 14-unit corner radius.
+Its `#17685F` and `#FFFDF7` colors do not invert. `generate-brand.js` validates
+and generates the toolbar and outer-shell favicon. Do not replace the reviewed
+document's title, favicon or head.
 
-Use semantic utilities rather than hard-coded palette classes. Geometry from
-the reviewed frame remains measured, typed CSS variables/styles rather than
-constructed Tailwind class names. Keep meaningful text/symbol labels alongside
-comparison colors.
+The toolbar reuses the former release (`1e85f842`) presentation through
+`ToolbarControls`: the named noninteractive 32px brand and Review/Changes
+segmented destination on the left, the lifecycle badge at the true horizontal
+toolbar midpoint, and compact Feedback/theme actions followed by the icon-bearing
+View/Edit radio menu at the far right. The production More menu and its optional
+script-policy entries are removed; contextual error recovery remains. The legacy controller is
+not mounted. Multi-page navigation uses one existing ChoiceMenu next to the
+destinations; a single-page review does not duplicate its filename. Revert stays
+with the Feedback edit actions, not a separate toolbar strip.
 
-## Feedback panel
+At widths up to 480px and heights up to 550px, group the centered badge and
+far-right mode menu into the same row (89px toolbar); keep established type sizes.
+Feedback groups its filters, named New message icon and Close control before
+the body. Inline reply/edit drafts disclose the independent overall note and
+Send details, but retain the same mounted editor, focused/composing note and
+bottom actions. Active inline-card controls stick within the inventory; repeated
+target explanations follow the draft. Saved-edit headings lose redundant spacing
+and the empty-conversation hint is omitted when edits already explain the body.
+These rules do not change ordinary desktop or tall-phone presentation.
 
-The toolbar entry and panel title are **Feedback**. Its count matches Send:
-saved comments and edits on the current page plus feedback on other pages.
-The overall note and unsaved comment drafts are excluded. Counts above 99 use
-`99+` visually, with the exact count available in the tooltip and accessible
-description. Existing control IDs and stable portal hosts are retained.
+Responsive tests measure natural text Range rectangles after every ancestor's
+overflow clip, before scrolling or refocusing the editor. The full first glyph
+line, not a guessed line-height or visible card box, must survive at 390×480
+and 320×400. Intentional inventory scrolling remains independent of theme changes.
 
-`DisclosureSection` composes the existing Button, Badge, and Icon vocabulary
-with heading semantics, `aria-expanded`, `aria-controls`, and mounted hidden
-content. Comments and Edits have independent controller-owned open states,
-initially expanded. Preferences survive panel/page/view/theme changes within
-the tab and reset when the controllers are recreated on reload.
-The existing edit-list show-more state is separate from disclosure state.
+One shared Badge occupies its own centered grid track and remains
+visible in Changes: quiet outlined Reviewing, muted amber Waiting for agent, subdued
+Review ended. The status span is intentionally keyboard-focusable, not a button
+or action: the installed Radix Tooltip primitive/provider explains its state on
+hover or focus, dismisses with Escape, and preserves receipt/source-save details
+in the accessible description (and submission details in Feedback). No competing
+native title is rendered. Ended outstanding work explicitly remains accepted.
+Normal lifecycle
+states reserve no extra row. Errors, uncertain receipts, disconnection and
+actionable recovery alone create a full-width row beneath the controls; closed
+Feedback and Changes retain the complete error/receipt details and recovery actions.
+A ResizeObserver measures that header, including wrapped recovery content, and
+shares its lower edge with document, Feedback/Focus, adjacent placement and
+comparison surfaces. No viewport-specific fixed status offset competes with
+buttons. Equal outer grid tracks keep the status at the actual midpoint, not the
+center of remaining space. Durable review uses a second row at 760px and below;
+at 480px and below the centered badge and right-aligned mode occupy separate rows
+to avoid overlapping the longest Waiting label. Legacy toolbars retain 600px. Conversation
+placement uses actual target and surface measurements, not that toolbar breakpoint.
 
-Comments automatically reveals an owned edit or deletion confirmation and
-blocks collapse until that interaction is saved, cancelled, or completed.
-The trigger explains the lock accessibly. Explicit comment activation in an
-open panel reveals Comments before focus restoration; background publications
-do not undo a user's collapsed preference. Hidden content does not receive
-tab focus. Draft and caret ownership remain in the existing controllers.
-Other pages remains a separate listing because its counts include edits too.
-Comments retains its empty guidance; Edits stays hidden without edits or errors.
+Changes retains the last valid submission/page/format selection, otherwise
+selects handled history or shows an explicit empty state without issuing a
+request with fabricated IDs. Review, Changes, Feedback, theme and page navigation
+remain readable after End; writing stays guarded. Mode/theme/destination changes
+do not replace the frame or the conversation editor. The Feedback count shows
+saved pending messages plus edits across every review page, independently of
+unread activity and local exclusions. Its accessible description retains the
+exact count even above the compact 99+ display. The footer separately describes
+selected saved messages, edits and an optional overall note; Send counts all
+three. The controller derives presentation and Send payload from one selection
+helper over complete paginated pending contexts and edits, including versions
+and exclusions. Memory-only message drafts and submitted/handled work are not
+selected. Loading, disconnected, failed/incomplete reads and uncertain acceptance
+show an unavailable count, never a false zero, and disable Send.
 
-The footer is note, optional bounded supporting content, then an action row:
-quiet End review on the left and primary Send on the right, in matching keyboard
-order. Long status labels wrap inside Send rather than overflowing or stacking
-the actions. The note and actions remain reachable while long inventory or
-handoff content scrolls. Save problems are outside collapsed content; delivery
-errors, draft warnings and capture notices retain their original semantics.
-Cancel-first End/Revert confirmations and single-flight commands are unchanged.
+`doc-review:theme` and `data-theme="light|dark"` are the preference contract;
+light is default unless the stored value is exactly dark. A revisioned
+`eh:setTheme` is acknowledged by `eh:themeApplied`, separately from review-mode
+configuration. Missing confirmation exposes Retry theme without replacing the
+iframe or losing drafts. A retained old frame has only a theme channel, not an
+edit channel. Frame configuration and the two-paint replacement handoff are
+separate milestones, including in background tabs.
 
-## Compact Changes toolbar
+## Retained comparison presentation
 
-`ChangesToolbar` occupies the stable `changesNavigationRoot` portal inside the
-sticky comparison header. Round and optional Page sit on the left, navigation
-is centred on the full toolbar, and Content/Source with icon counts sits on the
-right. Equal outer grid columns keep navigation truly centred despite unequal
-side groups. Narrow screens stack these groups in the same DOM/keyboard order,
-with navigation still centred. There is no separate normal-state Round card.
-Normal availability status is screen-reader-only, not visible toolbar text.
-`ChangesControls` is only the nonsticky supporting area for loading, partial,
-waiting, error and capture/retry
-states; a status message is rendered in exactly one location.
+`conversation-comparison.tsx` owns submission/page/Content-or-Source controls,
+independent loading/error/unavailable states, retry, counts and change navigation.
+`conversation-results.tsx` composes existing inventory, Badge, and timestamp
+primitives for a capture-independent submission note and exact human edit evidence.
+The latest-result preview precedes thread cards in Feedback with **View result**.
+The header's **History** destination holds the full ledger, agent command, receipt
+diagnostics and advanced abandonment confirmation, rather than repeating them under
+the discussion inventory. History and Feedback retain the same mounted reply/note
+editors and independent reading positions. Capture errors belong to their exact
+result/page; older issues remain discoverable through the History issue count.
+Source-save, disconnected and uncertain-acceptance recovery stays visible.
+At heights up to 440px,
+only this preview puts its body before metadata so the first line remains readable
+in the existing short inventory. Its 13px text uses a 20px line box, avoiding a
+fractional predecessor height that would round a transferred reading anchor.
 
-Round/Page/Jump use `ChoiceMenu`, built from the existing outline Button and
-nonmodal Radix radio-menu primitives. Their 32px height, padding, radius and
-interaction treatment match View/Edit; Content/Source's unchanged 38px outer group
-is centre-aligned alongside them. Round uses a structured short label on its
-trigger; full labels and selection checkmarks remain in the menu. Bounded menu
-scrolling and typeahead keep every option reachable.
+Changes fills the region below the approved global toolbar. The full note scrolls
+normally above the former comparison toolbar; it is not a sticky banner. Pending
+edits reuse the former readable inventory with styled inclusion checkboxes and
+explicit source-persistence badges. Complete content, receipts and source identities
+remain in secondary details; they are never inferred from a successful capture.
 
-Navigation is Previous, a position dropdown such as **2 of 6**, and Next. The
-position dropdown is Jump to; its menu contains the full change descriptions.
-One local disclosure owner prevents multiple Changes menus from opening.
-Escape/selection return focus without undoing comparison scrolling. If selecting
-a page temporarily disables its trigger, focus can return when it becomes ready,
-but intervening pointer, keyboard or focus activity cancels that deferred return.
+Shell request sequencing prevents a slow response from replacing a newer choice
+or reopening a closed surface. Closing hides the retained subtree; identical
+data preserves expanded context and row identity. Changing endpoint resets the
+relevant comparison selection.
+Automatic and manual capture share a flight keyed by existing review/entry,
+submission, page, session/render/generation, source hash and observed view identity.
+Only a typed version/immutable conflict may trigger same-result Content reconciliation.
+No blanket 409 suppression, source-only success or late comparison reopening is allowed.
+Before requesting, selection must identify a loaded handled submission, a member
+page, and Content or Source. The existing response contract already requires
+`available` and the requested `mode`; wrong or missing mode is an explicit error.
+No public or protocol fields are added. A previously unavailable loaded snapshot
+can be refreshed after capture; explicit recapture cannot reopen a dismissed or
+different selection. Capture failure remains visible beside the independent note.
 
-Counts use plus, pencil and minus icons with numbers, including zero. Hover
-titles and complete accessible names describe Added/Modified/Removed, and the
-Comparison details disclosure includes a visible legend. The statistics are
-not buttons and do not add tab stops. All three badges share the neutral card
-surface, border and standard foreground for numbers. Only the icons carry
-semantic color: deeper olive/amber/rose in light mode and lighter counterparts
-in dark mode. The legend uses the same icon tokens. Historical row and inline
-highlights use paired backgrounds from the same semantic families.
+`ComparisonView` renders bounded inert historical content. It reconstructs
+supported formatting and image descriptions, not scripts, network images,
+iframes or live links. Narrow screens use readable unified attribution.
+Sticky tools must leave the selected change visible in short viewports.
+Historical comparisons remain accessible after shared End.
 
-The toolbar and Before/After headings stay sticky.
-Explicit change navigation measures that committed header and applies its height
-as the selected row's scroll margin, accounting for wrapped toolbar rows.
+Rendered capture is optional evidence, not response acceptance. Reply-only
+responses do not reload/capture a fake version. Source and Content have distinct
+availability, provenance and timestamps. Reusable comparison/capture helpers
+are not a legacy submission API.
 
-Available zero-change comparisons retain format and counts. Navigation remains
-hidden for fewer than two changes. The header itself stays available even without
-a comparison so Round and Page can still be selected; only the representation
-controls, headings and detail hide. Responsive layout uses CSS, not
-duplicate control trees or viewport-driven remounts. Controllers and the live
-document retain their existing ownership.
+## Preview and regression gates
 
-## G1 manual review
+`npm run preview:ui` builds the gallery to `.ui-preview`; the recovery gallery
+uses `.recovery-preview`. Both serve fixed, local output without CDN fonts,
+Vite runtime or production mutations and are excluded from the package.
+Stop a gallery before rebuilding it. `npm run preview:shell` instead serves
+the actual production workflow using copied runtime/source and isolated state.
 
-Inspect both themes and narrow/wide layouts. Try Tab navigation, the sample
-menu, native selection, a selected/disabled control, invalid input, and the
-confirmation's cancel/confirm/focus-return behavior. Edit/select text in the
-sample note before toggling theme. Approval is for the component vocabulary;
-toolbar, comments and comparison layouts have separate later checkpoints.
-
-## G2 toolbar integration
-
-The toolbar now owns Review/Changes, the nonmodal View/Edit menu, the Feedback
-entry and theme switching through one React root. The theme button moves from
-the drawer header to the toolbar and remains available in Changes. Counts above
-99 display as `99+`, with the exact count in the badge title. At narrow widths,
-the mode and existing recovery menu occupy a second row.
-
-`toolbar-controller.ts` publishes small immutable snapshots; existing runtime
-controllers still own mode configuration, saves, frame identity and drafts.
-Commands recheck availability, including review shutdown. React never owns or
-moves the iframe. At this stage, comments, feedback and comparison renderers remained legacy-owned
-until their separate review gates; recovery controls are covered by G3 below.
-Do not restore imperative event handlers or DOM writes for React-owned controls.
-The mode trigger owns its own toggling even during menu exit animations; an
-outside-dismiss handler must not treat that trigger as a second close action.
-Its retained DOM IDs also explicitly connect the menu and trigger ARIA attributes.
-
-## G3 recovery and status integration
-
-More now uses a nonmodal Radix menu with shared tokens and explicit trigger/menu
-ARIA references. It preserves the currently displayed frame's execution policy,
-even when the source has changed. Keyboard dismissal returns focus; an iframe
-interaction cancels focus restoration, including messages arriving after native
-dismissal while the menu is animating out. Repeated trigger clicks must not
-immediately dismiss a reopened menu.
-
-`recovery-controller.ts` owns recovery requests and immutable snapshots. Commands
-coalesce duplicate requests, reject malformed responses, and ignore stale frame
-identities. Server events still own draft-safe frame replacement. Recovery is
-not permission to overwrite scripted source or silently discard pending drafts.
-
-Notices use the existing React root through the stable `noticesRoot` portal.
-The permanent `document-host` wrapper is present in initial HTML, never added
-around a loaded iframe. Notices occupy bounded space above this host instead of
-covering the first lines. Their semantic notice layer retains priority over the
-legacy drawer backdrop. Loading, held source updates, failed loads, and recovery
-request errors preserve existing actions and warning copy.
-
-For manual review, run `npm run preview:recovery`. Its separately built
-`.recovery-preview` output leaves the G1 gallery unchanged and offers simulated
-ready/loading/update/conflict/failure states using the production components.
-Sample messages and mock actions are labelled as fixtures, not production behavior.
-Run `npm run preview:shell -- --recovery` for real draft-safe reloads in an isolated
-shell snapshot. Inspect More, Escape/outside focus, both themes, wrapping at narrow
-widths, and comment-draft preservation. This gate does not approve or redesign
-the comments drawer, composer, feedback controls, or Changes rendering.
-
-## G4 comments inventory integration
-
-The drawer header, comment inventory and other-page summaries now share the
-React root through stable portal hosts. The outer drawer remains a stable
-layout host for edits and feedback controls (migrated in G6 below); React controls
-its visibility without rebuilding those fields. The existing desktop rail,
-720px full-width breakpoint and nonmodal behavior are retained. Closed drawers
-are inert, but opening a drawer never makes the document or toolbar inert.
-
-`chrome-session.ts` is the typed, shared owner of comment confirmation
-and edit state for the inventory and aligned card (migrated in G5 below).
-`comments-controller.ts` publishes immutable presentation and guards commands.
-Draft text, selection, composition and pending requests are not component-local
-state. The existing mutation flights, page-epoch checks, acknowledgement
-reconciliation and correction-ID migration remain authoritative.
-
-Cards keep stable keys across unrelated updates. Following G5 review feedback,
-drawer and aligned cards expose 32px icon buttons with accessible names and
-native title tooltips instead of a comment More menu. Both expose Edit and
-Delete; drawer cards also expose Jump to, and aligned cards expose Close.
-Delete opens the existing inline textual Cancel/Delete confirmation without
-sending a request. Header actions are hidden while that card owns editing or
-confirmation; other card actions are disabled during a pending deletion.
-Escape cancels an idle confirmation and restores focus to its Delete icon.
-Successful drawer saves return focus to Edit; deletion focuses the next card's
-Delete icon or the empty inventory. Toolbar More remains a nonmodal Radix menu.
-
-Run `npm run preview:shell -- --comments` for populated and empty G4 reviews
-with disposable data. The populated fixture includes a long list, long text and
-another reviewed page. Contextual commenting, edits and feedback controls are
-not redesigned by this gate.
-
-## G5 contextual commenting integration
-
-The selection composer and aligned saved-comment card now use the same React
-root through permanent, nonmodal portal hosts. `contextual-controller.ts` owns
-the typed session draft (text, caret, composition, error and retry state); React
-does not maintain a second authoritative draft. The aligned card reuses the
-inventory's controls and single comment edit/confirmation owner, including
-surface migration, correction IDs and single-flight mutations.
-
-Only the outer hosts' visibility, pass-through class and measured position
-remain in the shell adapter. ResizeObserver and one cancellable animation-frame
-job coalesce geometry, viewport, notice and content-size updates. Existing SDK
-render/target correlation and positioning helpers remain authoritative; React
-never reparents the authored iframe. Composer keyboard/IME and card actions
-have one owner rather than parallel legacy handlers. Source reload retains the
-draft as an unresolved excerpt; late submit responses cannot clear a different
-draft or replace a newly loaded page.
-
-Composer keyboard hints explicitly retain two spacing units above them after
-the scoped paragraph reset, leaving clearance outside the textarea focus ring.
-
-Run `npm run preview:shell -- --contextual` for a labelled, isolated real G5
-runtime snapshot with selectable paragraphs, controls, long/nested scrollers
-and saved comments. Existing preview snapshots remain unchanged. Inspect both
-themes at 320/390/768/1440 pixels, reveal/scroll, keyboard and draft preservation.
-Edits, feedback and application confirmation dialogs are covered by G6 below.
-
-## G6 feedback, edits and confirmations
-
-The permanent `editsRoot` and `sendSection` hosts now receive React portals from
-the same root. `feedback-panel-controller.ts` owns the overall note's text,
-selection and IME state, edit expansion, clipboard status and asynchronous
-confirmation state. The textarea stays mounted when the drawer closes or
-Changes opens. No authoritative note value is read from the DOM.
-
-Shared Button, Textarea, Label and Badge components present edits, save failures
-and conflicts, note-only feedback, delivery progress, success, errors and agent
-handoff. Inventory and supporting handoff/capture messages scroll separately;
-the compact note and primary Send stay visible on short screens. Tokens remain
-scoped to the shell, never the authored frame.
-
-Delivery still belongs to `feedback-controller.ts`: it snapshots the note,
-waits for saves, avoids duplicate flights, and clears only the exact sent note.
-Optional capture failure remains nonblocking and appears as a supporting post-send notice.
-The old capture-override HTML was dormant, with no controller recovery commands;
-G6 does not introduce those commands or a new send gate. Ambiguous delivery is
-not automatically retried; committed feedback cannot become an error-shaped retry
-because history refresh failed.
-
-End and Revert use the existing adapted Radix AlertDialog primitive. Cancel is
-the safe initial focus; Escape cancels only this dialog, never a comment draft
-or drawer. Trigger focus returns after cancellation. Confirm revalidates the
-page/render/source and action state, flushes queued SDK edits, checks identity
-again, and allows one pending action. Failed requests remain explicit and
-retryable; stale actions require cancel/review. End distinguishes persisted
-unsent items from tab-only drafts. Native browser beforeunload remains native.
-
-Run `npm run preview:shell -- --feedback` for a disposable G6 candidate with
-seven sample edits and real send/revert/end operations. Inspect 320/390/768/1440
-widths, both themes, keyboard focus, note/caret preservation, narrow handoff
-wrapping and confirmation cancellation before confirming on disposable data.
-Browser tests inject server and optional capture failures without production debug
-switches. This checkpoint does not redesign Changes controls or comparisons.
-
-## G7 Changes controls and diagnostics
-
-`changes-controller.ts` projects typed, cached control snapshots from the
-existing history owner. Round/page/format selections, navigation, capture and
-finalization are guarded commands. Normalization is committed during history
-refresh rather than mutating authoritative state during rendering.
-
-Permanent control, navigation and diagnostic hosts receive React portals.
-NativeSelect preserves familiar keyboard selection; Button, Badge and semantic
-tokens make counts, status, partial coverage and error/retry states consistent
-with the rest of the shell. Escape on these controls does not cancel a hidden
-comment or note draft. Disclosures preserve their open state across updates.
-
-## G8 and G9 React comparison rendering
-
-Content and Source use `ComparisonPortal`, backed by typed projections and
-allowlisted React block/run components. The imperative comparison renderer
-and its server route are removed. The history coordinator still owns
-round/page/format and selected-change state; React owns its rendered detail
-and bounded unchanged-context disclosure.
-
-Stable keys preserve text nodes, selections and expanded context when the
-selected change or freshness changes. Explicit navigation scrolls the selected
-row after React commits. Changing the saved endpoints, round, page or format
-resets the relevant expansion state rather than carrying it to another document.
-
-Content preserves inline word changes, formatting, structural metadata, saved
-positional table rows and list numbering. Images and links are inert references,
-not remote fetches or navigable historical controls. Source renders literal
-text, line numbers/gaps, long lines and newline/CRLF diagnostics. Neither
-representation replays authored HTML, scripts, styles, attributes or URLs.
-Existing non-color insertion/deletion cues and dedicated diff tokens remain.
-
-## G10 integrated review
-
-`npm run preview:review` builds a fixed runtime snapshot and seeds real SDK
-history into disposable HTML/Markdown examples. The landing page links complete,
-partial and empty review states, including pending comments and a real saved
-edit. See [the focused manual-review checklist](migration-review.md).
-
-The integrated regressions cover both themes at 320/390/768/1440px, keyboard
-ownership, drafts/caret, source policy, frame identity, history selection and
-inert comparisons. Installed-package smoke exercises the bundled experience
-without React, Vite or other UI tooling installed at runtime.
+Use Node/controller tests for contract/lifecycle guards, Vitest for component
+behavior, and Playwright for real iframe, focus/IME, geometry, theme,
+source-save and retained-history boundaries. Test both themes, 320/390px narrow
+and keyboard-like short viewports, plus desktop. The full gates are
+`npm run test:all` and `npm run test:package:browser`.
+See [development](development.md) for ownership and reproducible package evidence.

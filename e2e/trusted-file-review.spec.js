@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, reviewApi } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, reviewApi, listed } from "./helpers.js";
 
 const html = `<!doctype html><html><head><style>
 body{font:16px/1.6 system-ui;margin:24px;max-width:760px}button{min-width:44px;min-height:44px}
@@ -26,18 +26,14 @@ body{font:16px/1.6 system-ui;margin:24px;max-width:760px}button{min-width:44px;m
   </script>
 </body></html>`;
 
-async function recover(page, preference) {
-  if (await page.locator("#reviewDetails").getAttribute("aria-expanded") !== "true") await page.locator("#reviewDetails").click();
-  await page.locator(preference === "static" ? "#executionStatic" : "#executionAuto").click();
-}
-
 async function changeCopy(page, frame, text) {
   await enterEditMode(page);
-  await frame.locator("#copy").evaluate((element, value) => {
-    element.textContent = value;
-    element.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText" }));
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
-  }, text);
+  await frame.locator("#copy").click();
+  await frame.locator("#copy").evaluate((element) => {
+    const range = document.createRange(); range.selectNodeContents(element);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  });
+  await page.keyboard.insertText(text);
 }
 
 test("self-contained interactions run automatically; runtime and human edits remain feedback-only", async ({ page, review }) => {
@@ -54,10 +50,10 @@ test("self-contained interactions run automatically; runtime and human edits rem
   await frame.locator("#second").click();
   await expect(frame.locator("#second-panel")).toBeVisible();
   await expect(page.locator("#frame")).not.toHaveAttribute("sandbox", /allow-same-origin/);
-  expect(review.store.page(session.key).edits).toEqual([]);
+  expect((await listed(review, session, "edits")).items).toEqual([]);
   await frame.locator("#first").click();
   await changeCopy(page, frame, "Human feedback on runtime wording");
-  await expect.poll(() => review.store.page(session.key).edits.length).toBeGreaterThan(0);
+  await expect.poll(async () => (await listed(review, session, "edits")).totalCount).toBeGreaterThan(0);
   expect(fs.readFileSync(file, "utf8")).toBe(html);
   const metadata = (await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json();
   expect(metadata.savePolicy).toBe("feedback-only");
@@ -98,7 +94,7 @@ test("source script addition and removal automatically reclassify the displayed 
   expect((await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json().savePolicy).toBe("writable");
 });
 
-test("a draft-held source transition keeps the displayed policy until the new frame is ready", async ({ page, review }) => {
+test("a source transition preserves conversation drafts and configures the new frame with its served policy", async ({ page, review }) => {
   await page.addInitScript(() => {
     window.reviewConfigurations = [];
     window.addEventListener("message", (event) => {
@@ -117,23 +113,18 @@ test("a draft-held source transition keeps the displayed policy until the new fr
     document.dispatchEvent(new Event("selectionchange"));
   });
   await frame.locator("#commentAction").click();
-  await page.locator("#composeText").fill("Keep this source-directed draft");
+  await page.getByRole("textbox", { name: "New message", exact: true }).fill("Keep this source-directed draft");
   const rendered = await page.locator("#frame").getAttribute("src");
   fs.writeFileSync(file, html);
-  await expect(page.locator("#reloadNotice")).toBeVisible();
-  expect(await page.locator("#frame").getAttribute("src")).toBe(rendered);
-  await expect(frame.locator("#copy")).toHaveText("Original source");
-  expect(await frame.locator("body").evaluate(() => window.reviewConfigurations.at(-1).savePolicy)).toBe("writable");
-  await page.locator("#safeReload").click();
+  await expect(page.locator("#frame")).not.toHaveAttribute("src", rendered);
   await expect(frame.locator("#copy")).toHaveText("Runtime wording");
   await waitForSdk(page);
   expect(await frame.locator("body").evaluate(() => window.reviewConfigurations[0].savePolicy)).toBe("feedback-only");
-  await expect(page.locator("#composeText")).toHaveValue("Keep this source-directed draft");
-  await expect(page.locator("#composeError")).toContainText("original excerpt");
+  await expect(page.getByRole("textbox", { name: "New message", exact: true })).toHaveValue("Keep this source-directed draft");
   expect(fs.readFileSync(file, "utf8")).toBe(html);
 });
 
-test("optional recovery is keyboard operable, stays feedback-only and persists only within its session", async ({ page, review }) => {
+test("contextual recovery is keyboard operable and preserves feedback-only policy without normal script-policy controls", async ({ page, review }) => {
   const requests = [];
   page.on("request", (request) => {
     if (request.url().endsWith("/execution") && request.method() === "POST") requests.push(request.postDataJSON());
@@ -141,27 +132,28 @@ test("optional recovery is keyboard operable, stays feedback-only and persists o
   const file = writeFile(review, "recovery.html", html);
   const session = await openReview(page, review, file);
   const frame = await waitForSdk(page);
-  await page.locator("#reviewDetails").focus();
-  await page.keyboard.press("Enter");
-  await page.locator("#executionStatic").focus();
-  await page.keyboard.press("Enter");
-  await expect(frame.locator("#copy")).toHaveText("Original source");
-  await waitForSdk(page);
-  await frame.locator("#second").click();
-  await expect(frame.locator("#second-panel")).toBeHidden();
-  await changeCopy(page, frame, "Recovery feedback");
-  await expect.poll(() => review.store.page(session.key).edits.length).toBeGreaterThan(0);
-  expect(fs.readFileSync(file, "utf8")).toBe(html);
-  await page.reload();
-  await waitForSdk(page);
-  await expect(frame.locator("body")).not.toHaveAttribute("data-executed", "yes");
-  expect((await reviewApi(review, `/api/page/${session.key}?session=${session.sessionId}`)).json().savePolicy).toBe("feedback-only");
-  await recover(page, "auto");
+  await expect(page.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+  await page.route("**/api/session/*/render/*/ready", (route) => route.fulfill({ status: 503, json: { error: "Ready unavailable" } }));
+  const updatedSource = `${html}\n<!-- contextual recovery -->`;
+  writeFile(review, "recovery.html", updatedSource);
+  const reload = page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true });
+  await expect(reload).toBeEnabled();
+  await page.unroute("**/api/session/*/render/*/ready");
+  await reload.focus(); await page.keyboard.press("Enter");
   await expect(frame.locator("#copy")).toHaveText("Runtime wording");
   await waitForSdk(page);
-  expect(requests.map(({ preference }) => preference)).toEqual(["static", "auto"]);
-  await recover(page, "static");
-  await expect(frame.locator("#copy")).toHaveText("Original source");
+  await frame.locator("#second").click();
+  await expect(frame.locator("#second-panel")).toBeVisible();
+  await frame.locator("#first").click();
+  await changeCopy(page, frame, "Recovery feedback");
+  await expect.poll(async () => (await listed(review, session, "edits")).totalCount).toBeGreaterThan(0);
+  expect(fs.readFileSync(file, "utf8")).toBe(updatedSource);
+  expect(requests).toEqual([]);
+  await page.reload();
+  await waitForSdk(page);
+  expect(await page.locator("body").getAttribute("data-session")).not.toBe(session.sessionId);
+  await expect(frame.locator("body")).toHaveAttribute("data-executed", "yes");
+  expect((await listed(review, session, "edits")).totalCount).toBeGreaterThan(0);
   const fresh = await openReview(page, review, file);
   expect(fresh.sessionId).not.toBe(session.sessionId);
   await waitForSdk(page);
@@ -187,7 +179,7 @@ test("pasted images in local scripted feedback render from staging without rewri
   const image = frame.locator("#copy img");
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate((element) => element.complete && element.naturalWidth > 0)).toBe(true);
-  await expect.poll(() => review.store.page(session.key).edits.length).toBeGreaterThan(0);
+  await expect.poll(async () => (await listed(review, session, "edits")).totalCount).toBeGreaterThan(0);
   expect(fs.readFileSync(file, "utf8")).toBe(html);
 });
 
@@ -205,15 +197,15 @@ test("served review layout has accessible controls without overflow across width
         };
         return {
           overflow: document.documentElement.scrollWidth > innerWidth,
-          controls: [...document.querySelectorAll(".toolbar button, .toolbar summary")].filter((element) => element.checkVisibility()).map(bounds),
-          toolbar: bounds(document.querySelector(".toolbar")), frame: bounds(document.querySelector("#frame")),
+          controls: [...document.querySelectorAll(".shell-toolbar button, .shell-toolbar select")].filter((element) => element.checkVisibility()).map(bounds),
+          toolbar: bounds(document.querySelector(".shell-toolbar")), frame: bounds(document.querySelector("#frame")),
         };
       });
       expect(geometry.overflow).toBe(false);
       expect(geometry.frame.y).toBeGreaterThanOrEqual(geometry.toolbar.y + geometry.toolbar.height);
       for (const [index, control] of geometry.controls.entries()) {
         expect(control.width, control.id).toBeGreaterThanOrEqual(32);
-        expect(control.height, control.id).toBe(32);
+        expect(control.height, control.id).toBeGreaterThanOrEqual(32);
         expect(control.x).toBeGreaterThanOrEqual(0);
         expect(control.x + control.width).toBeLessThanOrEqual(width);
         for (const other of geometry.controls.slice(index + 1)) {
@@ -222,22 +214,22 @@ test("served review layout has accessible controls without overflow across width
         }
       }
       await page.screenshot({ path: testInfo.outputPath(`review-${theme}-${width}.png`) });
-      await page.locator("#reviewDetails").click();
-      const menu = await page.locator("#recoveryMenu").boundingBox();
+      await page.locator("#modeButton").click();
+      const menu = await page.getByRole("menu").boundingBox();
       expect(menu.x).toBeGreaterThanOrEqual(0);
       expect(menu.x + menu.width).toBeLessThanOrEqual(width);
       await page.keyboard.press("Escape");
-      await expect(page.locator("#reviewDetails")).toHaveAttribute("aria-expanded", "false");
+      await expect(page.locator("#modeButton")).toHaveAttribute("aria-expanded", "false");
     }
   }
 });
 
 for (const width of [1440, 390]) {
-  test(`recovery at ${width}px keeps the prior document painted until replacement is ready`, async ({ page, review }, testInfo) => {
+  test(`source replacement at ${width}px keeps the prior document painted until replacement is ready`, async ({ page, review }, testInfo) => {
     await page.setViewportSize({ width, height: 800 });
     await openReview(page, review, writeFile(review, "painted-recovery.html", html));
     const frame = await waitForSdk(page);
-    const toolbarBefore = await page.locator(".toolbar").boundingBox();
+    const toolbarBefore = await page.locator(".shell-toolbar").boundingBox();
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
     await page.route("**/api/session/*/render/*/ready", async (route) => {
@@ -245,20 +237,20 @@ for (const width of [1440, 390]) {
       await route.continue();
     });
     try {
-      await recover(page, "static");
+      writeFile(review, "painted-recovery.html", `${html}\n<!-- source replacement -->`);
       await expect(page.locator("#previousFrame")).toBeVisible();
       await expect(page.locator("#previousFrame")).toHaveAttribute("inert", "");
       await expect(page.frameLocator("#previousFrame").locator("#copy")).toHaveText("Runtime wording");
       await expect(page.locator("#frame")).toHaveAttribute("data-replacing", "true");
-      expect(await page.locator(".toolbar").boundingBox()).toEqual(toolbarBefore);
+      expect(await page.locator(".shell-toolbar").boundingBox()).toEqual(toolbarBefore);
       await page.screenshot({ path: testInfo.outputPath(`recovery-loading-${width}.png`) });
     } finally {
       release();
     }
     await expect(page.locator("#previousFrame")).toHaveCount(0);
-    await expect(frame.locator("#copy")).toHaveText("Original source");
+    await expect(frame.locator("#copy")).toHaveText("Runtime wording");
     await waitForSdk(page);
-    expect(await page.locator(".toolbar").boundingBox()).toEqual(toolbarBefore);
+    expect(await page.locator(".shell-toolbar").boundingBox()).toEqual(toolbarBefore);
   });
 }
 
@@ -268,14 +260,14 @@ test("failed ready handshake exposes recovery and can reload successfully", asyn
   await page.route("**/api/session/*/render/*/ready", (route) => route.fulfill({
     status: 503, json: { error: "Ready unavailable" },
   }));
-  await recover(page, "static");
-  await expect(page.locator(".toast")).toContainText("could not confirm");
+  writeFile(review, "failed-recovery.html", `${html}\n<!-- source replacement -->`);
+  await expect(page.getByRole("alert")).toContainText("could not confirm");
   await expect(page.locator("#previousFrame")).toHaveCount(0);
   await expect(page.locator("#frame")).not.toHaveAttribute("data-replacing");
-  await expect(page.locator("#reloadNotice")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeVisible();
   await page.unroute("**/api/session/*/render/*/ready");
-  await page.locator("#safeReload").click();
+  await page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true }).click();
   const frame = await waitForSdk(page);
-  await expect(frame.locator("#copy")).toHaveText("Original source");
-  await expect(page.locator("#reloadNotice")).toBeHidden();
+  await expect(frame.locator("#copy")).toHaveText("Runtime wording");
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeHidden();
 });

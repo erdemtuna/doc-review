@@ -25,6 +25,10 @@ interface Options {
   failed: (message: string) => void;
   diagnostic: (event: string) => void;
   sending: () => boolean;
+  conversation?: {
+    record(key: string, payload: Record<string, unknown>): Promise<unknown>;
+    save(key: string, html: string, sourceHash: string): Promise<{ hash: string }>;
+  };
   clock?: () => string;
   setTimer?: typeof globalThis.setTimeout;
   clearTimer?: typeof globalThis.clearTimeout;
@@ -32,7 +36,7 @@ interface Options {
 
 export function createSaveController({
   sessionId, current, policy, request, flush, send, sourceHash, pageChanged,
-  conflict, failed, diagnostic, sending,
+  conflict, failed, diagnostic, sending, conversation,
   clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
   setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout,
 }: Options) {
@@ -92,12 +96,12 @@ export function createSaveController({
     const flight = previous.then(async () => {
       if (disposed) return false;
       try {
-        const result = record(await request(`/api/page/${key}/edit`, {
+        const result = conversation ? await conversation.record(key, original) : record(await request(`/api/page/${key}/edit`, {
           method: "POST", body: JSON.stringify(payload),
         }));
         if (ownedBacklog.get(id) === payload) ownedBacklog.delete(id);
         errors.delete(key);
-        if (matches(identity)) pageChanged(decodePage(result.page));
+        if (!conversation && matches(identity)) pageChanged(decodePage(record(result).page));
         return true;
       } catch (error) {
         errors.set(key, error);
@@ -119,6 +123,7 @@ export function createSaveController({
     await pipelines.get(key);
     if (disposed) throw new Error("Review ended");
     if (backlogs.get(key)?.size) {
+      if (conversation) throw errors.get(key) || new Error("Reconcile the failed edit before continuing.");
       const retry = [...(backlogs.get(key)?.values() || [])];
       errors.delete(key);
       for (const payload of retry) void persistEdit(key, payload);
@@ -135,7 +140,8 @@ export function createSaveController({
       return false;
     }
     try {
-      const result = record(await request(`/api/page/${identity.key}/save`, {
+      if (conversation) await settleEdits(identity.key);
+      const result = conversation ? await conversation.save(identity.key!, html, state.baseHash) : record(await request(`/api/page/${identity.key}/save`, {
         method: "POST",
         body: JSON.stringify({
           html, baseHash: state.baseHash, renderId: identity.renderId,
@@ -165,8 +171,8 @@ export function createSaveController({
       }
       state.status = "failed";
       publish();
-      if (attempts < 2) { await delay(500); return saveHtml(html, identity, attempts + 1); }
-      if (!sending()) failed("Couldn't save. Retry before sending feedback; your edits remain on this page.");
+      if (!conversation && attempts < 2) { await delay(500); return saveHtml(html, identity, attempts + 1); }
+      if (!sending()) failed(conversation && error instanceof Error ? error.message : "Couldn't save. Retry before sending feedback; your edits remain on this page.");
       return false;
     }
   }
@@ -195,7 +201,7 @@ export function createSaveController({
     const identity = current();
     await flushEdits(true);
     await activeSave;
-    if (state.status === "failed" && !state.conflict && lastSave && matches(lastSave.identity)) {
+    if (!conversation && state.status === "failed" && !state.conflict && lastSave && matches(lastSave.identity)) {
       await save(lastSave.html);
     }
     await settleEdits(identity.key);
@@ -233,9 +239,15 @@ export function createSaveController({
     save, persistEdit, settleEdits, flush: flushEdits, barrier, captureStable,
     applyClean, queued, cancelRetries,
     async settled() { await activeSave; },
+    async discardLocal(key: string | null) {
+      if (!key) return;
+      await pipelines.get(key);
+      await activeSave;
+      backlogs.delete(key); errors.delete(key);
+    },
     markEdit() { editSequence++; },
     markSaving() { state.dirty = true; state.status = "saving"; publish(); },
-    markDynamic() { state.dynamic = true; publish(); },
+    markDynamic() { state.dynamic = true; if (state.status === "saving" && !pending) state.status = "idle"; publish(); },
     observeClean() { clean = { identity: current(), sequence, editSequence }; applyClean(); },
     baseline(hash: string | null) { state.baseHash = hash; publish(); },
     hold() {

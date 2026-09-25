@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildContext, findQuote, tidy, tidyMiddle } from "../lib/anchor-text.js";
+import { buildContext, findQuote, resolveQuote, tidy, tidyMiddle } from "../lib/anchor-text.js";
 
 test("buildContext captures the quote with surrounding context", () => {
   const text = "The quick brown fox jumps over the lazy dog";
@@ -112,4 +112,22 @@ test("whitespace-tolerant matching still disambiguates repeats", () => {
   const hit = findQuote(after, ctx);
   assert.ok(hit);
   assert.ok(after.slice(0, hit.start).includes("gamma"), "context picks the second occurrence");
+});
+
+test("equally plausible exact and normalized repeats are ambiguous, never first-match", () => {
+  for (const text of ["before shared words after. before shared words after.", "before shared\n words after. before shared\twords after.",
+    "before shared words after. before shared\nwords after."]) {
+    const anchor = { quote: "shared words", prefix: "before ", suffix: " after." };
+    assert.deepEqual(resolveQuote(text, anchor), { state: "ambiguous", candidateCount: 2 });
+    assert.equal(findQuote(text, anchor), null);
+  }
+  assert.deepEqual(resolveQuote("same same same", { quote: "same" }), { state: "ambiguous", candidateCount: 3 });
+  assert.deepEqual(resolveQuote(" shared suffix. shared suffix.", { quote: " shared " }),
+    { state: "ambiguous", candidateCount: 2 });
+});
+
+test("quote resolution distinguishes missing from ambiguity and retains unique reformatted matches", () => {
+  assert.deepEqual(resolveQuote("Absent", { quote: "Original" }), { state: "missing" });
+  assert.deepEqual(resolveQuote("Intro original\n quote end", { quote: "original quote" }),
+    { state: "found", start: 6, end: 21, exact: false });
 });

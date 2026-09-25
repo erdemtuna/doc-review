@@ -1,6 +1,10 @@
 import type { CommentAnchor, CommentKind, FeedbackComment, FrameEdit } from "./feedback.js";
 import type { CapturedView, SemanticSnapshot } from "./history.js";
 import type { ReviewConfiguration } from "./page.js";
+import { conversationTargetSchema } from "./feedback.js";
+import {
+  array, enumeration, id, integer, literal, object, refine, reject, schema, union, unique, type Infer,
+} from "./validation.js";
 
 export interface FrameIdentity {
   capability: string;
@@ -47,6 +51,7 @@ export interface TargetGeometry {
   horizontal: number | null;
 }
 export type ShellToFrameMessage =
+  | FrameThreadAnchors | FrameThreadAction
   | ({ type: "eh:setTheme" } & ThemePayload)
   | ({ type: "eh:configureReview" } & ReviewConfiguration)
   | { type: "eh:anchors"; comments: FeedbackComment[] }
@@ -72,6 +77,7 @@ export type SnapshotMessage =
   | { type: "eh:snapshot"; requestId: string; error: { code: string; message: string }; snapshot?: never };
 
 export type FrameToShellMessage =
+  | FrameThreadAnchorStates | FrameThreadAction
   | ({ type: "eh:themeApplied" } & ThemePayload)
   | { type: "eh:ready"; scrollHeight: number }
   | ({ type: "eh:configurationApplied" } & ReviewConfiguration)
@@ -94,3 +100,90 @@ export type FrameToShellMessage =
   | { type: "eh:external" | "eh:navigate"; href: string };
 
 export type FrameMessage = FrameEnvelope<ShellToFrameMessage | FrameToShellMessage>;
+
+const finiteCoordinate = schema<number>((value, path) => typeof value === "number" && Number.isFinite(value)
+  ? value : reject("INVALID_INPUT", "Expected finite geometry.", path));
+const dimension = refine(finiteCoordinate, (value) => {
+  if (value < 0) reject("INVALID_INPUT", "Negative geometry dimension.");
+});
+export const conversationRectSchema = refine(object({
+  left: finiteCoordinate, top: finiteCoordinate, right: finiteCoordinate, bottom: finiteCoordinate,
+  width: dimension, height: dimension,
+}), (rect) => {
+  if (rect.right < rect.left || rect.bottom < rect.top) reject("INVALID_INPUT", "Inverted geometry.");
+});
+const renderScopeFields = { capability: id, reviewId: id, pageKey: id, renderId: id, generation: integer(1) };
+const projectionScopeFields = { ...renderScopeFields, projectionRevision: integer(1) };
+export const anchorProjectionSchema = object({ threadId: id, target: conversationTargetSchema });
+export const frameAnchorsSchema = refine(object({
+  type: literal("eh:threadAnchors"), ...projectionScopeFields, anchors: array(anchorProjectionSchema),
+}), ({ anchors }) => unique(anchors.map((anchor) => anchor.threadId)));
+const anchorStateFields = { threadId: id };
+export const anchorStateSchema = union(
+  object({
+    ...anchorStateFields, state: literal("found"),
+    rects: refine(array(conversationRectSchema), (rects) => {
+      if (!rects.length) reject("INVALID_INPUT", "Found target needs geometry.");
+    }),
+    viewport: object({ width: dimension, height: dimension }),
+    relation: enumeration(["visible", "above", "below", "left", "right"]),
+  }),
+  object({ ...anchorStateFields, state: literal("missing") }),
+  object({ ...anchorStateFields, state: literal("ambiguous"), candidateCount: integer(2) }),
+  object({ ...anchorStateFields, state: literal("unavailable"),
+    reason: enumeration(["render-loading", "render-changed", "render-unavailable", "hidden", "not-measurable", "invalid-selector"]) }),
+);
+export const frameAnchorStatesSchema = refine(object({
+  type: literal("eh:threadAnchorStates"), ...projectionScopeFields, anchors: array(anchorStateSchema),
+}), ({ anchors }) => unique(anchors.map((anchor) => anchor.threadId)));
+export type FrameThreadAnchors = Infer<typeof frameAnchorsSchema>;
+export type FrameThreadAnchorStates = Infer<typeof frameAnchorStatesSchema>;
+export const frameThreadActionSchema = object({
+  type: literal("eh:threadAction"), ...projectionScopeFields,
+  action: enumeration(["activate", "reveal", "dismiss"]), threadId: id,
+});
+export type FrameThreadAction = Infer<typeof frameThreadActionSchema>;
+function validateRenderScope(states: Infer<typeof renderScopeSchema>, projection: FrameThreadAnchors) {
+  if (states.reviewId !== projection.reviewId || states.pageKey !== projection.pageKey ||
+      states.renderId !== projection.renderId || states.generation !== projection.generation ||
+      states.capability !== projection.capability) {
+    reject("SCOPE_MISMATCH", "Stale or foreign render geometry/action.");
+  }
+}
+const renderScopeSchema = object(renderScopeFields);
+/** Classify only parsed messages; foreign scope and future revisions are errors. */
+export function isCurrentFrameProjection(
+  value: FrameThreadAnchorStates | FrameThreadAction, projection: FrameThreadAnchors,
+) {
+  validateRenderScope(value, projection);
+  if (value.projectionRevision > projection.projectionRevision) {
+    reject("SCOPE_MISMATCH", "Unknown future anchor projection revision.");
+  }
+  return value.projectionRevision === projection.projectionRevision;
+}
+export function sameFrameAnchorProjection(
+  left: Omit<FrameThreadAnchors, "projectionRevision">, right: Omit<FrameThreadAnchors, "projectionRevision">,
+) {
+  return (Object.keys(renderScopeFields) as (keyof typeof renderScopeFields)[]).every((key) => left[key] === right[key]) &&
+    left.anchors.length === right.anchors.length && left.anchors.every((anchor) => right.anchors.some((other) =>
+      anchor.threadId === other.threadId && JSON.stringify(anchor.target) === JSON.stringify(other.target)));
+}
+export function validateFrameThreadAction(input: unknown, projectionInput: unknown): FrameThreadAction {
+  const action = frameThreadActionSchema.parse(input);
+  const projection = frameAnchorsSchema.parse(projectionInput);
+  if (!isCurrentFrameProjection(action, projection)) reject("SCOPE_MISMATCH", "Stale anchor projection action.");
+  if (!projection.anchors.some((anchor) => anchor.threadId === action.threadId)) {
+    reject("SCOPE_MISMATCH", "Thread action is outside the current projection.");
+  }
+  return action;
+}
+export function validateFrameAnchorStates(input: unknown, projectionInput: unknown): FrameThreadAnchorStates {
+  const states = frameAnchorStatesSchema.parse(input);
+  const projection = frameAnchorsSchema.parse(projectionInput);
+  if (!isCurrentFrameProjection(states, projection)) reject("SCOPE_MISMATCH", "Stale anchor projection geometry.");
+  if (states.anchors.length !== projection.anchors.length ||
+      states.anchors.some((state) => !projection.anchors.some((anchor) => anchor.threadId === state.threadId))) {
+    reject("SCOPE_MISMATCH", "Anchor states must cover exactly the projected threads.");
+  }
+  return states;
+}

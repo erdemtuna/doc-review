@@ -43,11 +43,23 @@ export function injectSdk(
       ? prepared.replace(/<head(\s[^>]*)?>/i, (head) => `${head}${restoreRoute}`)
       : `${restoreRoute}${prepared}`;
   }
-  // Put the trusted module before authored markup can enter an unclosed
-  // script/style/textarea raw-text context. Removing this exact tag restores
-  // every authored byte.
+  // Consume only the document's safe opening prefix. Inserting before <html>
+  // invents an implicit head and redistributes authored whitespace into it.
+  // Never search ahead for <head>: it could be inside unclosed raw text.
   const doctype = /^(\uFEFF?\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>)/i.exec(prepared);
-  const at = doctype ? doctype[0].length : 0;
+  let at = doctype ? doctype[0].length : 0;
+  const trivia = () => {
+    const match = /^(?:[\t\n\f\r ]|<!--[\s\S]*?-->)+/.exec(prepared.slice(at));
+    if (match) at += match[0].length;
+  };
+  const opening = (name) => {
+    const match = new RegExp(`^<${name}(?=[\\t\\n\\f\\r />])(?:[^"'<>]|"[^"]*"|'[^']*')*>`, "i").exec(prepared.slice(at));
+    if (match) at += match[0].length;
+    return !!match;
+  };
+  trivia();
+  if (opening("html")) trivia();
+  opening("head");
   return `${prepared.slice(0, at)}${tag}${prepared.slice(at)}`;
 }
 

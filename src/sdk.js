@@ -5,9 +5,10 @@
  * document: editing, highlights, target resolution and serialization. It never
  * talks to the server — everything crosses to the chrome page by postMessage.
  */
-import { buildContext, findQuote } from "./anchor-text.js";
+import { buildContext, findQuote, resolveQuote } from "./anchor-text.js";
+import { createThreadAnchorController } from "./thread-anchor-controller.js";
 import { hashClickAction, navigationHref } from "./click-target.js";
-import { acceptedOpenGeneration, createHoverIntent, groupCommentTargets, nextCommentId, normalizeSelectionRange, pointInCommentApproach, sameRange, targetMessage } from "./comment-target.js";
+import { acceptedOpenGeneration, createHoverIntent, groupCommentTargets, nextCommentId, normalizeSelectionRange, pointInCommentApproach, sameRange, sameThreadTarget, targetMessage } from "./comment-target.js";
 import { classifyHref, externalHref, linkStyleFixup, listCommandFor, listStyleFixup, normalizeHref } from "./editing.js";
 import { frameMessage, initializeChannelFromDocument, matchesFrameMessage } from "./frame-channel.js";
 import { iconMarkup } from "./icons.js";
@@ -46,6 +47,7 @@ let resizing = null; // live drag state while the grip is held
 let suppressUntil = 0; // ignore the mouseup/click that ends a resize drag
 let saveTimer = null;
 let composeOpen = false;
+let retiredComposeGeneration = 0;
 let commentOpenRequestGeneration = null;
 let activeCommentId = null;
 let modeMenuOpen = false;
@@ -66,6 +68,8 @@ let themeRevision = 0;
 let themeWarnings = 0;
 const blockTargets = new Map();
 const blockMarkers = new Map();
+let threadAnchors = null;
+const threadTargets = new Map();
 /** True when the page's own scripts rewrote the DOM before any user edit. */
 let dynamic = false;
 
@@ -304,7 +308,8 @@ function positionBlockBadge(badge, rect) {
   const candidates = [
     [rect.left - width - 5, rect.top], [rect.right + 5, rect.top],
     [rect.right - width, rect.top - height - 5], [rect.right - width, rect.bottom + 5],
-    [innerWidth - width - 4, rect.top], [4, rect.top],
+    [innerWidth - width - 4, Math.max(4, Math.min(innerHeight - height - 4, rect.top))],
+    [4, Math.max(4, Math.min(innerHeight - height - 4, rect.top))],
   ];
   const controls = "a[href], button, input, select, textarea, summary, [role=button], [role=tab], [contenteditable=true]";
   const occupied = [...blockMarkers.values()].filter((entry) => entry.badge !== badge && entry.badge.style.display !== "none")
@@ -349,7 +354,7 @@ function renderBlockAnnotations() {
         hoverIntent?.cancel();
         const currentIds = groupCommentTargets(blockTargets).get(element) || [];
         const id = nextCommentId(currentIds, activeCommentId);
-        if (id) post("eh:activate", { id });
+        if (id) requestThreadActivation(id);
       });
       els.blockAnnotations.append(marker, badge);
       entry = { marker, badge };
@@ -360,9 +365,9 @@ function renderBlockAnnotations() {
     marker.dataset.active = String(active);
     badge.setAttribute("aria-pressed", String(active));
     const label = commentTargetFor(element)?.label || element.tagName.toLowerCase();
-    const name = `${ids.length} block comment${ids.length === 1 ? "" : "s"} on ${label}${ids.length > 1 ? "; activate to open next comment" : ""}`;
+    const name = ids.length > 1 ? `Open ${ids.length} conversations` : "Open conversation";
     badge.setAttribute("aria-label", name);
-    badge.title = name;
+    badge.title = `${name} on ${label}`;
     badge.textContent = `◧ ${ids.length}`;
     const rect = visibleRects([rectData(element.getBoundingClientRect())], { kind: "element", element })[0];
     marker.style.display = badge.style.display = "none";
@@ -370,6 +375,7 @@ function renderBlockAnnotations() {
     Object.assign(marker.style, { display: "block", left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
     positionBlockBadge(badge, rect);
   }
+  if (pending || retarget) positionCommentAction(targetRects(retarget || pending));
   refreshGeometryWatch();
 }
 
@@ -625,9 +631,17 @@ function positionCommentAction(rects, target = retarget || pending) {
     els.commentAction.style.display = "none";
     return false;
   }
+  const x = Math.max(4, Math.min(window.innerWidth - 34, rect.right + 6));
+  const y = Math.max(4, Math.min(window.innerHeight - 34, rect.top - 4));
+  const badges = [...blockMarkers.values()].filter(({ badge }) => badge.style.display !== "none")
+    .map(({ badge }) => badge.getBoundingClientRect());
+  const position = [[x, y], [x, y + 38], [x, y - 38], [x - 38, y]].find(([left, top]) =>
+    left >= 4 && top >= 4 && left + 30 <= innerWidth - 4 && top + 30 <= innerHeight - 4 &&
+    !badges.some((badge) => left < badge.right && left + 30 > badge.left && top < badge.bottom && top + 30 > badge.top));
+  if (!position) { els.commentAction.style.display = "none"; return false; }
   els.commentAction.style.display = "flex";
-  els.commentAction.style.left = `${Math.max(4, Math.min(window.innerWidth - 34, rect.right + 6))}px`;
-  els.commentAction.style.top = `${Math.max(4, Math.min(window.innerHeight - 34, rect.top - 4))}px`;
+  els.commentAction.style.left = `${position[0]}px`;
+  els.commentAction.style.top = `${position[1]}px`;
   return true;
 }
 
@@ -737,7 +751,7 @@ function geometryWatchSignature() {
 }
 
 function refreshGeometryWatch() {
-  const shouldWatch = !disposed && !!(pending || retarget || activeCommentId || blockTargets.size);
+  const shouldWatch = !disposed && !!(pending || retarget || activeCommentId || blockTargets.size || threadAnchors?.projection?.anchors.length);
   if (!shouldWatch) {
     clearInterval(geometryWatchTimer);
     geometryWatchTimer = null;
@@ -747,9 +761,13 @@ function refreshGeometryWatch() {
   if (geometryWatchTimer) return;
   watchedGeometrySignature = geometryWatchSignature();
   geometryWatchTimer = setInterval(() => {
-    if (disposed || !(pending || retarget || activeCommentId || blockTargets.size)) {
+    if (disposed || !(pending || retarget || activeCommentId || blockTargets.size || threadAnchors?.projection?.anchors.length)) {
       refreshGeometryWatch();
       return;
+    }
+    if (threadAnchors?.projection) {
+      try { threadAnchors.refresh(); }
+      catch (error) { diagnostic("thread-boundary-rejected", { message: error.message }); }
     }
     const next = geometryWatchSignature();
     if (next === watchedGeometrySignature) return;
@@ -895,6 +913,7 @@ function cssPath(el) {
 
 /** The heading a block sits under, used to name edits in arbitrary HTML. */
 function precedingHeading(el) {
+  if (/^h[1-6]$/i.test(el.tagName) && el.textContent.trim()) return el.textContent.trim();
   let node = el;
   while (node && node !== document.body) {
     let sib = node.previousElementSibling;
@@ -1290,9 +1309,11 @@ function restoreTargetFocus(target) {
   if (!target) return;
   if (target.kind === "element" && target.element?.isConnected) {
     const element = target.element;
+    const focused = document.activeElement;
+    if (document.hasFocus() && focused !== document.body && focused !== element && !isOurs(focused)) return;
     element.focus({ preventScroll: true });
     requestAnimationFrame(() => {
-      if (element.isConnected && document.activeElement !== element) {
+      if (element.isConnected && document.activeElement === document.body) {
         element.focus({ preventScroll: true });
       }
     });
@@ -1408,6 +1429,7 @@ function openPendingCompose() {
 function acceptCommentOpen(msg) {
   hoverIntent?.cancel();
   const requested = Number(msg.requestedGeneration);
+  if (requested <= retiredComposeGeneration) return;
   if (commentOpenRequestGeneration === requested) commentOpenRequestGeneration = null;
   if (!msg.accepted) {
     const authoritative = Number(msg.targetGeneration);
@@ -1544,7 +1566,10 @@ function reanchor(comments) {
     if (comment.kind === "element") {
       let el = blockTargets.get(comment.id);
       if (!el?.isConnected) {
-        try { el = comment.anchor?.selector ? document.querySelector(comment.anchor.selector) : null; }
+        try {
+          const matches = comment.anchor?.selector ? [...document.querySelectorAll(comment.anchor.selector)].filter((element) => !isOurs(element)) : [];
+          el = matches.length === 1 ? matches[0] : null;
+        }
         catch { el = null; }
       }
       if (el && !isOurs(el)) blockTargets.set(comment.id, el);
@@ -1561,8 +1586,118 @@ function reanchor(comments) {
     const marks = wrapOffsets(map, hit.start, hit.end, comment.id);
     (marks.length ? resolved : orphaned).push(comment.id);
   }
-  post("eh:anchorStatus", { resolved, orphaned });
+  if (!threadAnchors?.projection) post("eh:anchorStatus", { resolved, orphaned });
   renderBlockAnnotations();
+}
+
+function hiddenThreadTarget(element) {
+  for (let node = element; node; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (node.hidden || node.getAttribute("aria-hidden") === "true" || style.display === "none" ||
+        style.visibility === "hidden" || style.visibility === "collapse" ||
+        style.contentVisibility === "hidden" || Number(style.opacity) === 0) return true;
+  }
+  return false;
+}
+
+const threadElements = new Map();
+function resolveThreadAnchor({ threadId, target }) {
+  threadTargets.delete(threadId);
+  const unavailable = (reason) => ({ threadId, state: "unavailable", reason });
+  if (!document.body || document.readyState === "loading") return unavailable("render-loading");
+  let resolved;
+  if (target.kind === "element") {
+    let candidates;
+    try {
+      candidates = [...document.querySelectorAll(target.anchor.selector)]
+        .filter((element) => document.body.contains(element) && !isOurs(element));
+    } catch (error) {
+      if (error.name !== "SyntaxError") throw error;
+      return unavailable("invalid-selector");
+    }
+    if (!candidates.length) return { threadId, state: "missing" };
+    if (candidates.length > 1) return { threadId, state: "ambiguous", candidateCount: candidates.length };
+    const previous = threadElements.get(threadId);
+    if (previous && previous !== candidates[0]) return unavailable("render-changed");
+    threadElements.set(threadId, candidates[0]);
+    if (hiddenThreadTarget(candidates[0])) return unavailable("hidden");
+    resolved = { kind: "element", element: candidates[0] };
+  } else {
+    const { text, map } = flatten();
+    const hit = resolveQuote(text, target.anchor);
+    if (hit.state !== "found") return { threadId, ...hit };
+    const entries = map.filter((entry) => entry.end > hit.start && entry.start < hit.end);
+    if (!entries.length) return unavailable("not-measurable");
+    if (entries.some((entry) => hiddenThreadTarget(entry.node.parentElement))) return unavailable("hidden");
+    const range = document.createRange();
+    range.setStart(entries[0].node, hit.start - entries[0].start);
+    range.setEnd(entries.at(-1).node, hit.end - entries.at(-1).start);
+    resolved = { kind: "selection", range };
+  }
+  const raw = targetRects(resolved).filter((rect) => rect.width > 0 && rect.height > 0);
+  if (!raw.length) return unavailable("not-measurable");
+  const viewport = viewportData();
+  const relationTo = (clip) => raw.every((rect) => rect.bottom <= clip.top) ? "above"
+    : raw.every((rect) => rect.top >= clip.bottom) ? "below"
+      : raw.every((rect) => rect.right <= clip.left) ? "left"
+        : raw.every((rect) => rect.left >= clip.right) ? "right" : "visible";
+  const viewportRelation = relationTo({ left: 0, top: 0, right: viewport.width, bottom: viewport.height });
+  const clip = effectiveClipRect(resolved);
+  const relation = viewportRelation !== "visible" ? viewportRelation : clip ? relationTo(clip) : null;
+  if (!relation) return unavailable("not-measurable");
+  const rects = relation === "visible" ? raw.map((rect) => intersectRects(rect, clip)).filter(Boolean) : raw;
+  if (!rects.length) return unavailable("not-measurable");
+  threadTargets.set(threadId, resolved);
+  return { threadId, state: "found", rects, viewport, relation };
+}
+
+threadAnchors = createThreadAnchorController({
+  channel: frameMessage("scope"),
+  resolve: resolveThreadAnchor,
+  reconcile(projection, states) {
+    const found = new Set(states.anchors.filter((anchor) => anchor.state === "found").map((anchor) => anchor.threadId));
+    for (const threadId of found) {
+      const target = threadTargets.get(threadId);
+      if (target.kind === "element") blockTargets.set(threadId, target.element);
+      else {
+        const marks = marksFor(threadId);
+        if (marks.length && (!marks.some((mark) => mark.contains(target.range.startContainer)) ||
+            !marks.some((mark) => mark.contains(target.range.endContainer)) ||
+            marks.map((mark) => mark.textContent).join("") !== target.range.toString())) unwrap(threadId);
+      }
+    }
+    reanchor(projection.anchors.filter((anchor) => found.has(anchor.threadId)).map(({ threadId, target }) => ({
+      id: threadId, kind: target.kind, anchor: target.anchor,
+    })));
+    for (const threadId of found) {
+      const state = states.anchors.find((item) => item.threadId === threadId);
+      const peers = states.anchors.filter((item) => sameThreadTarget(item, state)).map((item) => item.threadId);
+      const marks = marksFor(threadId);
+      for (const [index, mark] of marks.entries()) {
+        const nestedPeer = [...mark.querySelectorAll(`mark[${MARK_ATTR}]`)].some((nested) => peers.includes(nested.getAttribute(MARK_ATTR)));
+        const interactive = index === 0 && !nestedPeer;
+        if (mark.tabIndex !== (interactive ? 0 : -1)) mark.tabIndex = interactive ? 0 : -1;
+        const role = interactive ? "button" : "presentation";
+        if (mark.getAttribute("role") !== role) mark.setAttribute("role", role);
+        const label = peers.length > 1 ? `Open ${peers.length} conversations` : "Open conversation";
+        if (interactive && mark.getAttribute("aria-label") !== label) mark.setAttribute("aria-label", label);
+        if (!interactive && mark.hasAttribute("aria-label")) mark.removeAttribute("aria-label");
+      }
+    }
+  },
+  changed(_projection, states) {
+    post("eh:threadAnchorStates", states);
+  },
+});
+
+function threadAction(action, threadId) {
+  const { anchors: _anchors, type: _type, ...scope } = threadAnchors.projection;
+  return threadAnchors.action({ type: "eh:threadAction", ...scope, action, threadId });
+}
+function requestThreadActivation(id) {
+  if (!threadAnchors.projection) { post("eh:activate", { id }); return; }
+  try { post("eh:threadAction", threadAction("activate", id)); }
+  catch (error) { diagnostic("thread-boundary-rejected", { message: error.message }); }
 }
 
 function activate(id, scroll) {
@@ -1639,6 +1774,20 @@ const REVIEW_DOCUMENT_COLORS = {
 /* REVIEW_THEME_DOCUMENT_END */
 
 function boot() {
+  document.addEventListener("keydown", (event) => {
+    if (!threadAnchors.projection || event.isComposing || event.keyCode === 229) return;
+    const mark = event.target.closest?.(`mark[${MARK_ATTR}]`);
+    if (mark && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault(); event.stopPropagation();
+      requestThreadActivation(mark.getAttribute(MARK_ATTR));
+    } else if (event.key === "Escape" && activeCommentId &&
+        (isOurs(event.target) || !event.target.closest?.("input,textarea,select,[contenteditable='true']"))) {
+      try {
+        post("eh:threadAction", threadAction("dismiss", activeCommentId));
+        deactivateComment(); event.preventDefault(); event.stopPropagation();
+      } catch (error) { diagnostic("thread-boundary-rejected", { message: error.message }); }
+    }
+  });
   mountOverlay();
 
   const style = document.createElement("style");
@@ -1709,7 +1858,7 @@ function boot() {
       const mark = event.target.closest && event.target.closest(`mark[${MARK_ATTR}]`);
       if (mark && themeRevision) {
         event.preventDefault();
-        post("eh:activate", { id: mark.getAttribute(MARK_ATTR) });
+        requestThreadActivation(mark.getAttribute(MARK_ATTR));
         return;
       }
 
@@ -1983,21 +2132,24 @@ function boot() {
     const target = targetFor(hoverTarget);
     const label = target ? target.label : "Element";
     const before = hoverTarget.textContent;
+    const before_html = blockHtml(hoverTarget);
     hoverTarget.remove();
     hoverTarget = null;
     place(els.outline, null);
     showChip(null);
-    queueEdit({ label, kind: "deleted", before, after: "" });
+    queueEdit({ label, kind: "deleted", before, before_html, after: "" });
     flushSave();
   });
 
   // beforeinput still sees the untouched wording, so capture it once per block.
   const originalText = new WeakMap();
   const originalHtml = new WeakMap();
+  const capturedBlocks = new Set();
   const captureOriginal = (el) => {
     if (!originalText.has(el)) {
       originalText.set(el, el.textContent);
       originalHtml.set(el, blockHtml(el));
+      capturedBlocks.add(el);
     }
   };
 
@@ -2447,6 +2599,15 @@ function boot() {
   // not HTML5 drag: the element is relocated on drop, never cloned, so
   // identity (labels, captured originals, comment anchors) survives the move.
   let moving = null; // { el, label, drop: { ref, before } | null } while the handle is held
+  const cancelMove = () => {
+    if (!moving) return;
+    moving.preview.cancel();
+    moving = null;
+    showDropline(null);
+    showMover(null);
+  };
+  window.addEventListener("pointercancel", cancelMove);
+  window.addEventListener("blur", cancelMove);
 
   const dropPointFor = (x, y) => {
     const under = document.elementFromPoint(x, y);
@@ -2464,9 +2625,12 @@ function boot() {
     event.preventDefault();
     event.stopPropagation();
     const target = targetFor(el);
-    moving = { el, label: target ? target.label : "Block", drop: null };
+    moving = {
+      el, label: target ? target.label : "Block", drop: null,
+      before: el.textContent, beforeHtml: blockHtml(el),
+      preview: el.animate([{ opacity: 0.4 }, { opacity: 0.4 }], { duration: 1000, iterations: Infinity }),
+    };
     captureOriginal(moving.el);
-    moving.el.style.opacity = "0.4";
     place(els.outline, null);
     showChip(null);
     try {
@@ -2485,11 +2649,11 @@ function boot() {
 
   window.addEventListener("pointerup", () => {
     if (!moving) return;
-    const { el, label, drop } = moving;
+    const { el, label, drop, before, beforeHtml, preview } = moving;
     moving = null;
     showDropline(null);
     showMover(null);
-    el.style.opacity = "";
+    preview.cancel();
     suppressUntil = Date.now() + 250;
     if (!drop || !drop.ref.isConnected || !el.isConnected) return;
     // Dropping right back where it came from is a no-op, not an edit.
@@ -2502,9 +2666,9 @@ function boot() {
     queueEdit({
       label,
       kind: "moved",
-      before: originalText.get(el),
+      before,
       after: el.textContent,
-      before_html: originalHtml.get(el),
+      before_html: beforeHtml,
       after_html: blockHtml(el),
       moved_after: prev ? clip(prev.textContent, 90) : "",
       moved_before: following ? clip(following.textContent, 90) : "",
@@ -2646,11 +2810,26 @@ function boot() {
     const msg = event.data || {};
     if (!matchesFrameMessage(msg)) return;
     switch (msg.type) {
+      case "eh:threadAnchors":
+        try { threadAnchors.project(msg); refreshGeometryWatch(); }
+        catch (error) { diagnostic("thread-boundary-rejected", { message: error.message }); }
+        break;
+      case "eh:threadAction":
+        try {
+          const action = threadAnchors.action(msg);
+          if (action.action === "dismiss") deactivateComment();
+          else {
+            if (action.action === "reveal") targetElement(threadTargets.get(action.threadId))?.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+            activate(action.threadId, false);
+            threadAnchors.refresh();
+          }
+        } catch (error) { diagnostic("thread-boundary-rejected", { message: error.message }); }
+        break;
       case "eh:setTheme":
         applyReviewTheme(msg);
         break;
       case "eh:anchors":
-        reanchor(msg.comments || []);
+        if (!threadAnchors.projection) reanchor(msg.comments || []);
         break;
       case "eh:commit":
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
@@ -2661,6 +2840,8 @@ function boot() {
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
         {
           const discardThrough = Number(msg.discardThroughGeneration) || Number(msg.targetGeneration) || 0;
+          retiredComposeGeneration = Math.max(retiredComposeGeneration, discardThrough);
+          if (commentOpenRequestGeneration <= discardThrough) commentOpenRequestGeneration = null;
           const newerRetarget = retarget && retarget.generation > discardThrough ? retarget : null;
           if (msg.restoreFocus && !newerRetarget) restoreTargetFocus(pending);
           clearPending({ keepRetarget: !!newerRetarget || !!msg.preserveRetarget });
@@ -2696,7 +2877,7 @@ function boot() {
         renderBlockAnnotations();
         break;
       case "eh:activate":
-        activate(msg.id, !!msg.scroll);
+        if (!threadAnchors.projection) activate(msg.id, !!msg.scroll);
         break;
       case "eh:flush":
         flushSave();
@@ -2747,6 +2928,16 @@ function boot() {
       case "eh:assetFailed":
         pendingPastes.delete(msg.id);
         break;
+      case "eh:submittedEdits": {
+        if (!Array.isArray(msg.labels) || msg.labels.some((label) => typeof label !== "string")) break;
+        const labels = new Set(msg.labels);
+        for (const element of capturedBlocks) if (labels.has(pinnedLabels.get(element))) {
+          originalText.delete(element);
+          originalHtml.delete(element);
+          capturedBlocks.delete(element);
+        }
+        break;
+      }
       default:
         break;
     }

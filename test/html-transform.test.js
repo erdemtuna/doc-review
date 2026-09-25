@@ -12,13 +12,13 @@ const LOCALHOST_PAGE = `<!DOCTYPE html>
 <html><head><title>Spec</title><link rel="stylesheet" href="/_next/app.css"></head>
 <body><a href="/wiki/lesson">Lesson</a><img src="./hero.png"><script src="/_next/app.js"></script></body></html>`;
 
-test("injectSdk adds exactly one bootstrap immediately after the doctype", () => {
+test("injectSdk adds exactly one bootstrap at the safe head opening", () => {
   const out = injectSdk(PAGE, "abc123");
   const tags = out.match(/<script[^>]*data-eh-sdk/g) || [];
   assert.equal(tags.length, 1);
   assert.match(
     out,
-    /^<!DOCTYPE html><script data-eh-sdk data-eh-bootstrap type="module" data-generation="0" data-page-key="abc123" src="\/sdk\.js"><\/script>/
+    /^<!DOCTYPE html>\n<html><head><script data-eh-sdk data-eh-bootstrap type="module" data-generation="0" data-page-key="abc123" src="\/sdk\.js"><\/script>/
   );
 });
 
@@ -61,9 +61,9 @@ test("fragments without a doctype get the script first", () => {
   assert.equal(stripSdk(out).trim(), "<h1>bare</h1>");
 });
 
-test("a page with only </html> gets the script first", () => {
+test("a page without a head gets the script before its first content", () => {
   const out = injectSdk("<html><h1>x</h1></html>", "k");
-  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("<html>"));
+  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("<h1>"));
 });
 
 test("localhost pages get absolute assets, their real route, and one sdk", () => {
@@ -92,14 +92,14 @@ test("localhost pages get absolute assets, their real route, and one sdk", () =>
 test("hostile trailing raw-text markup cannot swallow the bootstrap", () => {
   const page = '<!DOCTYPE html><html><body><script>const tpl = "</body>";</script><p>x</p></body></html>';
   const out = injectSdk(page, "k");
-  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("<html>"));
+  assert.ok(out.indexOf("data-eh-sdk") < out.indexOf("<body>"));
   assert.equal(stripSdk(out), page);
 });
 
 test("leading comments stay before the doctype and do not trigger quirks mode", () => {
   const page = "\uFEFF <!-- license -->\n<!doctype html><html><body><p>x</p></body></html>";
   const out = injectSdk(page, "k");
-  assert.match(out, /^\uFEFF <!-- license -->\n<!doctype html><script data-eh-sdk/);
+  assert.match(out, /^\uFEFF <!-- license -->\n<!doctype html><html><script data-eh-sdk/);
   assert.equal(stripSdk(out), page);
 });
 
@@ -108,3 +108,14 @@ test("stripSdk removes only the injected bootstrap tag byte-for-byte", () => {
   assert.equal(stripSdk(authored), authored);
   assert.equal(stripSdk(injectSdk(authored, "k")), authored);
 });
+
+for (const prefix of ["", "<!doctype html>", "<html>", "<html><head>", '<html lang="a>b"><head data-label="c>d">']) {
+  for (const unsafe of ["<script>", "<style>", "<textarea>", "<!--", '<head title="']) {
+    test(`trusted bootstrap precedes unsafe opening ${JSON.stringify(prefix + unsafe)}`, () => {
+      const source = `${prefix}${unsafe}<head><script>authored raw text`;
+      const out = injectSdk(source, "page", { nonce: "trusted" });
+      assert.ok(out.indexOf("data-eh-bootstrap") < out.indexOf(unsafe, prefix.length));
+      assert.equal(stripSdk(out), source);
+    });
+  }
+}

@@ -5,7 +5,7 @@ import fs from "node:fs";
 
 // Bump for incompatible CLI/server or shell/SDK contracts, including readiness.
 // A new CLI must not silently reuse an older background server.
-export const SERVER_PROTOCOL = 18;
+export const SERVER_PROTOCOL = 24;
 
 export function serverProtocolMatches(protocol) {
   return Number(protocol) === SERVER_PROTOCOL;
@@ -17,7 +17,7 @@ export function stateDir() {
 }
 
 export function statePath() {
-  return path.join(stateDir(), "state.json");
+  return path.join(stateDir(), "conversation-state.json");
 }
 
 export function serverPath() {

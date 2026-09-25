@@ -159,7 +159,7 @@
     border: 1px solid var(--border);
     border-radius: calc(var(--radius) + 2px);
   }
-  .shell-mode { grid-area: mode; }
+  .shell-mode { grid-area: mode; display: flex; align-items: center; gap: 8px; }
   .shell-actions { grid-area: actions; display: flex; justify-content: flex-end; gap: 4px; }
   .shell-recovery { grid-area: recovery; justify-self: end; }
   .stage { display: flex; flex-direction: column; }

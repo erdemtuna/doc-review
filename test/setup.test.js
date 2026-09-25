@@ -22,7 +22,7 @@ test("skill activation requires an explicit interactive review request", () => {
   assert.match(contents, /^name: doc-review$/m);
   assert.match(description, /Use only when the user explicitly invokes \/doc-review/);
   assert.match(description, /Do not invoke merely because you write, update, discuss, or review/);
-  assert.match(contents, /Another skill's\s+automatic review step is not user permission/);
+  assert.match(contents, /Another skill's\s+automatic\s+review step is not user permission/);
   assert.match(contents, /without opening a review or polling/);
   assert.match(contents, /After the explicit review request/);
   assert.doesNotMatch(contents, /Use after writing or updating something the user will read/);
@@ -38,7 +38,8 @@ test("global setup installs the skill for Claude Code, Codex, and shared agents"
       assert.equal(fs.existsSync(skill), true);
       const contents = fs.readFileSync(skill, "utf8");
       assert.match(contents, /npx -y @erdemtuna\/doc-review poll/);
-      assert.match(contents, /--ack b_0123456789abcdef/);
+      assert.match(contents, /respond --review <reviewId> --entry <entryKey> --response-file response.json/);
+      assert.doesNotMatch(contents, /--ack|There is no reply channel/);
       assert.match(contents, /Use only when the user explicitly invokes \/doc-review/);
     }
     assert.match(result.join("\n"), /Claude Code skill/);
@@ -64,7 +65,8 @@ test("project setup gates both skill and AGENTS instructions on explicit review"
     assert.match(agents, /Start only when the user explicitly invokes \/doc-review/);
     assert.match(agents, /Another skill's automatic\s+review step is not user permission/);
     assert.doesNotMatch(agents, /After writing an HTML or Markdown file the user will read/);
-    assert.match(agents, /--ack <batch_id>/);
+    assert.match(agents, /--response-file response.json/);
+    assert.doesNotMatch(agents, /--ack|There is no reply channel/);
 
     installSkills(cwd, { command: COMMAND_NAME });
     assert.equal(fs.readFileSync(path.join(cwd, "AGENTS.md"), "utf8"), agents);
@@ -164,18 +166,20 @@ function assertManaged(contents, command) {
   assert.equal(contents.split(GUIDANCE_END).length, 2);
   assert.match(contents, /Start only when the user explicitly invokes \/doc-review/);
   assert.match(contents, /Another skill's automatic\s+review step is not user permission/);
-  assert.ok(contents.includes(`${command} poll <target> --timeout 600`));
+  assert.ok(contents.includes(`${command} poll --review <reviewId> --entry <entryKey> --timeout 600`));
   assert.match(contents, /Without `--timeout`, the CLI defaults to a 12-hour cutoff/);
   assert.match(contents, /`--timeout` is one end-to-end deadline, including server discovery and reconnect/);
   assert.match(contents, /bounded foreground `--timeout 600` loop/);
-  assert.match(contents, /Keep that exact batch ID on retries/);
-  assert.match(contents, /never acknowledge an unhandled batch/);
+  assert.match(contents, /Reuse the identical file and request ID on transport retries/);
+  assert.match(contents, /never repeat\s+source edits because a connection was lost/);
   assert.match(contents, /For non-truncated edits,\s+`after` is their exact wording/);
   assert.match(contents, /200,000 Unicode code points each/);
   assert.match(contents, /`truncated: true` identifies clipped fields in the `truncated_fields` array/);
   assert.match(contents, /Never apply incomplete text or HTML as a complete replacement or invent missing\s+text/);
   assert.match(contents, /only from an authoritative source; otherwise ask the\s+user for the complete edit/);
-  assert.match(contents, /Do not acknowledge the batch until every item,\s+including truncated edits, has been handled/);
+  assert.match(contents, /responses` must cover every submitted message exactly once/);
+  assert.match(contents, /not live agent availability/);
+  assert.doesNotMatch(contents, /--ack|There is no reply channel|fix every page/);
   assert.doesNotMatch(contents, /After writing an HTML or Markdown file the user will read/);
   assert.doesNotMatch(contents, /disable-model-invocation/);
 }

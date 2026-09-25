@@ -4,16 +4,18 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, Store, resolveAsset } from "./state.js";
-import { normalizeCommentAnchor } from "./comment-anchor.js";
 import { injectSdk, stripSdk } from "./html-transform.js";
 import { isMarkdown, renderMarkdownPage } from "./markdown.js";
-import { canonicalTarget, ensureStateDir, localUrl, SERVER_PROTOCOL, serverPath, stateDir, targetKey } from "./paths.js";
+import { canonicalTarget, ensureStateDir, localUrl, SERVER_PROTOCOL, serverPath } from "./paths.js";
 import { acquireServerLock, releaseServerLock, removeOwnedServerRecord } from "./server-lock.js";
-import { invocation, shellQuote } from "./setup.js";
-import { limitEditFields } from "./edit-limits.js";
-import { createHistoryController, HistoryRequestError, historyErrorStatus } from "./history-server.js";
+import { invocation } from "./setup.js";
+import { agentHandoff } from "./agent-handoff.js";
+import { createConversationCapture, HistoryRequestError, historyErrorStatus } from "./history-server.js";
 import { documentExecutionPolicy, transformInteractiveHtml } from "./document-execution.js";
 import { interactiveFileCsp } from "./frame-policy.js";
+import { createConversationController, conversationFailure } from "./conversation-server.js";
+import { ContractError } from "./contracts/validation.js";
+import { stagedRoot as conversationStagedRoot } from "./conversation-save.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,7 +62,6 @@ const fileReviewCsp = (nonce) =>
   `script-src 'nonce-${nonce}' 'strict-dynamic'; object-src 'none'; base-uri 'self'`;
 
 const hash = (text) => crypto.createHash("sha1").update(text).digest("hex");
-const uid = (prefix) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
 
 /** Read an HTML response with a hard size cap, since text() is unbounded. */
 async function readCapped(response, url) {
@@ -125,8 +126,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
   /** Browser windows. Ephemeral — nothing durable lives here. */
   const sessions = new Map(); // sessionId -> { id, entryKey, activeKey, generation, renderId, visited, clients:Set<res>, lastSeen }
   const renders = new Map(); // renderId -> current artifact/bootstrap record
-  /** Agent long-polls, keyed by the entry page they were started on. */
-  const pollers = new Map(); // entryKey -> Set<{ res, timer }>
   const sseResponses = new Map(); // res -> heartbeat timer
   const watched = new Map(); // key -> { file }
   const lastWritten = new Map(); // key -> content hash doc-review itself wrote
@@ -146,10 +145,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
 
   function sessionsForKey(key) {
     return [...sessions.values()].filter((s) => s.activeKey === key);
-  }
-
-  function sessionsForEntry(entryKey) {
-    return [...sessions.values()].filter((s) => s.entryKey === entryKey);
   }
 
   function expireRender(renderId) {
@@ -193,23 +188,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
     }
   }
 
-  /**
-   * A pending batch only means "working" once an agent has actually taken it.
-   * Feedback sent with nothing listening is "stranded", and the browser says so.
-   */
-  function agentState(entryKey) {
-    const pending = store.batch(entryKey);
-    if (pending?.delivery_state === "delivered") return "working";
-    const set = pollers.get(entryKey);
-    if (set && set.size) return "listening";
-    return pending ? "stranded" : "idle";
-  }
-
-  function broadcastAgent(entryKey) {
-    const state = agentState(entryKey);
-    for (const session of sessionsForEntry(entryKey)) emit(session, "agent", { state });
-  }
-
   // ------------------------------------------------------------- file watch
 
   function watchPage(key) {
@@ -236,234 +214,11 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       }
       lastWritten.set(key, current);
       for (const session of sessionsForKey(key)) {
+        if (session.renderId && currentRender(session.renderId)?.sourceHash === current) continue;
         invalidateSessionRender(session);
         emit(session, "reload", { key });
       }
     });
-  }
-
-  function writePage(key, html) {
-    const page = store.page(key);
-    if (!page) throw new Error("unknown page");
-    if (page.kind === "url") throw new Error("localhost pages are applied through their source files");
-    const clean = stripSdk(html);
-    atomicWrite(page.file, clean);
-    lastWritten.set(key, hash(clean));
-    return clean;
-  }
-
-  // ------------------------------------------------------------------ batch
-
-  function deliver(entryKey) {
-    const set = pollers.get(entryKey);
-    if (!set || set.size === 0) return false;
-    const pending = store.markBatchDelivered(entryKey);
-    if (!pending) return false;
-    for (const poller of [...set]) {
-      clearInterval(poller.timer);
-      set.delete(poller);
-      poller.res.end(JSON.stringify(pending.batch));
-    }
-    pollers.delete(entryKey);
-    return true;
-  }
-
-  /** Every page you left feedback on ships in one batch, grouped by target. */
-  function collectPages(session) {
-    const out = [];
-    for (const key of session.visited) {
-      const page = store.page(key);
-      if (!page) continue;
-      if (!page.comments.length && !page.edits.length) continue;
-      out.push({
-        key,
-        kind: page.kind === "url" ? "url" : "file",
-        file: page.kind === "url" ? page.url : page.file,
-        url: page.kind === "url" ? page.url : undefined,
-        comments: page.comments.map((c) => ({
-          id: c.id,
-          kind: c.kind,
-          quote: c.quote,
-          anchor: c.anchor == null ? c.anchor : normalizeCommentAnchor(c.kind, c.anchor),
-          feedback: c.feedback,
-          ...(c.correction ? { correction: true, correction_of: c.correctionOf } : {}),
-        })),
-        edits: page.edits.map((e) => ({
-          label: e.label,
-          kind: e.kind,
-          before: e.before,
-          after: e.after,
-          ...(e.feedback_only ? { feedback_only: true } : {}),
-          ...(e.truncated ? { truncated: true, truncated_fields: e.truncated_fields } : {}),
-          ...(e.before_html !== undefined && e.before_html !== e.before ? { before_html: e.before_html } : {}),
-          ...(e.after_html !== undefined && e.after_html !== e.after ? { after_html: e.after_html } : {}),
-          ...(Array.isArray(e.staged_assets) && e.staged_assets.length ? { staged_assets: e.staged_assets } : {}),
-        })),
-      });
-    }
-    return out;
-  }
-
-  /** Pages with feedback that are not the one on screen. */
-  function otherPages(session) {
-    return collectPages(session)
-      .filter((p) => p.key !== session.activeKey)
-      .map((p) => ({
-        key: p.key,
-        filename: p.kind === "url" ? new URL(p.url).pathname || p.url : path.basename(p.file),
-        count: p.comments.length + p.edits.length,
-      }));
-  }
-
-  function sendBatch(sessionId, note, historyInput) {
-    const session = sessions.get(sessionId);
-    if (!session) return { error: "unknown session" };
-
-    const pages = collectPages(session);
-    if (!pages.length && !note) return { error: "nothing to send" };
-    const historyContext = history.prepareBaseline(session, pages, historyInput);
-
-    const hasMarkdown = pages.some((p) => p.kind === "file" && isMarkdown(p.file));
-    const hasUrl = pages.some((p) => p.kind === "url");
-    const hasTrustedEdits = pages.some((p) => p.edits.some((edit) => edit.feedback_only));
-    const hasCorrections = pages.some((p) => p.comments.some((c) => c.correction));
-    const hasTruncation = pages.some((p) => p.edits.some((e) => e.truncated));
-    const id = `b_${crypto.randomBytes(12).toString("hex")}`;
-    const entry = store.page(session.entryKey);
-    const pollTarget = entry?.kind === "url" ? entry.url : entry?.file;
-    const ackCommand = `${cliInvocation} poll ${shellQuote(pollTarget)} --ack ${id} --timeout 600`;
-    const batch = {
-      batch_id: id,
-      status: "feedback",
-      pages: pages.map(({ kind, file, url, comments, edits }) => ({ kind, file, ...(url ? { url } : {}), comments, edits })),
-      overall_note: note || "",
-      sent_at: new Date().toISOString(),
-      next_step:
-        "Apply this feedback. Each entry in `pages` names the reviewed file or localhost URL. Items under `edits` are " +
-        "changes the human already made: unless marked `truncated`, `after` is their exact new wording, so carry it across verbatim, and " +
-        "never revert it. When an edit carries `after_html`, the human changed formatting (bold, italic, links) — " +
-        "use the HTML version, translated into the source's own syntax. " +
-        (hasTruncation
-          ? "Some edits are marked `truncated`; `truncated_fields` lists incomplete fields. Never apply incomplete text or HTML " +
-            "as a complete replacement or invent missing content. Recover the full edit only from an authoritative source, " +
-            "or ask the user for it. Do not acknowledge this batch until all feedback is handled. "
-          : "") +
-        (hasMarkdown
-          ? "Markdown pages were reviewed rendered, so quotes and `after` wording use the rendered text — apply " +
-            "the change to the Markdown source, keeping its formatting syntax. "
-          : "") +
-        (hasUrl
-          ? "Localhost pages were edited directly in the review UI. Find the matching project source (such as MDX or TSX) " +
-            "and apply every exact edit or deletion there; never try to write the rendered HTML response back to the app. " +
-            "When an edit includes `staged_assets`, copy each local image into the app's appropriate asset folder, replace its " +
-            "temporary preview URL in `after_html`, and preserve the image at the user's insertion point. "
-          : "") +
-        (hasTrustedEdits
-          ? "Edits marked `feedback_only` came from feedback-only documents. Apply that wording or formatting to the original source; " +
-            "it has not been autosaved. Never replace the source with script-generated runtime markup. " +
-            "Copy any `staged_assets` into the document's asset folder and replace their temporary references. "
-          : "") +
-        (hasCorrections
-          ? "Comments marked `correction` replace their `correction_of` instruction; follow the correction and do not apply the older wording. "
-          : "") +
-        `When every page is updated, acknowledge only this batch and wait for more by running: ${ackCommand}`,
-    };
-
-    const record = {
-      batch,
-      cleanup: pages.map((p) => ({
-        key: p.key,
-        ids: p.comments.map((c) => c.id),
-        staged: p.edits.flatMap((edit) => (edit.staged_assets || []).map((asset) => asset.path)),
-        sentAt: Date.now(),
-      })),
-    };
-    store.setBatch(session.entryKey, { ...record, ...(historyContext ? { history: historyContext } : {}) });
-    deliver(session.entryKey);
-    broadcastAgent(session.entryKey);
-    const round = historyContext
-      ? store.listHistory(session.entryKey).find((item) => item.batchId === id)
-      : null;
-    if (round) history.changed(session.entryKey, round.roundId);
-    return {
-      ok: true,
-      ...(round ? { roundId: round.roundId } : {}),
-      ...(historyContext?.unavailable.length ? { historyUnavailable: historyContext.unavailable } : {}),
-    };
-  }
-
-  function deleteStagedAsset(file) {
-    const stagedRoot = path.join(stateDir(), "pasted");
-    const resolved = path.resolve(file);
-    const relative = path.relative(stagedRoot, resolved);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) return;
-    try {
-      fs.unlinkSync(resolved);
-    } catch (err) {
-      if (err.code !== "ENOENT") console.error(`Could not remove acknowledged staged asset ${resolved}: ${err.message}`);
-    }
-    try {
-      fs.rmdirSync(path.dirname(resolved));
-    } catch (err) {
-      if (err.code !== "ENOENT" && err.code !== "ENOTEMPTY") {
-        console.error(`Could not remove acknowledged staged asset directory ${path.dirname(resolved)}: ${err.message}`);
-      }
-    }
-  }
-
-  function ack(entryKey, id) {
-    const result = store.acknowledgeBatch(entryKey, id);
-    if (!result.acknowledged) return false;
-    if (result.roundId) history.captureSources(entryKey, result.roundId);
-    const acknowledgedRound = result.roundId ? store.getRound(entryKey, result.roundId) : null;
-    // The JSON transition is already durable. Files are cleanup only and must
-    // never disappear before the receipt and page cleanup commit succeeds.
-    for (const file of result.staged) deleteStagedAsset(file);
-    for (const session of sessionsForEntry(entryKey)) emit(session, "refresh", {});
-    // File targets reload through fs.watch. URL targets have no source file to
-    // watch, so acknowledgement is the signal to fetch the rebuilt route.
-    for (const key of new Set([...result.keys, ...(acknowledgedRound?.targets.map((target) => target.key) || [])])) {
-      if (store.page(key)?.kind === "url") {
-        for (const session of sessionsForKey(key)) {
-          invalidateSessionRender(session);
-          emit(session, "reload", { key });
-        }
-      }
-    }
-    broadcastAgent(entryKey);
-    history.changed(entryKey, result.roundId);
-    return true;
-  }
-
-  /**
-   * A deliberate stop, not a tab close: the browser forgets the session and
-   * any waiting agent is released with a clear "stop polling" answer instead
-   * of being left to burn its timeout. Unsent feedback stays in the store.
-   */
-  function endSession(session) {
-    invalidateSessionRender(session);
-    sessions.delete(session.id);
-    for (const res of session.clients) {
-      res.write(`event: ended\ndata: {}\n\n`);
-      res.end();
-    }
-    session.clients.clear();
-    // Another window on the same target keeps its agent connection alive.
-    if (sessionsForEntry(session.entryKey).length > 0) return;
-    const set = pollers.get(session.entryKey);
-    if (!set) return;
-    for (const poller of [...set]) {
-      clearInterval(poller.timer);
-      set.delete(poller);
-      poller.res.end(
-        JSON.stringify({
-          status: "closed",
-          next_step:
-            "The user ended this review session. Stop polling — do not run the poll command again. " +
-            "Any unsent feedback is kept and will ship the next time this target is reviewed.",
-        })
-      );
-    }
   }
 
   // ----------------------------------------------------------------- routes
@@ -544,10 +299,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
   function pageState(key, session) {
     const page = store.page(key);
     if (!page) return null;
-    // The entry target is what the agent polls, even after navigating elsewhere.
-    const entry = session ? store.page(session.entryKey) : null;
     const currentTarget = page.kind === "url" ? page.url : page.file;
-    const pollTarget = entry ? (entry.kind === "url" ? entry.url : entry.file) : currentTarget;
     const policy = sourcePolicy(page, undefined, session);
     return {
       key: page.key,
@@ -559,10 +311,12 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       ...policy,
       ...(page.kind !== "url" && !isMarkdown(page.file)
         ? { executionPreference: session?.executionPreferences?.get(key) || "auto" } : {}),
-      comments: page.comments,
-      edits: page.edits,
+      comments: [],
+      edits: [],
       canRevert: policy.savePolicy === "writable" && typeof page.pristine === "string" && page.pristine.length > 0,
-      pollCommand: `${cliInvocation} poll ${shellQuote(pollTarget)}`,
+      pollCommand: session?.reviewId
+        ? agentHandoff({ reviewId: session.reviewId, entryKey: session.entryKey }, [], cliInvocation).pollCommand
+        : "",
       historySupported: true,
     };
   }
@@ -573,59 +327,13 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
     return documentExecutionPolicy({ ...page, markdown }, source, session?.executionPreferences?.get(page.key) || "auto");
   }
 
-  function feedbackOnly(key, requestedPolicy, identity) {
-    if (requestedPolicy === "feedback-only" || sourcePolicy(store.page(key)).feedbackOnly) return true;
-    if (identity?.renderId != null) {
-      const render = typeof identity.renderId === "string" ? currentRender(identity.renderId) : null;
-      // Retired frames cannot prove their edits match writable source. Preserve
-      // their feedback and pasted images without retaining retired capabilities.
-      return !render || render.documentState !== "served" || render.pageKey !== key ||
-        render.sessionId !== identity.sessionId || render.generation !== identity.generation ||
-        render.savePolicy !== "writable";
-    }
-    return false;
-  }
-
-  function enforceFileWrite(key, body) {
-    if (!body || typeof body !== "object" || Array.isArray(body) ||
-        typeof body.baseHash !== "string" || !/^[a-f0-9]{40}$/.test(body.baseHash) ||
-        typeof body.sessionId !== "string" || !body.sessionId ||
-        typeof body.renderId !== "string" || !body.renderId ||
-        !Number.isSafeInteger(body.generation) || body.generation < 1) {
-      throw new HistoryRequestError("A source hash and complete frame identity are required.", {
-        status: 400, code: "invalid_file_write",
-      });
-    }
-    const render = currentRender(body.renderId);
-    if (!render || render.pageKey !== key || render.sessionId !== body.sessionId ||
-        render.generation !== body.generation || render.documentState !== "served") {
-      throw new HistoryRequestError("Reload the document before writing; this request has no current frame.", {
-        status: 409, code: "stale_file_write",
-      });
-    }
-    const page = store.page(key);
-    const current = fs.readFileSync(page.file);
-    if (render.savePolicy !== "writable" || sourcePolicy(page, current).savePolicy !== "writable") {
-      throw new HistoryRequestError("This document is feedback-only. Apply edits to the original source through the agent.", {
-        status: 409, code: "file_feedback_only",
-      });
-    }
-    if (hash(stripSdk(current.toString("utf8"))) !== body.baseHash || render.sourceHash !== body.baseHash) {
-      throw new HistoryRequestError("The file changed on disk since this edit began.", { status: 409, code: "stale_file_write" });
-    }
-    return render;
-  }
-
-  async function readFileWriteBody(req) {
-    try {
-      return await readBody(req);
-    } catch {
-      throw new HistoryRequestError("Invalid file write request.", { status: 400, code: "invalid_file_write" });
-    }
-  }
-
-  const history = createHistoryController({ store, sessions, currentRender, readBody, json, emit, pageState });
-  for (const entryKey of Object.keys(store.data.histories || {})) history.captureSources(entryKey);
+  const history = createConversationCapture({ store, currentRender });
+  const conversations = createConversationController({
+    store, sessions, watchPage, json, emit, currentRender, captureObservation: history.captureObservation,
+    sourceWritten(key) {
+      lastWritten.set(key, store.data.conversations.writes[key]?.hash ?? null);
+    },
+  });
 
   const server = http.createServer(async (req, res) => {
     touch();
@@ -655,9 +363,22 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         const provided = Buffer.from(String(req.headers["x-doc-review-token"] || ""));
         const expected = Buffer.from(token);
         const ok = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
-        if (!ok) return json(res, 401, { error: "missing or invalid token" });
+        if (!ok) return json(res, 401, route.startsWith("/api/conversation")
+          ? conversationFailure(new ContractError("UNAUTHORIZED", "Missing or invalid token."))
+          : { error: "missing or invalid token" });
       }
-      if (await history.handle(req, res, url)) return undefined;
+      if (await conversations.handle(req, res, url)) return undefined;
+
+      if (route === "/api/session" || route === "/api/poll" || route === "/api/status" ||
+          /^\/api\/page\/[^/]+\/(comment|edit|asset|save|revert|send)(\/|$)/.test(route) ||
+          /^\/api\/session\/[^/]+\/(end|navigate|history)(\/|$)/.test(route)) {
+        return json(res, 410, conversationFailure(new ContractError("WORKFLOW_REMOVED",
+          "This workflow has been removed. Open a durable /r/ review with the current doc-review CLI; use /api/conversation and a complete response, never acknowledgement.")));
+      }
+      if (route.startsWith("/s/")) {
+        res.writeHead(410, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        return res.end("This temporary session link is obsolete. Open the target again with the current doc-review CLI.");
+      }
 
       // --- static chrome assets
       if (route === "/chrome.css") return serveFile(res, path.join(here, "ui", "chrome.css"));
@@ -682,6 +403,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       if (route === "/click-target.js") return serveFile(res, path.join(here, "click-target.js"), opaqueModuleCors(req));
       if (route === "/serialize.js") return serveFile(res, path.join(here, "serialize.js"), opaqueModuleCors(req));
       if (route === "/frame-channel.js") return serveFile(res, path.join(here, "frame-channel.js"), opaqueModuleCors(req));
+      if (route === "/thread-anchor-controller.js") return serveFile(res, path.join(here, "thread-anchor-controller.js"), opaqueModuleCors(req));
+      if (["/contracts/frame.js", "/contracts/feedback.js", "/contracts/validation.js"].includes(route)) {
+        return serveFile(res, path.join(here, ...route.slice(1).split("/")), opaqueModuleCors(req));
+      }
       if (route === "/semantic-snapshot.js") return serveFile(res, path.join(here, "semantic-snapshot.js"), opaqueModuleCors(req));
       if (route === "/revision-schema.js") return serveFile(res, path.join(here, "revision-schema.js"), opaqueModuleCors(req));
       if (route === "/history-client.js") return serveFile(res, path.join(here, "history-client.js"));
@@ -724,40 +449,14 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         return json(res, 200, { ok: true, page: pageState(page.key, session), reloadRequired });
       }
 
-      // --- open a browser session for a file or localhost URL
-      if (route === "/api/session" && req.method === "POST") {
-        const body = await readBody(req);
-        const target = canonicalTarget(body.target || body.file || "");
-        let page;
-        if (target.kind === "url") {
-          // Fail during open with a useful message rather than opening a blank review.
-          await fetchLocalPage(target.value);
-          page = store.openUrl(target.value);
-        } else {
-          if (!fs.existsSync(target.value)) return json(res, 404, { error: `File not found: ${target.value}` });
-          const html = fs.readFileSync(target.value, "utf8");
-          page = store.openPage(target.value, stripSdk(html));
-          lastWritten.set(page.key, hash(stripSdk(html)));
-        }
-        watchPage(page.key);
-        const id = uid("s");
-        sessions.set(id, {
-          id,
-          entryKey: page.key,
-          activeKey: page.key,
-          generation: 0,
-          renderId: null,
-          executionPreferences: new Map(),
-          visited: new Set([page.key]),
-          clients: new Set(),
-          lastSeen: Date.now(),
-        });
-        return json(res, 200, { sessionId: id, key: page.key, path: `/s/${id}` });
-      }
-
       // --- the chrome page
-      if (route.startsWith("/s/")) {
-        const id = route.slice(3);
+      if (route.startsWith("/r/")) {
+        let id = route.slice(3);
+        if (route.startsWith("/r/")) {
+          const record = Object.hasOwn(store.data.conversations.reviews, id) ? store.data.conversations.reviews[id] : null;
+          if (!record) return json(res, 404, conversationFailure(new ContractError("NOT_FOUND", "Unknown durable review link.")));
+          id = conversations.attach({ reviewId: id, entryKey: record.review.entryKey }).sessionId;
+        }
         if (!sessions.has(id)) {
           res.writeHead(404, { "content-type": "text/plain" });
           return res.end("This review session has ended. Run doc-review <target> again.");
@@ -765,7 +464,9 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         seen(sessions.get(id));
         const shell = fs.readFileSync(path.join(here, "chrome.html"), "utf8");
         res.writeHead(200, { "content-type": MIME[".html"], "cache-control": "no-store" });
-        return res.end(shell.replace("__SESSION_ID__", id).replace("__TOKEN__", token));
+        const session = sessions.get(id);
+        return res.end(shell.replace("__SESSION_ID__", id).replace("__TOKEN__", token).replace("<body",
+          session.reviewId ? `<body data-review="${encodeURIComponent(session.reviewId)}" data-entry="${encodeURIComponent(session.entryKey)}"` : "<body"));
       }
 
       const renderMatch = route.match(/^\/api\/session\/(\w+)\/render$/);
@@ -925,13 +626,13 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         }
         const stagedPrefix = "__doc_review_paste__/";
         if (asset.startsWith(stagedPrefix)) {
-            const name = asset.slice(stagedPrefix.length);
-            if (!name || !/^[\w-]+\.(png|jpg|gif|webp)$/.test(name) || path.basename(name) !== name) {
-              res.writeHead(403, { "content-type": "text/plain" });
-              return res.end("Forbidden");
-        }
+          const name = asset.slice(stagedPrefix.length);
+          if (!name || !/^[\w-]+\.(png|jpg|gif|webp)$/.test(name) || path.basename(name) !== name) {
+            res.writeHead(403, { "content-type": "text/plain" });
+            return res.end("Forbidden");
+          }
           // Keep staged previews reachable across source-policy changes.
-          return serveFile(res, path.join(stateDir(), "pasted", render.pageKey, name));
+          return serveFile(res, path.join(conversationStagedRoot(render.pageKey), name));
         }
         const target = resolveAsset(page.file, asset.split("?")[0]);
         if (!target) {
@@ -939,34 +640,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           return res.end("Forbidden");
         }
         return serveFile(res, target);
-      }
-
-      // --- agent status probe: is feedback waiting? is anyone listening?
-      if (route === "/api/status" && req.method === "GET") {
-        const entryKey = targetKey(url.searchParams.get("target") || url.searchParams.get("file") || "");
-        const pending = store.batch(entryKey);
-        const listening = (pollers.get(entryKey) || new Set()).size > 0;
-        // Unsent feedback lives on every page reachable from this entry.
-        const keys = new Set([entryKey]);
-        for (const session of sessions.values()) {
-          if (session.entryKey !== entryKey) continue;
-          for (const k of session.visited) keys.add(k);
-        }
-        let comments = 0;
-        let edits = 0;
-        for (const k of keys) {
-          const page = store.page(k);
-          if (!page) continue;
-          comments += page.comments.length;
-          edits += page.edits.length;
-        }
-        return json(res, 200, {
-          status: pending ? "feedback-waiting" : "idle",
-          feedback_waiting: !!pending,
-          agent_listening: listening,
-          server_running: true,
-          unsent: { comments, edits },
-        });
       }
 
       // --- page data
@@ -980,7 +653,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           const session = sid ? sessions.get(sid) : null;
           seen(session);
           const body = pageState(key, session);
-          if (session) body.others = otherPages(session);
+          if (session) body.others = [];
           return json(res, 200, body);
         }
 
@@ -1002,175 +675,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           return json(res, 200, { html: clean, hash: hash(clean) });
         }
 
-        if (action === "comment" && req.method === "POST") {
-          const body = await readBody(req);
-          const kind = body.kind === "element" ? "element" : "selection";
-          const feedback = String(body.feedback || "").trim();
-          const comment = {
-            id: uid("c"),
-            kind,
-            quote: String(body.quote || ""),
-            anchor: normalizeCommentAnchor(
-              kind,
-              body.anchor || (kind === "selection" ? { quote: String(body.quote || "") } : null)
-            ),
-            feedback,
-            createdAt: Date.now(),
-          };
-          if (!comment.feedback) return json(res, 400, { error: "empty feedback" });
-          if (!comment.anchor) return json(res, 400, { error: "invalid comment anchor" });
-          store.addComment(key, comment);
-          return json(res, 200, { comment, page: pageState(key) });
-        }
-
-        if (action === "comment" && req.method === "DELETE") {
-          store.removeComment(key, tail);
-          return json(res, 200, { page: pageState(key) });
-        }
-
-        if (action === "comment" && req.method === "PATCH" && tail) {
-          const body = await readBody(req);
-          const feedback = String(body.feedback || "").trim();
-          if (!feedback) return json(res, 400, { error: "empty feedback" });
-          const existing = store.page(key).comments.find((comment) => comment.id === tail);
-          if (!existing) return json(res, 404, { error: "unknown comment" });
-
-          const revised = store.reviseComment(key, tail, feedback, { replacementId: uid("c") });
-          return json(res, 200, { delivery: revised.delivery, page: pageState(key) });
-        }
-
-        if (action === "edit" && req.method === "POST") {
-          const body = await readBody(req);
-          const label = String(body.label || "Document");
-          const kind = body.kind === "deleted" ? "deleted" : body.kind === "moved" ? "moved" : "edited";
-          const limited = limitEditFields({
-            before: body.before, after: body.after, before_html: body.before_html, after_html: body.after_html,
-            ...(kind === "moved" ? { moved_after: body.moved_after, moved_before: body.moved_before } : {}),
-          });
-          const fields = limited.fields;
-          const stagedRoot = path.join(stateDir(), "pasted", key);
-          const stagedAssets = Array.isArray(body.staged_assets)
-            ? body.staged_assets
-                .slice(0, 20)
-                .map((asset) => {
-                  const id = String(asset?.id || "");
-                  return {
-                    id,
-                    path: path.join(stagedRoot, id),
-                    preview_src: String(asset?.preview_src || ""),
-                  };
-                })
-                .filter((asset) => {
-                  const relative = path.relative(stagedRoot, path.resolve(asset.path));
-                  return asset.id && path.basename(asset.id) === asset.id && !relative.startsWith("..") && !path.isAbsolute(relative) && fs.existsSync(asset.path);
-                })
-                .map(({ path: assetPath, preview_src }) => ({ path: assetPath, preview_src }))
-            : [];
-          const extra = {
-            truncated: limited.truncated,
-            truncated_fields: limited.truncated_fields,
-            ...(kind === "moved" ? { moved_after: fields.moved_after || "", moved_before: fields.moved_before || "" } : {}),
-            ...(stagedAssets.length ? { staged_assets: stagedAssets } : {}),
-            ...(feedbackOnly(key, body.savePolicy, body) ? { feedback_only: true } : {}),
-          };
-          store.addEdit(key, label, kind, fields.before, fields.after, fields.before_html, fields.after_html, extra);
-          return json(res, 200, { page: pageState(key, sessions.get(body.sessionId)) });
-        }
-
-        // File reviews keep pasted images beside the document. Localhost
-        // reviews stage them privately until the agent moves them into source.
-        if (action === "asset" && req.method === "POST") {
-          const page = store.page(key);
-          const type = String(url.searchParams.get("type") || "");
-          const ext = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[type];
-          if (!ext) return json(res, 400, { error: `unsupported image type: ${type || "unknown"}` });
-          const bytes = await readRawBody(req);
-          if (!bytes.length) return json(res, 400, { error: "empty image" });
-          const staged = feedbackOnly(key, url.searchParams.get("savePolicy"), {
-            sessionId: url.searchParams.get("sessionId"),
-            renderId: url.searchParams.get("renderId"),
-            generation: Number(url.searchParams.get("generation")),
-          });
-          const dir = staged ? path.join(stateDir(), "pasted", key) : path.join(path.dirname(page.file), "assets");
-          fs.mkdirSync(dir, { recursive: true });
-          const base = staged
-            ? "localhost"
-            : path
-                .basename(page.file)
-                .replace(/\.[^.]+$/, "")
-                .replace(/[^\w-]+/g, "-");
-          let name = "";
-          for (let n = 1; ; n += 1) {
-            name = `${base}-paste-${n}.${ext}`;
-            if (!fs.existsSync(path.join(dir, name))) break;
-          }
-          const saved = path.join(dir, name);
-          fs.writeFileSync(saved, bytes);
-          return json(res, 200, {
-            src: staged ? `__doc_review_paste__/${name}` : `assets/${name}`,
-            ...(staged ? { stagedId: name } : {}),
-          });
-        }
-
-        if (action === "save" && req.method === "POST") {
-          const page = store.page(key);
-          // Rendered sources must never be overwritten with serialized browser HTML.
-          if (page.kind === "url" || isMarkdown(page.file)) {
-            return json(res, 400, { error: page.kind === "url" ? "localhost edits must be applied to app source" : "markdown pages are feedback-only" });
-          }
-          const body = await readFileWriteBody(req);
-          if (typeof body?.html !== "string" || !body.html.trim()) {
-            return json(res, 400, { error: "empty html" });
-          }
-          const savingRender = enforceFileWrite(key, body);
-          const editedPolicy = sourcePolicy(page, stripSdk(body.html));
-          try {
-            const clean = writePage(key, body.html);
-            savingRender.sourceHash = hash(clean);
-            savingRender.sourceCapturedAt = new Date().toISOString();
-            if (editedPolicy.savePolicy === "feedback-only") {
-              for (const session of sessionsForKey(key)) {
-                invalidateSessionRender(session);
-                emit(session, "reload", { key, reason: "source-execution-changed" });
-              }
-            }
-            return json(res, 200, { savedAt: Date.now(), hash: hash(clean) });
-          } catch (err) {
-            return json(res, 500, { error: String(err.message || err) });
-          }
-        }
-
-        if (action === "revert" && req.method === "POST") {
-          const page = store.page(key);
-          if (page.kind === "url" || isMarkdown(page.file)) return json(res, 400, { error: "feedback-only pages have no directly writable HTML to revert" });
-          const body = await readFileWriteBody(req);
-          enforceFileWrite(key, body);
-          if (!page.pristine) return json(res, 400, { error: "nothing to revert to" });
-          sourcePolicy(page, stripSdk(page.pristine));
-          writePage(key, page.pristine);
-          store.clearEdits(key);
-          for (const session of sessionsForKey(key)) {
-            invalidateSessionRender(session);
-            emit(session, "reload", { key });
-          }
-          return json(res, 200, { page: pageState(key, sessions.get(body.sessionId)) });
-        }
-
-        if (action === "send" && req.method === "POST") {
-          const body = await readBody(req);
-          const result = sendBatch(body.sessionId, body.note, body.history);
-          if (result.error) return json(res, 400, result);
-          return json(res, 200, { ...result, page: pageState(key, sessions.get(body.sessionId)) });
-        }
-      }
-
-      // --- the user is done: stop the review, release the agent
-      const endMatch = route.match(/^\/api\/session\/(\w+)\/end$/);
-      if (endMatch && req.method === "POST") {
-        const session = sessions.get(endMatch[1]);
-        if (!session) return json(res, 404, { error: "unknown session" });
-        endSession(session);
-        return json(res, 200, { ok: true });
       }
 
       // --- which page a window is currently showing
@@ -1183,7 +687,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
           key: session.activeKey,
           generation: session.generation,
           page: pageState(session.activeKey, session),
-          others: otherPages(session),
+          others: [],
+          ...(session.reviewId ? { review: store.conversations.read({
+            operation: "read-review", reviewId: session.reviewId, entryKey: session.entryKey,
+          }) } : {}),
         });
       }
 
@@ -1194,6 +701,9 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         if (!session) return json(res, 404, { error: "unknown session" });
         seen(session);
         const body = await readBody(req);
+        if (session.reviewId && !Object.hasOwn(store.data.conversations.reviews[session.reviewId].pages, body.key)) {
+          throw new ContractError("SCOPE_MISMATCH", "Join the page through the versioned review before navigating.");
+        }
         if (!store.page(body.key)) return json(res, 404, { error: "unknown page" });
         invalidateSessionRender(session);
         session.activeKey = body.key;
@@ -1202,18 +712,24 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       }
 
       // --- navigation between local files or localhost routes in one window
-      const navMatch = route.match(/^\/api\/session\/(\w+)\/navigate$/);
+      const navMatch = route.match(/^\/api\/session\/(\w+)\/(navigate|resolve-target)$/);
       if (navMatch && req.method === "POST") {
         const session = sessions.get(navMatch[1]);
         if (!session) return json(res, 404, { error: "unknown session" });
+        const resolveOnly = navMatch[2] === "resolve-target";
+        if (session.reviewId && !resolveOnly) throw new ContractError("INVALID_INPUT", "Use versioned join-page followed by goto.");
         seen(session);
         const body = await readBody(req);
+        if (resolveOnly && (typeof body.href !== "string" || Object.keys(body).some((key) => key !== "href"))) {
+          throw new ContractError("INVALID_INPUT", "Navigation resolution requires only href.");
+        }
         const from = store.page(session.activeKey);
         if (!from) return json(res, 404, { error: "unknown page" });
         if (from.kind === "url") {
           const nextUrl = new URL(String(body.href || ""), from.url).href;
           const target = canonicalTarget(nextUrl);
           if (target.kind !== "url") return json(res, 400, { error: "not a localhost route" });
+          if (resolveOnly) return json(res, 200, { target: target.value });
           await fetchLocalPage(target.value);
           const page = store.openUrl(target.value);
           invalidateSessionRender(session);
@@ -1225,6 +741,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         if (!targetFile || !fs.existsSync(targetFile) || !/\.(x?html?|md|markdown)$/i.test(targetFile)) {
           return json(res, 400, { error: "not a local html or markdown page" });
         }
+        if (resolveOnly) return json(res, 200, { target: targetFile });
         const html = fs.readFileSync(targetFile, "utf8");
         const page = store.openPage(targetFile, stripSdk(html));
         lastWritten.set(page.key, hash(stripSdk(html)));
@@ -1250,7 +767,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         res.write(": open\n\n");
         session.clients.add(res);
         seen(session);
-        emit(session, "agent", { state: agentState(session.entryKey) });
+        emit(session, "invalidate", { reviewId: session.reviewId });
         const beat = setInterval(() => res.write(": beat\n\n"), POLL_HEARTBEAT_MS);
         sseResponses.set(res, beat);
         req.on("close", () => {
@@ -1262,41 +779,10 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
         return undefined;
       }
 
-      // --- the agent long-poll
-      if (route === "/api/poll") {
-        const target = url.searchParams.get("target") || url.searchParams.get("file") || "";
-        const entryKey = targetKey(target);
-        const ackId = url.searchParams.get("ack");
-        if (ackId !== null) ack(entryKey, ackId);
-
-        const pending = store.batch(entryKey);
-        if (pending) {
-          const delivered = store.markBatchDelivered(entryKey);
-          broadcastAgent(entryKey);
-          return json(res, 200, delivered.batch);
-        }
-
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-        res.write(" ");
-        const set = pollers.get(entryKey) || new Set();
-        pollers.set(entryKey, set);
-        const poller = {
-          res,
-          timer: setInterval(() => res.write(" "), POLL_HEARTBEAT_MS),
-        };
-        set.add(poller);
-        broadcastAgent(entryKey);
-        req.on("close", () => {
-          clearInterval(poller.timer);
-          set.delete(poller);
-          broadcastAgent(entryKey);
-        });
-        return undefined;
-      }
-
       res.writeHead(404, { "content-type": "text/plain" });
       return res.end("Not found");
     } catch (err) {
+      if (err instanceof ContractError) return json(res, err.status, conversationFailure(err));
       if (err instanceof HistoryRequestError) {
         return json(res, err.status, { error: err.message, code: err.code, targets: err.targets });
       }
@@ -1355,7 +841,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
 
     // Busy means a connected browser or a listening agent — a session record
     // alone must not keep the process alive forever.
-    const busy = [...sessions.values()].some((s) => s.clients.size > 0) || [...pollers.values()].some((s) => s.size > 0);
+    const busy = [...sessions.values()].some((s) => s.clients.size > 0);
     if (!busy && now - lastActivity > IDLE_SHUTDOWN_MS) {
       void dispose().catch((err) => {
         console.error(`doc-review server shutdown failed: ${err.message}`);
@@ -1373,14 +859,6 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       for (const entry of watched.values()) fs.unwatchFile(entry.file);
       watched.clear();
       lastWritten.clear();
-
-      for (const set of pollers.values()) {
-        for (const poller of set) {
-          clearInterval(poller.timer);
-          if (!poller.res.writableEnded) poller.res.end();
-        }
-      }
-      pollers.clear();
 
       for (const [res, timer] of sseResponses) {
         clearInterval(timer);

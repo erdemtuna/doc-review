@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, listed } from "./helpers.js";
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -19,16 +19,15 @@ test("file scripts, handlers, and forged frame messages cannot change file or re
     '<script>parent.postMessage({type:"eh:edit",label:"owned",after:"owned"},"*")</script>' +
     '<button onclick="parent.postMessage({type:\'eh:html\',html:\'owned\'},\'*\')">Run</button></body></html>';
   const file = writeFile(review, "hostile.html", original);
-  const { key } = await openReview(page, review, file);
+  const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
   expect(await frame.locator("script[data-eh-bootstrap]").count()).toBe(0);
   await frame.locator("button", { hasText: "Run" }).click();
   await page.waitForTimeout(200);
 
   expect(fs.readFileSync(file, "utf8")).toBe(original);
-  const state = (await reviewApi(review, `/api/page/${key}`)).json();
-  expect(state.comments).toEqual([]);
-  expect(state.edits).toEqual([]);
+  expect((await listed(review, ref, "threads")).items).toEqual([]);
+  expect((await listed(review, ref, "edits")).items).toEqual([]);
 });
 
 test("the nonce capability is hidden from authored CSS before the SDK removes its tag", async ({ page, review }) => {
@@ -77,12 +76,11 @@ test("meta refresh attacker and malformed raw-text markup cannot replace the cha
       `<!doctype html><meta http-equiv="refresh" content="0;url=http://localhost:${attackerPort}/">` +
       "<textarea>unterminated hostile raw text";
     const file = writeFile(review, "refresh.html", original);
-    const { key } = await openReview(page, review, file);
+    const ref = await openReview(page, review, file);
     await page.waitForTimeout(500);
     expect(fs.readFileSync(file, "utf8")).toBe(original);
-    const state = (await reviewApi(review, `/api/page/${key}`)).json();
-    expect(state.comments).toEqual([]);
-    expect(state.edits).toEqual([]);
+    expect((await listed(review, ref, "threads")).items).toEqual([]);
+    expect((await listed(review, ref, "edits")).items).toEqual([]);
   } finally {
     await close(attacker);
   }
@@ -114,7 +112,7 @@ test("consumed registrations and stale capabilities cannot replay after reload o
   const replay = await fetch(`http://127.0.0.1:${review.port}${initial.path}`);
   expect(replay.status).toBe(410);
 
-  await page.route("**/api/session/*/navigate", async (route) => {
+  await page.route("**/api/session/*/resolve-target", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 700));
     await route.continue();
   }, { times: 1 });

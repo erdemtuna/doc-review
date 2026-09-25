@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 
 const { start } = await import(pathToFileURL(process.argv[2]).href);
-const review = await start();
+const review = await start(Number(process.argv[3] || 0));
 process.send({ port: review.port, token: review.token });
 let stopping = false;
 async function stop() {

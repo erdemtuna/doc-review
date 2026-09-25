@@ -59,17 +59,17 @@ test("initial theme timeout offers Retry theme without repeating registration or
   expect(requests).toEqual({ registrations: 1, confirmations: 1 });
   expect(await frame.locator("body").evaluate(() =>
     window.themeRecoveryCommands.filter((message) => message.type === "eh:configureReview").length)).toBe(0);
-  await expect(page.locator("#themeNotice")).toBeVisible({ timeout: 6000 });
-  await expect(page.locator("#themeNotice [role=alert]")).toContainText("synchronization was not confirmed");
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeVisible({ timeout: 6000 });
+  await expect(page.locator(".conversation-global-status [role=alert]")).toContainText("synchronization was not confirmed");
   await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeEnabled();
-  await expect(page.locator("#reloadNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeHidden();
   await expectSameFrame(page, src);
   // A late acknowledgment was not mistaken for success and there was no automatic retry.
   expect(await page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(1);
   await page.evaluate(() => { window.themeRecovery.blocked = false; });
   await page.getByRole("button", { name: "Retry theme", exact: true }).click();
   await waitForSdk(page);
-  await expect(page.locator("#themeNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(2);
   const acknowledgments = await page.evaluate(() => window.themeRecovery.acknowledgments);
   expect(acknowledgments[1]).toEqual(acknowledgments[0]);
@@ -113,7 +113,7 @@ test("live theme timeout preserves drafts and retries the latest theme without r
     await expect(frame.locator("#linkInput")).toBeFocused();
   }
   await expect.poll(() => page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(initialAckCount + 3);
-  await expect(page.locator("#themeNotice")).toBeVisible({ timeout: 6000 });
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeVisible({ timeout: 6000 });
   await expect(page.locator("#frame")).toHaveAttribute("data-sdk-ready", "true");
   await expect(frame.locator("#linkInput")).toBeVisible();
   await expect(frame.locator("#linkInput")).toBeFocused();
@@ -137,7 +137,7 @@ test("live theme timeout preserves drafts and retries the latest theme without r
   await page.evaluate(() => { window.themeRecovery.blocked = false; });
   // Activate without moving focus out of the SDK editor.
   await page.getByRole("button", { name: "Retry theme", exact: true }).evaluate((button) => button.click());
-  await expect(page.locator("#themeNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(initialAckCount + 4);
   const acknowledgments = await page.evaluate(() => window.themeRecovery.acknowledgments);
   expect(acknowledgments.at(-1)).toEqual(acknowledgments.at(-2));
