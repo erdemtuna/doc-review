@@ -60,14 +60,14 @@ test("Feedback restores the 380px overlay without reflow, with independent inven
   await page.locator("#frame").evaluate((element) => { window.originalOverlayFrame = element; });
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-    for (const [width, height] of [[1440, 900], [900, 700], [899, 700], [390, 480], [320, 400]]) {
+    for (const [width, height] of [[1440, 900], [900, 700], [899, 700], [720, 760], [390, 480], [320, 400]]) {
       await page.setViewportSize({ width, height });
       const before = await page.locator("#frame").boundingBox();
       await feedback(page);
       await overallNote(page);
       const panel = page.getByRole("complementary", { name: "Feedback" });
       const box = await panel.boundingBox();
-      expect(box.width).toBe(width <= 720 ? width : 380);
+      expect(box.width).toBe(Math.min(width, 380));
       expect(box.x + box.width).toBe(width); expect(box.y + box.height).toBe(height);
       expect(await page.locator("#frame").boundingBox()).toEqual(before);
       expect(await page.locator("#frame").evaluate((element) => element === window.originalOverlayFrame)).toBe(true);
@@ -110,9 +110,9 @@ test("Feedback restores the 380px overlay without reflow, with independent inven
       }
       await expect(panel.locator('footer [data-slot="checkbox"]')).not.toBeChecked();
       await page.locator("#theme").click(); await page.locator("#theme").click();
-      if (width > 720) {
+      if (width > 380) {
         await expect(page.locator(".conversation-backdrop")).toBeVisible();
-        await page.mouse.click(20, height - 20);
+        await page.mouse.click((width - box.width) / 2, height - 20);
       } else await panel.getByRole("button", { name: "Close", exact: true }).click();
       await expect(panel).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();

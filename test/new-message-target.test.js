@@ -34,16 +34,16 @@ test("new comment consumes the actual existing SDK payload, nullable geometry ne
   }
 });
 
-test("new composition uses effective clipping and safe former placement without target overlap", () => {
+test("new composition uses effective target clipping and measured local room without target overlap", () => {
   const geometry = readNewMessageTarget(message()).geometry;
   const placement = placeNewMessageSurface(geometry, options);
   assert.equal(placement.kind, "attached");
   assert.ok(placement.left >= 280 + 12);
-  assert.equal(placeNewMessageSurface(geometry, { ...options, viewport: { ...options.viewport, width: 899 } }), null);
+  assert.ok(placeNewMessageSurface(geometry, { ...options, viewport: { ...options.viewport, width: 720 } }));
   assert.equal(placeNewMessageSurface(geometry, { ...options, surfaceHeight: 900 }), null);
   const clipped = readNewMessageTarget({ ...message(), clip: rect(100, 110, 240, 300) }).geometry;
   assert.deepEqual(clipped.rects, [rect(100, 110, 240, 124)]);
-  assert.equal(placeNewMessageSurface(clipped, options), null);
+  assert.ok(placeNewMessageSurface(clipped, options), "A clipped target does not confine its parent popover to the scroll container");
   assert.equal(readNewMessageTarget({ ...message(), clip: rect(600, 400, 800, 700) }).geometry, null);
   const covered = { ...geometry, rects: [rect(0, 0, 1200, 752)] };
   assert.equal(placeNewMessageSurface(covered, options), null);
@@ -54,3 +54,19 @@ test("new composition uses effective clipping and safe former placement without 
   }
   assert.equal(placeNewMessageSurface({ ...geometry, relation: "unavailable", rects: [] }, options), null);
 });
+
+for (const [width, height] of [[1366, 800], [1024, 768], [900, 700], [720, 760], [1100, 550]]) {
+  test(`local composition clears every selected line at ${width}x${height} and zoom offsets`, () => {
+    for (const offset of [0, 40]) {
+      const viewport = { left: offset, top: offset, width, height };
+      const frameRect = rect(offset, offset + 48, offset + width, offset + height);
+      const geometry = { relation: "visible", rects: [rect(30, 150, width - 30, 172), rect(30, 174, width - 80, 196)],
+        clip: rect(0, 0, width, height - 48), horizontal: null };
+      const placement = placeNewMessageSurface(geometry, { ...options, viewport, frameRect, surfaceHeight: 220 });
+      assert.ok(placement, "Above or below must work when neither side fits");
+      assert.ok(placement.top >= offset + 60 && placement.top + placement.height <= offset + height - 12);
+      for (const target of geometry.rects) assert.ok(placement.top >= frameRect.top + target.bottom + 12 ||
+        placement.top + placement.height <= frameRect.top + target.top - 12);
+    }
+  });
+}

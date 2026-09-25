@@ -29,7 +29,8 @@ export function createConversationShell() {
   let reconnecting: Promise<void> | null = null, scroll = { x: 0, y: 0 };
   let pendingTarget: number | null = null, hadNewMessage = false;
   let newTarget: NewMessageTarget | null = null, targetHighWater = 0, retiredTarget = 0;
-  let composer: ReturnType<typeof placeNewMessageSurface> = null, composerHeight = 310;
+  let composer: ReturnType<typeof placeNewMessageSurface> = null, composerHeight = 0;
+  const threadSizes = new Map<string, { height: number; minHeight: number }>();
   let composerNotice = "";
   let pendingJump: string | null = null;
   const geometry = createConversationAnchorController();
@@ -177,7 +178,7 @@ export function createConversationShell() {
     syncAnchors(); updatePlacement();
     const latest = owner.getSnapshot();
     if (comparisonOpen && !comparison && latest.history.some((item) => item.result)) void showChanges().catch(owner.report);
-    const wanted = latest.open ? latest.focusId : null;
+    const wanted = latest.open && latest.host === "adjacent" ? latest.focusId : null;
     if (wanted !== activeMark) {
       if (activeMark && geometry.projection?.anchors.some((item) => item.threadId === activeMark)) sendThreadAction("dismiss", activeMark);
       activeMark = null;
@@ -236,9 +237,16 @@ export function createConversationShell() {
   function updatePlacement() {
     const current = owner.getSnapshot();
     composer = null;
+    if (!current.newMessage) composerHeight = 0;
     if (current.open && current.newMessage && current.host === "compose") {
+      if (!composerHeight) { publish(); return; }
       const element = document.querySelector<HTMLIFrameElement>("#frame");
       const viewport = visibleViewport(window);
+      const targetViewport = newTarget?.geometry?.viewport;
+      if (element && targetViewport &&
+          (Math.abs(element.clientWidth - targetViewport.width) > 1 || Math.abs(element.clientHeight - targetViewport.height) > 1)) {
+        publish(); return;
+      }
       composer = element && newTarget?.geometry ? placeNewMessageSurface(newTarget.geometry, {
         frameRect: element.getBoundingClientRect(), viewport, surfaceWidth: 340, surfaceHeight: composerHeight,
         toolbarHeight: Math.max(0, contentTop() - viewport.top),
@@ -246,7 +254,7 @@ export function createConversationShell() {
       if (!composer) {
         composerNotice = !newTarget?.geometry || newTarget.geometry.relation === "unavailable"
           ? "The original target cannot currently be shown. Your draft is kept in Feedback."
-          : "Opened in Feedback because there is not enough clear room beside the target.";
+          : "Opened in Feedback because there is not enough room beside, above or below the target without covering it.";
         owner.commands.focus(null);
       } else composerNotice = "";
     }
@@ -263,18 +271,22 @@ export function createConversationShell() {
     if (document.body.dataset.conversationPane !== "open" || document.body.dataset.conversationHost !== "adjacent") { publish(); return; }
     if (state?.state === "found" && element &&
         (Math.abs(element.clientWidth - state.viewport.width) > 1 || Math.abs(element.clientHeight - state.viewport.height) > 1)) {
-      publish(); return; // Wait for the adjacent-only document gutter and its fresh anchor geometry.
+      publish(); return; // Wait for fresh geometry at the current frame size.
     }
+    const size = threadSizes.get(current.focusId);
+    if (!size) { publish(); return; }
     adjacent = element && state ? placeConversationSurface(state, {
       frameRect: element.getBoundingClientRect(), viewport: visibleViewport(window),
       toolbarHeight: Math.max(0, contentTop() - visibleViewport(window).top),
+      ...size,
     }) : null;
     if (!adjacent) {
       fallbackSpace = state?.state === "found" && state.relation === "visible";
       anchorNotice = fallbackSpace
-        ? "Opened in Feedback because there is not enough room beside the target."
+        ? "Opened in Feedback because there is not enough room beside, above or below the target without covering it."
         : describeConversationAnchor(state).reason;
-      owner.commands.fallback();
+      if (fallbackSpace) owner.commands.focus(current.focusId);
+      else owner.commands.fallback();
     } else anchorNotice = "";
     publish();
   }
@@ -637,6 +649,12 @@ export function createConversationShell() {
       measureComposer(height: number) {
         if (!Number.isFinite(height) || height <= 0 || Math.abs(height - composerHeight) < 1) return;
         composerHeight = height; updatePlacement();
+      },
+      measureThread(id: string, height: number, minHeight: number) {
+        if (![height, minHeight].every(value => Number.isFinite(value) && value > 0)) return;
+        const previous = threadSizes.get(id);
+        if (previous && Math.abs(previous.height - height) < 1 && Math.abs(previous.minHeight - minHeight) < 1) return;
+        threadSizes.set(id, { height, minHeight }); updatePlacement();
       },
       composeBeside() { owner.commands.compose(); },
       revealSelection() {

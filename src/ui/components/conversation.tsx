@@ -135,16 +135,24 @@ function NewMessage({ shell, snapshot, chrome }: {
   shell: ConversationShell; snapshot: Snapshot; chrome: ReturnType<ConversationShell["getSnapshot"]>;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const initialFocus = useRef(true);
   const contextual = snapshot.host === "compose";
   useLayoutEffect(() => {
-    if (contextual && snapshot.open && snapshot.review?.state === "open") {
-      element.current?.querySelector("textarea")?.focus({ preventScroll: true });
-    }
+    if (contextual && snapshot.open) initialFocus.current = true;
   }, [contextual, snapshot.open]);
+  useLayoutEffect(() => {
+    if (initialFocus.current && snapshot.open && (!contextual || chrome.composer) && snapshot.review?.state === "open") {
+      element.current?.querySelector("textarea")?.focus({ preventScroll: true });
+      initialFocus.current = false;
+    }
+  }, [contextual, snapshot.open, !!chrome.composer]);
   useLayoutEffect(() => {
     if (!contextual || !element.current) return;
     const node = element.current;
-    const measure = () => shell.commands.measureComposer(node.getBoundingClientRect().height);
+    const measure = () => {
+      const height = node.getBoundingClientRect().height;
+      if (height) shell.commands.measureComposer(Math.ceil(height + 2));
+    };
     measure();
     const observer = new ResizeObserver(measure); observer.observe(node);
     return () => observer.disconnect();
@@ -204,6 +212,36 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
   const disabled = snapshot.review?.state !== "open" || !!snapshot.uncertain || snapshot.busy;
   const transcript = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null), previousDraft = useRef(item.draft);
+  useLayoutEffect(() => {
+    const node = article.current, content = transcript.current;
+    if (!adjacent || !node || !content) return;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const panel = node.closest<HTMLElement>(".conversation-panel")!;
+        const inventory = node.closest<HTMLElement>(".conversation-inventory")!;
+        const padding = (element: HTMLElement) => {
+          const style = getComputedStyle(element);
+          return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+        };
+        const header = node.querySelector<HTMLElement>(":scope > header")!;
+        const controls = node.querySelector<HTMLElement>(".conversation-composer, .conversation-reply");
+        const overview = panel.querySelector<HTMLElement>(".conversation-overview")!;
+        const fixed = padding(panel) + padding(inventory) + padding(node) + header.getBoundingClientRect().height +
+          parseFloat(getComputedStyle(header).marginBottom) + (controls?.getBoundingClientRect().height ?? 0) + overview.getBoundingClientRect().height;
+        const text = item.expanded ? [...content.children].reduce((height, child) => {
+          const style = getComputedStyle(child);
+          return height + child.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+        }, 0) : 0;
+        shell.commands.measureThread(id, Math.ceil(fixed + text), Math.ceil(fixed + Math.min(text, 48)));
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    [node, content, ...node.querySelectorAll<HTMLElement>("header, .conversation-composer, .conversation-reply")].forEach(element => observer.observe(element));
+    measure();
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [adjacent, item.exchanges, item.draft, item.expanded, chrome.viewport.width, chrome.viewport.height, shell]);
   const focusAfterDraft = useRef<Readonly<ConversationDraft> | null>(null);
   useLayoutEffect(() => {
     const previous = previousDraft.current;
@@ -264,7 +302,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
         ...(adjacent && !target.reason ? [{ label: item.expanded ? "Collapse conversation" : "Expand conversation",
           run: () => owner.commands.collapse(id) }] : []),
         { label: item.thread.status === "resolved" ? "Reopen" : "Resolve", disabled, run: () => act(owner, () => owner.commands.confirm("resolve", id)) },
-        ...(!adjacent && chrome.viewport.width >= 900 && chrome.viewport.height >= 452 ? [{
+        ...(!adjacent ? [{
           label: "Beside target", disabled: !target.canJump || target.offscreen || item.thread.pageKey !== chrome.pageKey,
           run: () => act(owner, () => shell.commands.adjacent(id)),
         }] : []),
@@ -306,15 +344,16 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
               onCheckedChange={(checked) => owner.commands.select(reviewer.messageId, checked === true)} />Include in Send</label>
             <Button size="icon-xs" variant="ghost" className="conversation-icon" aria-label="Edit message" title="Edit message"
               data-edit-message={reviewer.messageId} onClick={() => act(owner, () => owner.commands.edit(reviewer))}><Icon name="pencil" /></Button>
-            {index === item.exchanges.length - 1 && replyControl}
+            {index === item.exchanges.length - 1 && !focus && replyControl}
           </div>}
           {response && <div className="conversation-response"><div className="conversation-meta inventory-meta"><ConversationAuthor role="Agent" /><ConversationTime value={response.createdAt} />
             {response.outcome !== "answered" && <Badge variant="outline">{response.outcome}</Badge>}</div><p className="conversation-body">{response.body}</p></div>}
         </section>)}
-        {item.exchanges.at(-1)?.reviewer.submissionId !== null && replyControl}
+        {item.exchanges.at(-1)?.reviewer.submissionId !== null && !focus && replyControl}
         {target.reason && !trailingTargetNotice && <p id={`target-status-${id}`} className="conversation-target-status">{target.reason}</p>}
         {!adjacent && peersControl && <details className="conversation-target-details"><summary>Conversations at this target ({peers.length})</summary>{peersControl}</details>}
       </div>
+      {focus && replyControl && <div className="conversation-reply">{replyControl}</div>}
       {item.draft && <Draft owner={owner} id={id} draft={item.draft} disabled={snapshot.review?.state !== "open"}
         saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes(id)} />}
       {target.reason && trailingTargetNotice && <p id={`target-status-${id}`} className="conversation-target-status">{target.reason}</p>}
@@ -496,7 +535,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const showRecovery = globalErrors.length > 0 || globalUncertain || !snapshot.connected ||
     chrome.themeSync.status === "failed" || needsSourceRecovery;
   const paneTop = Math.max(chrome.viewport.top, chrome.contentTop);
-  const paneWidth = chrome.viewport.width <= 720 ? chrome.viewport.width : Math.min(380, chrome.viewport.width - 32);
+  const paneWidth = Math.min(380, chrome.viewport.width);
   const fallbackBounds = {
     left: chrome.viewport.left + chrome.viewport.width - paneWidth, top: paneTop,
     width: paneWidth, height: Math.max(0, chrome.viewport.top + chrome.viewport.height - paneTop),
@@ -505,9 +544,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const selectionDescription = selection
     ? `${selection.messages} saved messages · ${selection.edits} pending edits${selection.note ? " · 1 overall note" : ""} selected`
     : snapshot.loading ? "Checking pending feedback…" : "Pending selection unavailable. Refresh the review.";
+  // Keep a focused editor mounted and focusable while waiting for current-frame geometry.
+  const measuring = { ...fallbackBounds, width: Math.min(contextual ? 340 : 360, chrome.viewport.width - 24), height: "auto", opacity: 0, pointerEvents: "none" as const };
   const panel = <aside aria-label={contextual ? "Add comment" : "Feedback"} data-host={snapshot.host}
-    className={`conversation-panel review-ui${historyVisible ? " has-history" : ""}${snapshot.focusId ? " has-focus" : ""}${contextual ? ` is-composing contextual-compose ${chrome.composer?.kind ?? ""}` : ""}${snapshot.host === "adjacent" && chrome.adjacent ? " is-adjacent" : ""}`}
-    style={{ ...(contextual && composerBounds ? composerBounds : snapshot.host === "adjacent" && chrome.adjacent ? chrome.adjacent : fallbackBounds), right: "auto", bottom: "auto" }}
+    className={`conversation-panel review-ui${historyVisible ? " has-history" : ""}${snapshot.focusId ? " has-focus" : ""}${contextual ? ` is-composing contextual-compose ${chrome.composer?.kind ?? ""}` : ""}${snapshot.host === "adjacent" ? " is-adjacent" : ""}`}
+    style={{ ...(contextual ? composerBounds ?? measuring : snapshot.host === "adjacent" ? chrome.adjacent ?? measuring : fallbackBounds), right: "auto", bottom: "auto" }}
     hidden={!snapshot.open || chrome.comparisonOpen} inert={!snapshot.open || chrome.comparisonOpen} onKeyDown={(event) => {
       if (event.key === "Escape" && !event.nativeEvent.isComposing && !snapshot.newMessage?.draft.composing && !snapshot.threads.some((item) => item.draft?.composing) &&
           !(event.target instanceof HTMLTextAreaElement)) {
@@ -523,9 +564,9 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       </Button>
       <Button variant="ghost" size="icon" aria-label="Close" title="Close feedback" onClick={() => owner.commands.open(false)}><Icon name="x" /></Button></header>
     <div className="conversation-overview" hidden={contextual}>
-    {chrome.anchorNotice && !snapshot.focusId && <p className="conversation-notice" role="status">{chrome.anchorNotice}</p>}
+    {chrome.anchorNotice && snapshot.host !== "adjacent" && <p className="conversation-notice" role="status">{chrome.anchorNotice}</p>}
     <div className="conversation-status" role="status" aria-label="Submission details"
-      hidden={!work && !readonly && snapshot.connected && !snapshot.notice}>
+      hidden={!work && !readonly && snapshot.connected && (!snapshot.notice || snapshot.host === "adjacent")}>
       {work && <span>{workDetails}</span>}
       {readonly && <span>{snapshot.status?.pendingMessageCount ?? 0} saved-unsent messages and {snapshot.status?.pendingEditCount ?? 0} edits remain read-only here.</span>}
       {!snapshot.connected && <span>Disconnected; displayed state may be stale.</span>}

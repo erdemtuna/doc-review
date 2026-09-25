@@ -43,7 +43,7 @@ async function fixture() {
   const updateChrome = (patch: Partial<typeof chromeState>) => { chromeState = { ...chromeState, ...patch }; chrome.publish(); };
   const shell: ConversationShell = {
     owner, getSnapshot: chrome.getSnapshot, subscribe: chrome.subscribe, dispose() { owner.dispose(); chrome.dispose(); },
-    commands: { measureComposer() {}, composeBeside: owner.commands.compose, revealSelection() {}, adjacent: owner.commands.adjacent, mode: async () => {}, theme() {}, retryTheme: async () => {}, execution: async () => {}, reconnect: async () => {}, reload: async () => {}, showChanges: async () => {}, comparison: async () => {}, recapture: async () => {}, closeComparison() {} },
+    commands: { measureThread() {}, measureComposer() {}, composeBeside: owner.commands.compose, revealSelection() {}, adjacent: owner.commands.adjacent, mode: async () => {}, theme() {}, retryTheme: async () => {}, execution: async () => {}, reconnect: async () => {}, reload: async () => {}, showChanges: async () => {}, comparison: async () => {}, recapture: async () => {}, closeComparison() {} },
   };
   render(<StrictMode><ConversationApp shell={shell} /></StrictMode>);
   return { owner, shell, status, updateChrome };
@@ -176,7 +176,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
 it("adjacent conversations omit the redundant target control and retain named menu collapse", async () => {
   const { owner, shell, updateChrome } = await fixture();
   act(() => {
-    updateChrome({ adjacent: { left: 800, top: 80, width: 380, height: 600 } });
+    updateChrome({ adjacent: { kind: "attached", left: 800, top: 80, width: 380, height: 600 } });
     owner.commands.adjacent("thread");
   });
   expect(document.querySelector(".conversation-thread-title")).toBeNull();
@@ -273,12 +273,15 @@ it("only the Feedback overlay makes the authored stage inert, never the adjacent
 });
 
 it("adjacent, Focus and Feedback keep the same composing editor and closing never resolves it", async () => {
-  const { owner, shell } = await fixture();
+  const { owner, shell, updateChrome } = await fixture();
   fireEvent.click(screen.getByRole("button", { name: "Reply" }));
   const editor = screen.getByRole("textbox", { name: "Reply" });
   fireEvent.change(editor, { target: { value: "Unfinished composition", selectionStart: 2, selectionEnd: 7 } });
   fireEvent.compositionStart(editor);
-  act(() => { owner.commands.filter("open"); owner.commands.adjacent("thread"); });
+  act(() => {
+    updateChrome({ adjacent: { kind: "attached", left: 800, top: 80, width: 360, height: 350 } });
+    owner.commands.filter("open"); owner.commands.adjacent("thread");
+  });
   expect(screen.getByRole("complementary", { name: "Feedback" })).toHaveAttribute("data-host", "adjacent");
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   fireEvent.click(screen.getByRole("button", { name: "Focus" }));

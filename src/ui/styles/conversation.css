@@ -1,3 +1,7 @@
+/* Important legacy declarations take precedence over later component layers. */
+@layer legacy {
+  .durable-review .conversation-backdrop:not([hidden]) { display: block !important; }
+}
 @layer components {
   .durable-review { --conversation-top: calc(var(--toolbar-h) + 8px); }
   .durable-review .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "destinations status tools"; }
@@ -50,10 +54,7 @@
   .conversation-target-status select { width: 100%; min-width: 0; color: var(--foreground); background: var(--background); border: 1px solid var(--border); border-radius: var(--radius); }
   .has-focus .conversation-thread > header { max-height: 42%; overflow: auto; }
   .is-adjacent .conversation-overview { max-height: 90px; }
-  .durable-review[data-conversation-pane="open"][data-conversation-host="adjacent"]:not([data-conversation-compact="true"]) .stage { width: calc(100% - 496px); }
-  @media (max-width: 720px) {
-    .conversation-panel:not(.is-adjacent) { width: 100%; border-left: 0; }
-  }
+  .conversation-reply { flex: 0 0 auto; padding-top: 8px; }
   .conversation-thread-content { min-height: 0; }
   .conversation-transcript { padding: 0; overflow-wrap: anywhere; }
   .conversation-exchange { padding: 0 0 8px; margin-bottom: 8px; }
@@ -115,6 +116,8 @@
   .has-focus .focused .conversation-thread-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .has-focus .focused .conversation-transcript { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
   .has-focus .focused .conversation-composer { flex: 0 0 auto; border-top: 1px solid var(--border); }
+  .is-adjacent .conversation-composer textarea { height: 56px; min-height: 36px; }
+  .is-adjacent .conversation-inventory { min-height: 0; }
   .conversation-result-peek { padding: 8px; margin: 0 0 8px; }
   @media (max-height: 440px) {
     .conversation-result-peek { display: flex; flex-direction: column; }

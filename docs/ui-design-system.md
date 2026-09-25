@@ -48,8 +48,8 @@ collapse independently without unmounting their contents. The optional overall
 note starts collapsed, shows Draft when nonempty, retains its own permission and
 cannot collapse during composition. Collapse/resize preserves its node and caret.
 
-Feedback is a flush-right 380px overlay below the measured toolbar (full width
-at 720px and below). Opening Feedback or Focus does not resize or replace the
+Feedback is a flush-right 380px overlay below the measured toolbar, including at
+720px narrow-PC widths, clamped to the available viewport below 380px. Opening any host does not resize or replace the
 authored iframe. Its backdrop and inert authored stage prevent interaction
 behind the panel without disabling toolbar navigation, theme, or Close.
 The inventory scrolls independently from the restrained overall note and bottom
@@ -87,15 +87,22 @@ the source barrier and current scoped projection; unavailable targets retain
 their explanation and disabled action. Resolved and ended threads remain navigable.
 There is no manual reattachment or automatic anchor mutation.
 
-`placeConversationSurface` measures every target rectangle and the visual
-viewport. An adjacent card must fit outside authored content, not over or dim
-the relevant text. Only the adjacent host retains its existing document gutter;
-Feedback and Focus overlay without reserving that gutter. Host transitions wait
-for matching layout and fresh frame geometry before choosing adjacent placement.
-Adjacent cards never use the Feedback backdrop or inert authored stage.
-Below 900px, in short keyboard-like viewports, or without sufficient clear
-space, Feedback is an overlay. Fallback preserves input and never changes
-thread status. It does not automatically jump back to adjacent placement.
+`placeConversationSurface` and `placeNewMessageSurface` share measured side,
+then above/below placement against every visible target rectangle, clipping edge,
+toolbar and visual viewport. Local surfaces may cover unselected prose, never
+the selected target; there is no document gutter or width-only placement failure.
+Thread height comes from its actual header, transcript and controls. Short threads
+fit their contents; long transcripts shrink to the available space while reserving
+Reply or the editor and its actions. Initial measurement is noninteractive and
+hidden until a placement exists. Host transitions wait for matching layout and
+fresh frame geometry; observers do not move keyboard focus or reset reading.
+Adjacent cards never use the Feedback backdrop or inert authored stage. Only
+unavailable geometry or insufficient usable target-safe space falls back to
+Feedback, with an explanation. Insufficient-space fallback retains the focused
+conversation so a long transcript cannot push its active editor below the inventory.
+Unavailable targets return to the inventory with their target-specific explanation.
+Fallback preserves input and never changes thread status. It does not automatically
+jump back to adjacent placement.
 
 New comments extend the former 340px contextual surface with one title, a subdued
 target cue, Textarea, and unchecked Request a change / Save on one horizontal row.
@@ -112,8 +119,10 @@ state, preventing late intents from reopening the editor. Heading labels include
 the selected heading itself; stored anchors and selectors are never rewritten.
 The same mounted `new` draft remains in the inventory while its host changes.
 Contextual composition neither makes the authored stage inert nor adds a backdrop.
-`placeNewMessageSurface` reuses former placement but rejects overlapping/clipped
-fallbacks; below 900px or without room it keeps the draft in Feedback.
+`placeNewMessageSurface` uses the measured complete composer height and rejects
+overlapping placements. Its target is clipped to the authored scroll region, but
+the parent popover can extend outside that region without covering the target.
+No usable placement keeps the draft in Feedback with its explanation.
 On Feedback host entry or a change to the available inventory dimensions, a
 clipped new-message textarea is revealed by scrolling that inventory only.
 This does not move keyboard focus or recreate the editor. Theme/status renders
@@ -222,7 +231,7 @@ buttons. Equal outer grid tracks keep the status at the actual midpoint, not the
 center of remaining space. Durable review uses a second row at 760px and below;
 at 480px and below the centered badge and right-aligned mode occupy separate rows
 to avoid overlapping the longest Waiting label. Legacy toolbars retain 600px. Conversation
-placement still uses its independently measured 900px space boundary.
+placement uses actual target and surface measurements, not that toolbar breakpoint.
 
 Changes retains the last valid submission/page/format selection, otherwise
 selects handled history or shows an explicit empty state without issuing a

@@ -106,42 +106,52 @@ export function alignedCardPosition(rects, { frameRect, viewport, width = 300, h
   };
 }
 
-/** Extend the former placement, but never accept its clamped overlapping fallback. */
-export function placeNewMessageSurface(geometry, options) {
-  if (options.viewport.width < 900) return null;
-  const placement = placeContextualSurface(geometry, { ...options, narrow: false });
-  if (!("left" in placement) || placement.kind === "sheet") return null;
-  const { viewport, frameRect, surfaceHeight, toolbarHeight } = options;
-  const clip = frameRectToChrome(geometry.clip, frameRect);
-  if (placement.left < viewport.left + GAP || placement.left + placement.width > viewport.left + viewport.width - GAP ||
-      placement.top < viewport.top + toolbarHeight + GAP ||
-      placement.top + surfaceHeight > viewport.top + viewport.height - GAP ||
-      placement.top < clip.top || placement.top + surfaceHeight > clip.bottom) return null;
-  if (geometry.rects.some((rect) => {
-    const target = frameRectToChrome(rect, frameRect);
-    return placement.left < target.right + GAP && placement.left + placement.width > target.left - GAP &&
-      placement.top < target.bottom + GAP && placement.top + surfaceHeight > target.top - GAP;
-  })) return null;
-  return { ...placement, height: surfaceHeight };
+/** Popovers may cover unselected prose, never any visible part of their target. */
+function placeLocalSurface(geometry, { frameRect, viewport, surfaceWidth, surfaceHeight, minHeight = surfaceHeight, toolbarHeight = 48 }) {
+  if (!geometry || geometry.relation === "unavailable") return null;
+  const bounds = { left: viewport.left + GAP, right: viewport.left + viewport.width - GAP,
+    top: viewport.top + toolbarHeight + GAP, bottom: viewport.top + viewport.height - GAP };
+  const width = Math.min(surfaceWidth, bounds.right - bounds.left);
+  if (width < 240 || bounds.bottom - bounds.top < minHeight) return null;
+  const height = Math.min(surfaceHeight, bounds.bottom - bounds.top);
+  const clip = geometry.clip ? frameRectToChrome(geometry.clip, frameRect) : bounds;
+  const rects = geometry.rects.map(rect => frameRectToChrome(rect, frameRect)).map(rect => ({
+    left: Math.max(rect.left, clip.left, bounds.left - GAP), right: Math.min(rect.right, clip.right, bounds.right + GAP),
+    top: Math.max(rect.top, clip.top, bounds.top - GAP), bottom: Math.min(rect.bottom, clip.bottom, bounds.bottom + GAP),
+  })).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
+  if (!rects.length) {
+    if (!["above", "below"].includes(geometry.relation)) return null;
+    const horizontal = Number.isFinite(geometry.horizontal) ? frameRect.left + geometry.horizontal : clip.left;
+    return { kind: geometry.relation === "above" ? "edge-top" : "edge-bottom",
+      left: clamp(horizontal, bounds.left, bounds.right - width),
+      top: clamp(geometry.relation === "above" ? clip.top + GAP : clip.bottom - height - GAP, bounds.top, bounds.bottom - height),
+      width, height };
+  }
+  const target = { left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)),
+    top: Math.min(...rects.map(rect => rect.top)), bottom: Math.max(...rects.map(rect => rect.bottom)) };
+  const x = clamp(target.left, bounds.left, bounds.right - width);
+  const y = clamp(target.top, bounds.top, bounds.bottom - height);
+  const below = Math.min(height, bounds.bottom - target.bottom - GAP);
+  const above = Math.min(height, target.top - GAP - bounds.top);
+  const candidates = [
+    { left: target.right + GAP, top: y, height },
+    { left: target.left - width - GAP, top: y, height },
+    { left: x, top: target.bottom + GAP, height: below },
+    { left: x, top: target.top - GAP - above, height: above },
+  ];
+  const fit = candidates.find(candidate => candidate.height >= minHeight &&
+    candidate.left >= bounds.left && candidate.left + width <= bounds.right &&
+    candidate.top >= bounds.top && candidate.top + candidate.height <= bounds.bottom &&
+    rects.every(rect => candidate.left >= rect.right + GAP || candidate.left + width <= rect.left - GAP ||
+      candidate.top >= rect.bottom + GAP || candidate.top + candidate.height <= rect.top - GAP));
+  return fit ? { kind: "attached", ...fit, width } : null;
 }
 
-/** Use document margins, not apparently empty space inside authored content. */
-export function placeConversationSurface(state, { frameRect, viewport, toolbarHeight = 88, width = 360, height = 560 }) {
-  if (state?.state !== "found" || state.relation !== "visible" || viewport.width < 900) return null;
-  const available = viewport.height - toolbarHeight - GAP * 2;
-  if (available < 340 || !state.rects.length) return null;
-  const measuredHeight = Math.min(height, available);
-  const rects = state.rects.map((rect) => frameRectToChrome(rect, frameRect));
-  const left = Math.min(...rects.map((rect) => rect.left));
-  const right = Math.max(...rects.map((rect) => rect.right));
-  const top = clamp(Math.min(...rects.map((rect) => rect.top)),
-    viewport.top + toolbarHeight + GAP, viewport.top + viewport.height - measuredHeight - GAP);
-  const rightEdge = Number.isFinite(frameRect.right) ? Math.max(right, frameRect.right) : right;
-  const leftEdge = Number.isFinite(frameRect.left) ? Math.min(left, frameRect.left) : left;
-  for (const x of [rightEdge + GAP, leftEdge - width - GAP]) {
-    if (x >= viewport.left + GAP && x + width <= viewport.left + viewport.width - GAP) {
-      return { left: x, top, width, height: measuredHeight };
-    }
-  }
-  return null;
+export function placeNewMessageSurface(geometry, options) {
+  return placeLocalSurface(geometry, options);
+}
+
+export function placeConversationSurface(state, { frameRect, viewport, toolbarHeight = 48, width = 360, height = 260, minHeight = 160 }) {
+  if (state?.state !== "found") return null;
+  return placeLocalSurface(state, { frameRect, viewport, toolbarHeight, surfaceWidth: width, surfaceHeight: height, minHeight });
 }

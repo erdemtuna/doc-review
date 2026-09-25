@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, writeFile, selectText, intercept, failure, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, selectText, intercept, failure, listed, feedback } from "./helpers.js";
 
 const source = fs.readFileSync(new URL("../test/fixtures/contextual-review.html", import.meta.url), "utf8");
 async function select(frame) {
@@ -30,7 +30,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
       const style = getComputedStyle(element);
       return style.boxShadow !== "none" || (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 2);
     })).toBe(true);
-    const panel = page.getByRole("complementary", { name: "Feedback" });
+    const panel = page.locator(".conversation-panel");
     const box = await panel.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(width);
@@ -39,14 +39,20 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     await page.screenshot({ path: info.outputPath(`composer-${theme}-${width}.png`), animations: "disabled" });
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(field).toHaveCount(0);
+    await feedback(page);
     const card = page.locator(".conversation-thread");
     await expect(card).toHaveCount(1);
     // Closing does not activate an adjacent conversation; activation is explicit.
     await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).click();
     await frame.locator("mark[data-eh-mark]").first().click();
     await expect(card).toBeVisible();
-    const adjacent = width >= 900;
-    await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", adjacent ? "adjacent" : "feedback");
+    const adjacent = await panel.getAttribute("data-host") === "adjacent";
+    if (!adjacent) await expect(page.getByText(/not enough room beside, above or below/)).toBeVisible();
+    else {
+      const surface = await panel.boundingBox(), target = await frame.locator("mark[data-eh-mark]").first().boundingBox();
+      expect(surface.x >= target.x + target.width || surface.x + surface.width <= target.x ||
+        surface.y >= target.y + target.height || surface.y + surface.height <= target.y).toBe(true);
+    }
     if (adjacent) await expect(card.locator(".conversation-jump")).toBeHidden();
     for (const name of [...(adjacent ? [] : ["Jump to"]), "Edit message", "Conversation actions"]) {
       const action = card.getByRole("button", { name, exact: true });

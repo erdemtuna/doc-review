@@ -108,20 +108,26 @@ test("unavailable and ambiguous explanations never claim missing source or offer
   }
   assert.equal(describeConversationAnchor({ threadId: "one", ...found, relation: "below" }).offscreen, true);
 });
-test("adjacent placement clears every target rectangle and refuses narrow, short, full-width and unavailable targets", () => {
+test("adjacent placement uses measured local space without a gutter and never covers any selected rectangle", () => {
   const options = { frameRect: { left: 0, top: 48 }, viewport: { left: 0, top: 0, width: 1280, height: 800 } };
   const multi = { ...found, rects: [...found.rects, { left: 0, right: 600, top: 50, bottom: 70, width: 600, height: 20 }] };
   const position = placeConversationSurface(multi, options);
   assert.ok(position.left >= 612);
-  assert.ok(position.top >= 100);
+  assert.ok(position.top >= 60);
   assert.ok(position.top + position.height <= 788);
   const margin = placeConversationSurface(found, { ...options, frameRect: { ...options.frameRect, right: 784 } });
-  assert.ok(margin.left >= 796, "The card must also clear unselected authored content.");
-  assert.equal(placeConversationSurface({ ...found, rects: [{ left: 0, right: 1280, top: 0, bottom: 50, width: 1280, height: 50 }] }, options), null);
+  assert.ok(margin.left < 784, "Unselected prose can be covered without reflowing the document.");
+  assert.ok(placeConversationSurface({ ...found, rects: [{ left: 0, right: 1280, top: 0, bottom: 50, width: 1280, height: 50 }] }, options).top >= 110);
   for (const viewport of [{ ...options.viewport, width: 600 }, { ...options.viewport, height: 400 }]) {
-    assert.equal(placeConversationSurface(found, { ...options, viewport }), null);
+    assert.ok(placeConversationSurface(found, { ...options, viewport }));
   }
-  for (const state of [{ state: "missing" }, { ...found, relation: "right" }, { state: "unavailable", reason: "hidden" }]) {
+  assert.equal(placeConversationSurface(found, { ...options, viewport: { ...options.viewport, height: 200 } }), null);
+  for (const state of [{ state: "missing" }, { ...found, relation: "right", rects: [] }, { state: "unavailable", reason: "hidden" }]) {
     assert.equal(placeConversationSurface(state, options), null);
   }
+  const short = placeConversationSurface(found, { ...options, height: 190, minHeight: 150 });
+  assert.equal(short.height, 190);
+  const tall = placeConversationSurface(found, { ...options, height: 1400, minHeight: 220 });
+  assert.ok(tall.height >= 220 && tall.top + tall.height <= 788);
+  assert.equal(placeConversationSurface({ ...found, rects: [{ left: 0, right: 1280, top: 0, bottom: 752, width: 1280, height: 752 }] }, options), null);
 });

@@ -61,7 +61,9 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   await expect(mark(page, two)).toHaveCount(1);
   await expect(page.frameLocator("#frame").getByRole("button", { name: "Open 2 conversations", exact: true })).toHaveCount(1);
   await expect(panel(page)).toHaveCount(0);
+  const originalFrame = await page.locator("#frame").boundingBox();
   await activate(page, one);
+  expect(await page.locator("#frame").boundingBox()).toEqual(originalFrame);
   await expect(card(page, one).getByText("2 conversations at this target", { exact: true })).toBeVisible();
   await card(page, one).getByRole("button", { name: "Reply", exact: true }).click();
   const editor = card(page, one).getByRole("textbox", { name: "Reply", exact: true });
@@ -100,9 +102,10 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   await expect(editor).toHaveValue("Newer text stays in the same editor");
   await (await threadAction(page, card(page, one), "Beside target")).click();
   const bounds = await panel(page).boundingBox(), target = await mark(page, one).boundingBox();
-  expect(bounds.x >= target.x + target.width || bounds.x + bounds.width <= target.x).toBe(true);
+  expect(bounds.x >= target.x + target.width || bounds.x + bounds.width <= target.x ||
+    bounds.y >= target.y + target.height || bounds.y + bounds.height <= target.y).toBe(true);
   const documentBounds = await page.locator("#frame").boundingBox();
-  expect(bounds.x >= documentBounds.x + documentBounds.width || bounds.x + bounds.width <= documentBounds.x).toBe(true);
+  expect(documentBounds).toEqual(originalFrame);
   await page.screenshot({ path: testInfo.outputPath("adjacent-light-desktop.png"), animations: "disabled" });
   await page.locator("#theme").click();
   const foreground = await panel(page).evaluate((node) => getComputedStyle(node).color);
@@ -170,7 +173,7 @@ test("missing, normalized, repeated, hidden and replaced targets retain conversa
   await expect(card(page, block).getByRole("button", { name: "Jump to" })).toBeDisabled();
 });
 
-test("offscreen navigation, narrow and short layouts use the Feedback overlay without reflowing the document", async ({ page, review }, testInfo) => {
+test("offscreen pinning and explicit narrow/short Feedback preserve the document and editor", async ({ page, review }, testInfo) => {
   test.setTimeout(60_000);
   const { ref } = await start(page, review, '<p id="copy">A uniquely anchored passage</p><div style="height:3000px"></div>');
   const id = await seed(review, ref);
@@ -179,7 +182,7 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
   const editor = card(page, id).getByRole("textbox", { name: "Reply", exact: true });
   await editor.fill("Viewport-safe draft");
   await page.frameLocator("#frame").locator("body").evaluate(() => window.scrollTo(0, 1000));
-  await expect(panel(page)).toHaveAttribute("data-host", "feedback");
+  await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
   await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeEnabled();
   await card(page, id).getByRole("button", { name: "Jump to" }).click();
   await expect(mark(page, id)).toBeInViewport();
@@ -190,7 +193,6 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
     Object.defineProperty(visualViewport, "height", { configurable: true, value: 400 });
     visualViewport.dispatchEvent(new Event("resize"));
   });
-  await expect(panel(page)).toHaveAttribute("data-host", "feedback");
   await expect.poll(async () => {
     const box = await panel(page).boundingBox();
     return box.y + box.height;
@@ -222,8 +224,16 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
         await card(page, id).getByRole("button", { name: "Jump to" }).click();
         await expect(mark(page, id)).toBeVisible();
         await mark(page, id).press("Enter");
-        await expect(panel(page)).toHaveAttribute("data-host", "feedback");
         await expect(editor).toHaveValue("Viewport-safe draft");
+        if (await panel(page).getAttribute("data-host") === "adjacent") {
+          const surface = await panel(page).boundingBox(), target = await mark(page, id).boundingBox();
+          expect(surface.x >= target.x + target.width || surface.x + surface.width <= target.x ||
+            surface.y >= target.y + target.height || surface.y + surface.height <= target.y).toBe(true);
+          await (await threadAction(page, card(page, id), "Back to Feedback")).click();
+        } else {
+          await expect(page.getByText(/not enough room beside, above or below/)).toBeVisible();
+          await card(page, id).getByRole("button", { name: "Back to Feedback", exact: true }).click();
+        }
       }
       else {
         const source = await page.locator(".stage").boundingBox();
@@ -372,7 +382,11 @@ test("full-width block badges remain actionable without the new-comment affordan
     saved.y + saved.height <= fresh.y || fresh.y + fresh.height <= saved.y).toBe(true);
   await badge.click();
   await expect(panel(page)).toBeVisible();
-  await expect(panel(page).getByLabel("Conversation at this target").first()).toBeVisible();
-  await panel(page).getByLabel("Conversation at this target").first().selectOption(one);
+  await expect(panel(page)).toHaveAttribute("data-host", "focus");
+  await expect(page.getByText(/not enough room beside, above or below/)).toBeVisible();
+  const focused = panel(page).locator(".conversation-thread.focused");
+  await focused.getByText("Conversations at this target (2)", { exact: true }).click();
+  await expect(focused.getByLabel("Conversation at this target")).toBeVisible();
+  await focused.getByLabel("Conversation at this target").selectOption(one);
   await expect(card(page, one)).toBeVisible();
 });

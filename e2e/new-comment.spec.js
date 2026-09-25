@@ -219,7 +219,14 @@ test("one new editor stays readable through toolbar-focused resizing and respect
     for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width, height });
       if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-      if (width < 900) await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
+      if (await page.locator(".conversation-panel").getAttribute("data-host") === "compose") {
+        const bounds = await page.locator(".conversation-panel").boundingBox(), frameBox = await page.locator("#frame").boundingBox();
+        const targets = await frame.locator("#summary").evaluate(() => [...getSelection().getRangeAt(0).getClientRects()].map(rect => ({
+          left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        })));
+        for (const target of targets) expect(bounds.x >= frameBox.x + target.right || bounds.x + bounds.width <= frameBox.x + target.left ||
+          bounds.y >= frameBox.y + target.bottom || bounds.y + bounds.height <= frameBox.y + target.top).toBe(true);
+      } else await expect(page.locator(".conversation-new-message")).toContainText(/not enough room|target cannot/);
       expect(await editor(page).evaluate((node) => [node === window.newEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 7, 14]);
       await expect(editor(page)).toHaveValue("Please clarify this selected wording.");
       await expect(page.locator("#theme")).toBeFocused();

@@ -47,10 +47,11 @@ Reviews start with **View** selected. Use page controls normally,
 or switch to **Edit** to change content. Comments are available in both modes.
 
 Select text, or hover or focus an element, then use its nearby comment icon.
-On desktop, a new comment opens beside the selection or element without resizing
-the document. The toolbar's **Feedback** opens the same unsaved editor in the
-panel. A narrow viewport, unavailable geometry or insufficient clear
-space uses Feedback instead. Offscreen composition is pinned to the target's
+New comments use measured space beside, above or below the selection or element
+without resizing the document or covering the target. The toolbar's **Feedback**
+opens the same unsaved editor in the panel. Only unavailable geometry or insufficient
+target-safe space uses Feedback instead; narrow PC windows are not an automatic
+fallback. Offscreen composition is pinned to the target's
 clipping edge and offers **Back to selection**. An editor's X or Escape closes
 empty/unchanged work immediately; meaningful unsaved text or a saved message's
 changed permission prompts **Keep editing / Discard**. Keep editing restores
@@ -64,9 +65,11 @@ chooser expose other conversations at that highlight. **Beside target**,
 **Focus** and **Back to Feedback** move the same mounted editor, preserving text,
 selection, caret, composition, loaded exchanges and reading position.
 
-The card never covers its highlighted target. Existing adjacent conversation
-cards use the document gutter; new composition and Feedback do not. If the viewport is narrow/short or placement
-cannot fit, the conversation stays accessible in Feedback instead. Narrow
+The card never covers its highlighted target. Short discussions fit their contents;
+long transcripts scroll with Reply or the active editor kept reachable. No host
+reserves a document gutter or reflows the authored page. Local cards may cover
+unselected prose. If no usable target-safe placement fits, the conversation stays
+accessible in focused Feedback with an explanation and its editor still reachable. Narrow
 Feedback covers the document without changing its width: Close it or use **Jump to**
 to return to the document. Reopening Feedback restores the sidebar reading position and drafts.
 An offscreen target offers **Jump to**, not a missing-target warning.
@@ -123,7 +126,7 @@ and local to this tab. New activity is marked without forcing expansion or scrol
 The inventory includes all shared-review member pages, not just this tab's visits.
 Uncheck **Include in Send** or an edit to omit that pending item.
 
-Feedback opens as a 380px right-side overlay (full width on narrow screens),
+Feedback opens as a 380px right-side overlay, including at 720px PC widths (clamped to the viewport on smaller screens),
 without resizing or reloading the document. Click its backdrop or Close to
 return to the page; the toolbar remains available. The inventory scrolls
 independently of the note and bottom action row.
