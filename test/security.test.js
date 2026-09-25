@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { parse } from "parse5";
 
 const tmp = path.resolve(`.doc-review-security-${process.pid}`);
 fs.mkdirSync(tmp, { recursive: true });
@@ -60,7 +61,15 @@ function assertSdkOnlyArtifact(artifact, render, key, port) {
   assert.match(csp, /base-uri 'self'/);
   assert.equal(artifact.raw.split(`nonce="${nonce}"`).length - 1, 1, "only the SDK receives the nonce");
   assert.ok(artifact.raw.includes(`<script data-eh-sdk data-eh-bootstrap type="module" nonce="${nonce}"`));
-  assert.ok(artifact.raw.indexOf("data-eh-bootstrap") < artifact.raw.indexOf("<html>"));
+  const scripts = [];
+  const visit = (node) => {
+    if (node.tagName === "script") scripts.push(node);
+    for (const child of node.childNodes ?? []) visit(child);
+  };
+  visit(parse(artifact.raw));
+  assert.ok(scripts[0]?.attrs.some(attr => attr.name === "data-eh-bootstrap"),
+    "the trusted bootstrap must be the first parsed script, not swallowed by authored raw text");
+  assert.equal(scripts[0].attrs.find(attr => attr.name === "nonce")?.value, nonce);
   assert.equal(nonce, render.capability, "the CSP nonce is also the hidden frame capability");
   assert.match(artifact.raw, new RegExp(`data-generation="${render.generation}" data-page-key="${key}"`));
   assert.match(artifact.raw, new RegExp(`src="http://127\\.0\\.0\\.1:${port}/sdk\\.js"`));

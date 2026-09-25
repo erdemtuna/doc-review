@@ -3,7 +3,7 @@ import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback }
 import { fieldNotes, summaryFeedback, actionFeedback } from "../test/fixtures/readme-review.js";
 import { approvedUiParity } from "../test/fixtures/approved-ui-parity.js";
 
-test("approved Field Notes geometry, pending hierarchy and overlay remain stable without hover or scrolling", async ({ page, review }, info) => {
+test("approved Field Notes toolbar and readable card hierarchy survive the accepted overlay changes without scrolling", async ({ page, review }, info) => {
   test.setTimeout(60_000);
   const ref = await openReview(page, review, writeFile(review, "approved-field-notes.html", fieldNotes()));
   await waitForSdk(page);
@@ -29,13 +29,22 @@ test("approved Field Notes geometry, pending hierarchy and overlay remain stable
         top = Math.max(top, box.top + ancestor.clientTop);
         bottom = Math.min(bottom, box.top + ancestor.clientTop + ancestor.clientHeight);
       }
+      const card = node.closest(".conversation-thread");
+      const meta = node.closest(".conversation-exchange").querySelector(".conversation-meta");
       return { font: parseFloat(getComputedStyle(node).fontSize), messageTop: line.top, naturalLine: line.height,
+        headerBottom: card.querySelector("header").getBoundingClientRect().bottom,
+        metadataBottom: meta.getBoundingClientRect().bottom,
         visibleLine: Math.max(0, Math.min(line.bottom, bottom) - Math.max(line.top, top)) };
     });
     expect(geometry.font).toBe(approvedUiParity.bodyFont);
-    expect(geometry.messageTop).toBe(size.messageTop);
+    // Steps 3/4 added the readable target/action header and independent disclosures.
+    // Preserve hierarchy and a complete initial line, not the superseded absolute offset.
+    expect(geometry.messageTop).toBeGreaterThan(geometry.headerBottom);
+    expect(geometry.messageTop - geometry.metadataBottom).toBeGreaterThanOrEqual(4);
+    expect(geometry.messageTop - geometry.metadataBottom).toBeLessThanOrEqual(12);
     expect(geometry.visibleLine).toBe(geometry.naturalLine);
-    expect((await page.locator(".conversation-panel").boundingBox()).width).toBe(size.panel);
+    expect((await page.locator(".conversation-panel").boundingBox()).width).toBe(Math.min(380, size.panel));
+    expect(await page.locator(".conversation-inventory").evaluate(node => node.scrollTop)).toBe(0);
     expect((await page.locator("#frame").boundingBox()).width).toBe(size.width);
     await expect(page.getByRole("button", { name: "Open (2)", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -47,7 +56,9 @@ test("approved Field Notes geometry, pending hierarchy and overlay remain stable
     });
     expect(hit).toBe(true);
     samples.push({ ...size, theme, ...geometry });
-    await page.screenshot({ path: info.outputPath(`approved-${theme}-${size.width}x${size.height}.png`), animations: "disabled" });
+    await page.screenshot({ path: info.outputPath(`approved-${theme}-${size.width}x${size.height}.png`), animations: "disabled", caret: "initial" });
   }
-  fs.writeFileSync(info.outputPath("approved-parity.json"), JSON.stringify({ provenance: approvedUiParity, samples }, null, 2));
+  fs.writeFileSync(info.outputPath("approved-parity.json"), JSON.stringify({
+    provenance: approvedUiParity, acceptedUxBaseline: "271229dc5778c6a6defb02abf490b5eadee9f39a", samples,
+  }, null, 2));
 });

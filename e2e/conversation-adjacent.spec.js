@@ -225,6 +225,8 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
         await expect(mark(page, id)).toBeVisible();
         await mark(page, id).press("Enter");
         await expect(editor).toHaveValue("Viewport-safe draft");
+        await expect.poll(() => panel(page).evaluate(node => !node.hidden &&
+          (node.dataset.host === "focus" || (node.dataset.host === "adjacent" && getComputedStyle(node).opacity === "1")))).toBe(true);
         if (await panel(page).getAttribute("data-host") === "adjacent") {
           const surface = await panel(page).boundingBox(), target = await mark(page, id).boundingBox();
           expect(surface.x >= target.x + target.width || surface.x + surface.width <= target.x ||

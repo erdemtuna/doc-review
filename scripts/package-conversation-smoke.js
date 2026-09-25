@@ -56,13 +56,19 @@ export async function conversationSmoke({ browser, expect, project, state, evide
   const feedback = async (tab) => {
     if (await tab.locator("#commentsButton").getAttribute("aria-expanded") !== "true") await tab.locator("#commentsButton").click();
   };
+  const overallNote = async (tab) => {
+    await feedback(tab);
+    if (!await tab.getByRole("textbox", { name: "Overall note", exact: true }).isVisible()) {
+      await tab.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+    }
+  };
   const message = async (tab, body, change = false) => {
     await feedback(tab); await tab.getByRole("button", { name: "New message", exact: true }).click();
     const composer = tab.locator('[data-composer="new"]');
     await expect(composer.getByLabel("Request a change")).not.toBeChecked();
     await composer.getByRole("textbox").fill(body);
     if (change) await composer.getByLabel("Request a change").check();
-    await composer.getByRole("button", { name: "Save message" }).click();
+    await composer.getByRole("button", { name: "Save", exact: true }).click();
     await expect(composer).toHaveCount(0);
   };
   const pick = (ref) => cli(["poll", ...scopeArgs(ref), "--timeout", "5"], contracts.agentPollSchema);
@@ -228,6 +234,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
         lost.set(body.operation, body); await route.fetch(); await route.abort("connectionreset");
       } else await route.continue();
     });
+    await overallNote(page);
     const note = page.getByRole("textbox", { name: "Overall note", exact: true });
     await note.fill("Late explanation only.");
     await expect(page.locator('[data-composer="note"]').getByLabel("Request a change")).not.toBeChecked();
@@ -251,6 +258,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await restart();
     await page.goto(oldUrl); await ready(page); await feedback(page);
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
+    await overallNote(page);
     await expect(page.getByRole("textbox", { name: "Overall note", exact: true })).toHaveValue("");
     await expect(page.getByText("Saved unsent stays in the old review.", { exact: true })).toBeVisible();
     const fresh = await open(target), freshRef = refFor(fresh);
@@ -267,7 +275,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
       submissionId: outstanding.submissionId, unsentRetained: true, localDraftRecovered: false });
     for (const theme of ["light", "dark"]) {
       if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-      await page.screenshot({ path: path.join(evidenceDir, `installed-ended-${theme}.png`), animations: "disabled" });
+      await page.screenshot({ path: path.join(evidenceDir, `installed-ended-${theme}.png`), animations: "disabled", caret: "initial" });
     }
 
     for (const kind of ["markdown", "scripted", "url"]) {
@@ -353,7 +361,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await second.goto(unavailable.url); await ready(second);
     await second.route("**/api/conversation/capture", (route) => route.fulfill({ status: 409,
       json: contracts.contractFailure(new contracts.ContractError("VERSION_CONFLICT", "Fixture capture unavailable")) }));
-    await feedback(second);
+    await overallNote(second);
     await second.getByRole("textbox", { name: "Overall note" }).fill("Change identified source");
     await second.locator('[data-composer="note"]').getByLabel("Request a change").check();
     await second.locator("#send").click(); await expect(second.getByText("Queued; not received", { exact: true })).toBeVisible();
@@ -387,10 +395,10 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await threadAction(second, active, "Back to Feedback");
     for (const id of anchorIds.slice(1)) {
       const item = second.locator(`[data-thread="${id}"]`);
-      await expect(item.getByRole("button", { name: "Show target" })).toBeDisabled();
+      await expect(item.getByRole("button", { name: "Jump to", exact: true })).toBeDisabled();
       await expect(item.getByRole("button", { name: "Reply", exact: true })).toBeEnabled();
     }
-    await second.screenshot({ path: path.join(evidenceDir, "installed-target-safety.png"), animations: "disabled" });
+    await second.screenshot({ path: path.join(evidenceDir, "installed-target-safety.png"), animations: "disabled", caret: "initial" });
     evidence.push({ phase: "target-safety", missingAndAmbiguous: true, oneEditor: true });
     const retainedQuery = { ...ref, submissionId: mixed.submissionId, pageKey: ref.entryKey, mode: "source" };
     const retained = await ok(retainedQuery, "/api/conversation/comparison");
@@ -420,7 +428,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     assert.deepEqual(errors, []);
     fs.writeFileSync(path.join(evidenceDir, "conversation-loop.json"), JSON.stringify(evidence, null, 2));
   } catch (error) {
-    await page.screenshot({ path: path.join(evidenceDir, "conversation-failure.png"), animations: "disabled" });
+    await page.screenshot({ path: path.join(evidenceDir, "conversation-failure.png"), animations: "disabled", caret: "initial" });
     fs.writeFileSync(path.join(evidenceDir, "conversation-progress.json"), JSON.stringify({ evidence, errors }, null, 2));
     throw error;
   } finally { await context.close(); }

@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, selectText, listed } from "./helpers.js";
 
-for (const scripted of [false, true]) test(`pre-head bootstrap preserves ${scripted ? "scripted feedback-only protection" : "plain-file automatic saving"} without whitespace normalization`, async ({ page, review }) => {
+for (const scripted of [false, true]) test(`pre-head bootstrap preserves ${scripted ? "scripted feedback-only protection" : "plain-file automatic saving"} without whitespace normalization`, async ({ page, review }, info) => {
   await page.addInitScript(() => {
     window.saveMessages = [];
     addEventListener("message", event => {
@@ -50,4 +51,12 @@ for (const scripted of [false, true]) test(`pre-head bootstrap preserves ${scrip
   const edits = (await listed(review, ref, "edits")).items;
   expect(edits).toHaveLength(1);
   expect(edits[0].source.state).toBe(scripted ? "pending" : "saved");
+  const after = fs.readFileSync(file, "utf8");
+  const sha = value => createHash("sha256").update(value).digest("hex");
+  fs.writeFileSync(info.outputPath("source-save-evidence.json"), JSON.stringify({
+    scripted, operations, messages: await page.evaluate(() => window.saveMessages),
+    original, after, originalSha256: sha(original), afterSha256: sha(after),
+    sourceState: edits[0].source.state, unchanged: original === after,
+    classification: "Browser autosave/protection fixture, not authentic agent source work",
+  }, null, 2));
 });

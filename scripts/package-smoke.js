@@ -277,7 +277,7 @@ try {
       connection: () => ({ base, token: info.token }),
       restart: async () => { const port = info.port; await stopServer(); await startServer(port); },
     });
-    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js";
+    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js";
     try {
       const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=4",
         `--output=${path.join(evidenceDir, "installed-parity")}`], root, {
