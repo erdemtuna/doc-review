@@ -1,7 +1,7 @@
 import { selectChoice } from "./choice-helpers.js";
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, enterEditMode, openReview, waitForSdk, writeFile, seedThread, mutate, listed, feedback, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, enterEditMode, openReview, waitForSdk, writeFile, seedThread, mutate, listed, feedback, overallNote, intercept, failure, conversation } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
 const source = '<!doctype html><html><body><p id="copy">Original paragraph for feedback.</p><label>Authored draft <input aria-label="Authored draft"></label></body></html>';
@@ -20,7 +20,7 @@ test("thread disclosure retains DOM and tab-lifetime choices across pages; reloa
   const joined = await mutate(review, ref, "join-page", { target: other });
   const { threadId } = (await listed(review, ref, "threads")).items[0].thread;
   const thread = page.locator(`[data-thread="${threadId}"]`), toggle = thread.locator(".conversation-thread-title");
-  await note(page).fill("Keep note identity and caret");
+  await (await overallNote(page)).fill("Keep note identity and caret");
   await note(page).evaluate((element) => {
     window.originalNote = element; element.setSelectionRange(2, 8);
     element.dispatchEvent(new Event("select", { bubbles: true }));
@@ -42,7 +42,7 @@ test("thread disclosure retains DOM and tab-lifetime choices across pages; reloa
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await page.reload(); await waitForSdk(page); await feedback(page);
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(note(page)).toHaveValue("");
+  await expect(await overallNote(page)).toHaveValue("");
 });
 
 test("collapse and host transfer preserve the one editable message through validation, Save and Cancel", async ({ page, review }) => {
@@ -119,7 +119,7 @@ test("Send selects all saved items across authorized pages beyond one page of re
   await page.getByRole("button", { name: "New message", exact: true }).click();
   const draft = page.getByRole("textbox", { name: "New message", exact: true });
   await draft.fill("Unsaved contextual draft is excluded");
-  await note(page).fill("A submission-level note, not a conversation");
+  await (await overallNote(page)).fill("A submission-level note, not a conversation");
   await expect(page.locator("#send")).toHaveText("Send (105)");
   await expect(page.locator("#send")).toHaveAccessibleDescription("2 saved messages · 102 pending edits · 1 overall note selected");
   await page.locator("#send").click();

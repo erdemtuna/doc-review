@@ -129,6 +129,12 @@ export async function feedback(page) {
   await expect(page.getByRole("complementary", { name: "Feedback" })).toBeVisible();
 }
 
+export async function overallNote(page) {
+  const disclosure = page.getByRole("button", { name: /Overall note \(optional\)/ });
+  if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
+  return page.getByRole("textbox", { name: "Overall note", exact: true });
+}
+
 export async function message(page, text, change = false) {
   await feedback(page);
   await page.getByRole("button", { name: "New message", exact: true }).click();

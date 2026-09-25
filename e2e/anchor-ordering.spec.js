@@ -51,8 +51,8 @@ for (const changes of [false, true]) test(`an earlier SDK report arriving after 
     await frame.locator("body").evaluate(() => window.anchorOrdering.release());
     if (changes) await page.locator("#latestVersion").click();
     await feedback(page);
-    await expect(page.locator(".conversation-thread").getByRole("button", { name: "Show target", exact: true })).toHaveCount(2);
-    for (const control of await page.locator(".conversation-thread").getByRole("button", { name: "Show target", exact: true }).all()) {
+    await expect(page.locator(".conversation-thread").getByRole("button", { name: "Jump to", exact: true })).toHaveCount(2);
+    for (const control of await page.locator(".conversation-thread").getByRole("button", { name: "Jump to", exact: true }).all()) {
       await expect(control).toBeEnabled();
     }
     const earlier = await page.evaluate(() => ({
@@ -67,10 +67,10 @@ for (const changes of [false, true]) test(`an earlier SDK report arriving after 
     await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
     await frame.locator("#one").evaluate((element) => { element.hidden = true; });
     const original = page.locator(`[data-thread="${earlier.action.threadId}"]`);
-    await expect(original.getByRole("button", { name: "Show target", exact: true })).toBeDisabled();
+    await expect(original.getByRole("button", { name: "Jump to", exact: true })).toBeDisabled();
     await frame.locator("body").evaluate((_node, report) => parent.postMessage(report, "*"), earlier.report);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await expect(original.getByRole("button", { name: "Show target", exact: true })).toBeDisabled();
+    await expect(original.getByRole("button", { name: "Jump to", exact: true })).toBeDisabled();
     await expect(page.getByRole("alert")).toHaveCount(0);
   } finally {
     fs.writeFileSync(info.outputPath("ordering-trace.json"), JSON.stringify({
@@ -96,7 +96,7 @@ test("current invalid anchor reports stay explicit errors while foreign sources 
   await expect.poll(() => page.evaluate(() => window.anchorReports.at(-1)?.anchors.length)).toBe(1);
   const current = await page.evaluate(() => window.anchorReports.at(-1));
   await feedback(page);
-  const target = page.locator(".conversation-thread").getByRole("button", { name: "Show target", exact: true });
+  const target = page.locator(".conversation-thread").getByRole("button", { name: "Jump to", exact: true });
   await expect(target).toBeEnabled();
   await page.evaluate((report) => window.postMessage({
     ...report, anchors: [{ threadId: report.anchors[0].threadId, state: "missing" }],

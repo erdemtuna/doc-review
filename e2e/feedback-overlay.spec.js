@@ -1,21 +1,23 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, mutate, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, intercept, failure, conversation } from "./helpers.js";
 
 const source = '<!doctype html><p id="copy">Feedback overlay target</p><label>Authored input <input aria-label="Authored input"></label>';
 
 for (const theme of ["light", "dark"]) {
-  test(`ordinary short footer initially exposes the entire unchecked permission control and label ${theme}`, async ({ page, review }, info) => {
+  test(`expanded optional note exposes the entire unchecked permission control and label ${theme}`, async ({ page, review }, info) => {
     await page.setViewportSize({ width: 320, height: 400 });
     await page.addInitScript((theme) => localStorage.setItem("doc-review:theme", theme), theme);
     const ref = await openReview(page, review, writeFile(review, `permission-${theme}.html`, source));
     await waitForSdk(page);
     for (let i = 0; i < 2; i++) await seedThread(review, ref, `Saved feedback ${i}`);
     await feedback(page);
+    await expect(page.getByRole("button", { name: /Overall note \(optional\)/ })).toHaveAttribute("aria-expanded", "false");
+    await overallNote(page);
     const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
     await expect(permission).not.toBeChecked();
     for (const [width, height] of [[320, 400], [390, 480]]) {
       await page.setViewportSize({ width, height });
       for (const note of ["", "An ordinary unresized note"]) {
-        if (note || width !== 320) await page.getByRole("textbox", { name: "Overall note", exact: true }).fill(note);
+        await (await overallNote(page)).fill(note);
         await expect.poll(() => permission.evaluate((checkbox) => {
           const label = checkbox.closest("label"), clipped = [];
           const text = document.createRange();
@@ -62,6 +64,7 @@ test("Feedback restores the 380px overlay without reflow, with independent inven
       await page.setViewportSize({ width, height });
       const before = await page.locator("#frame").boundingBox();
       await feedback(page);
+      await overallNote(page);
       const panel = page.getByRole("complementary", { name: "Feedback" });
       const box = await panel.boundingBox();
       expect(box.width).toBe(width <= 720 ? width : 380);
@@ -89,6 +92,7 @@ test("Feedback restores the 380px overlay without reflow, with independent inven
         return { id: card.dataset.thread, offset: card.getBoundingClientRect().top - top };
       });
       const reading = await firstVisible();
+      await overallNote(page);
       const note = page.getByRole("textbox", { name: "Overall note", exact: true });
       await note.fill("Retain note between overlay openings");
       const noteBox = await note.boundingBox();
@@ -131,6 +135,7 @@ test("pending and selected cues distinguish exclusions, note-only permission and
   await page.locator(".conversation-thread").getByRole("checkbox", { name: /^Send message/ }).uncheck();
   await expect(page.locator("#toolbarCount")).toHaveText("1");
   await expect(page.locator("#send")).toBeDisabled();
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Only this note requests a change");
   const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
   await expect(permission).not.toBeChecked(); await permission.check();

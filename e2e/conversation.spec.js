@@ -50,7 +50,8 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click();
   await message(page, "Why this wording?");
-  await expect(page.getByText("Discussion", { exact: true })).toBeVisible();
+  await expect(page.getByText("Discussion", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toBeVisible();
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received")).toBeVisible();
   const picked = await call(review, { ...ref, operation: "poll" });
@@ -145,6 +146,7 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await newMessage.press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(newMessage).toHaveCount(0);
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   const note = page.getByRole("textbox", { name: "Overall note", exact: true });
   await note.fill("Overall"); await note.press("Enter"); await page.keyboard.insertText("More");
   await note.press("Escape"); await expect(note).toHaveValue("Overall\nMore");
@@ -398,6 +400,7 @@ test("response transport loss reconciles Send without duplicating immutable work
 test("unknown End stays visible in its dialog and replays the same request without discarding drafts", async ({ page, review }) => {
   await open(page, review, writeFile(review, "conversation-end-unknown.html", "<p>End uncertainty</p>"));
   await page.locator("#commentsButton").click(); await message(page, "Retained unsent message");
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Local unsaved note");
   const attempts = [];
   await page.route("**/api/conversation", async (route) => {
@@ -678,6 +681,7 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     await page.locator("#commentsButton").click(); await message(page, "Queued before restart");
     await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
     await message(page, "Saved but never sent");
+    await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
     await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Local draft survives reattachment only");
     await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);

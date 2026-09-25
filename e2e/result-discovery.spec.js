@@ -26,6 +26,7 @@ test("UX baseline: automatic/manual capture overlap preserves the immutable resu
   const file = writeFile(review, "capture-overlap-baseline.html", "<p id='copy'>Before overlap</p>");
   const ref = await openReview(page, review, file);
   await waitForSdk(page); await feedback(page);
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click();
@@ -105,6 +106,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await include.uncheck();
   await expect(page.locator("#send")).toBeDisabled();
   await include.check();
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.locator("#draft-note").fill("Please update the agent target only.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click();
@@ -143,6 +145,8 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await draft.evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await draft.press("Escape");
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(draft).toHaveCount(0);
   const measurements = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
@@ -237,6 +241,7 @@ for (const destination of ["Source", "Close comparison"]) test(`late explicit ca
   const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
   await feedback(page);
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();

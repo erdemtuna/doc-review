@@ -150,7 +150,7 @@ test("missing, normalized, repeated, hidden and replaced targets retain conversa
   });
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
   await expect(mark(page, id)).toHaveCount(0);
-  await expect(card(page, id).getByRole("button", { name: "Show target" })).toBeDisabled();
+  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeDisabled();
   await expect(card(page, id)).toContainText("Multiple targets match");
   await expect(editor).toHaveValue("Retain me through unavailable targets");
   await frame.locator("#repeat").evaluate((node) => node.remove());
@@ -164,10 +164,10 @@ test("missing, normalized, repeated, hidden and replaced targets retain conversa
   await expect(card(page, id)).toContainText("The original target was not found");
   await expect(editor).toHaveValue("Retain me through unavailable targets");
   const block = await seed(review, ref, "Block conversation", { kind: "element", anchor: { selector: "#block", label: "Block" } });
-  await expect(card(page, block).getByRole("button", { name: "Show target" })).toBeEnabled();
+  await expect(card(page, block).getByRole("button", { name: "Jump to" })).toBeEnabled();
   await frame.locator("#block").evaluate((node) => { node.outerHTML = '<div id="block">Unrelated replacement</div>'; });
   await expect(card(page, block)).toContainText("element identity changed");
-  await expect(card(page, block).getByRole("button", { name: "Show target" })).toBeDisabled();
+  await expect(card(page, block).getByRole("button", { name: "Jump to" })).toBeDisabled();
 });
 
 test("offscreen navigation, narrow and short layouts use the Feedback overlay without reflowing the document", async ({ page, review }, testInfo) => {
@@ -180,9 +180,11 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
   await editor.fill("Viewport-safe draft");
   await page.frameLocator("#frame").locator("body").evaluate(() => window.scrollTo(0, 1000));
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
-  await expect(card(page, id).getByRole("button", { name: "Back to target" })).toBeEnabled();
-  await card(page, id).getByRole("button", { name: "Back to target" }).click();
+  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeEnabled();
+  await card(page, id).getByRole("button", { name: "Jump to" }).click();
   await expect(mark(page, id)).toBeInViewport();
+  await expect(panel(page)).toBeHidden();
+  await page.locator("#commentsButton").click();
   await (await threadAction(page, card(page, id), "Beside target")).click();
   await page.evaluate(() => {
     Object.defineProperty(visualViewport, "height", { configurable: true, value: 400 });
@@ -217,7 +219,7 @@ test("offscreen navigation, narrow and short layouts use the Feedback overlay wi
       if (width < 900) {
         await expect(page.locator(".stage")).toBeVisible();
         expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(true);
-        await card(page, id).getByRole("button", { name: "Show target" }).click();
+        await card(page, id).getByRole("button", { name: "Jump to" }).click();
         await expect(mark(page, id)).toBeVisible();
         await mark(page, id).press("Enter");
         await expect(panel(page)).toHaveAttribute("data-host", "feedback");
@@ -282,7 +284,7 @@ test("reload and failed render fall back without declaring missing source or rep
   fs.appendFileSync(file, "\n<!-- external source change -->");
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
   await expect(editor).toHaveValue("Draft survives a failed renderer");
-  await expect(card(page, id).getByRole("button", { name: "Show target" })).toBeDisabled();
+  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeDisabled();
   await expect(card(page, id)).not.toContainText("original target was not found");
   await expect(card(page, id).getByText(/render is unavailable/, { exact: false })).toBeVisible({ timeout: 25_000 });
   expect(await editor.evaluate((node) => node === window.savedEditor)).toBe(true);
@@ -352,7 +354,7 @@ test("exact repeated source saves through a highlighted block never serialize co
     expect(fs.readFileSync(file, "utf8")).not.toMatch(/data-eh-|Open conversation|tabindex|role="button"/);
   }
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
-  await expect(card(page, id).getByRole("button", { name: "Show target" })).toBeDisabled();
+  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeDisabled();
   await expect(editor).toHaveValue("Conversation survives human source edits");
 });
 

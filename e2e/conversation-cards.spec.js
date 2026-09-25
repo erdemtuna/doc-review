@@ -6,7 +6,8 @@ test("identical pending and handled cards retain readable content and record den
   test.setTimeout(60000);
   const ref = await openReview(page, review, writeFile(review, "card-density.html", '<!doctype html><p id="copy">A concise target</p>'));
   await waitForSdk(page);
-  const { threadId } = await seedThread(review, ref, "Please clarify this sentence.");
+  const quote = "A concise target";
+  const { threadId } = await seedThread(review, ref, "Please clarify this sentence.", { kind: "selection", anchor: { quote } });
   await feedback(page);
   const card = page.locator(`[data-thread="${threadId}"]`);
   const metrics = [];
@@ -25,7 +26,18 @@ test("identical pending and handled cards retain readable content and record den
         metrics.push({ state, theme, width, height, cardHeight: box.height, messageOffset: body.y - box.y,
           fontSize: await message.evaluate((element) => getComputedStyle(element).fontSize) });
         expect(await message.evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
+        expect(await card.evaluate(element => {
+          const style = getComputedStyle(element), inventory = getComputedStyle(element.closest(".conversation-inventory"));
+          return parseFloat(style.borderTopWidth) >= 1 && parseFloat(style.borderRadius) > 0 &&
+            style.backgroundColor !== inventory.backgroundColor && parseFloat(style.marginBottom) >= 8;
+        })).toBe(true);
         await expect(card.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "true");
+        const title = card.locator(".conversation-thread-title"), actions = card.locator(".conversation-thread-actions");
+        const titleBox = await title.boundingBox(), actionsBox = await actions.boundingBox();
+        expect(titleBox.width).toBeGreaterThan(box.width * .8);
+        expect(actionsBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+        await expect(title).toContainText(quote);
+        await expect(card.locator(".conversation-meta").getByText(/^(Discussion|answered)$/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "true");
         await page.screenshot({ path: info.outputPath(`cards-${state}-${theme}-${width}.png`) });
@@ -38,6 +50,10 @@ test("identical pending and handled cards retain readable content and record den
         })).toBe(true);
         if (state === "handled") {
           const response = card.locator(".conversation-response p");
+          expect(await card.locator(".conversation-response").evaluate(element => {
+            const style = getComputedStyle(element);
+            return style.borderLeftWidth === "0px" && style.backgroundColor === "rgba(0, 0, 0, 0)";
+          })).toBe(true);
           await response.scrollIntoViewIfNeeded();
           expect(await response.evaluate((element) => {
             const inventory = element.closest(".conversation-inventory").getBoundingClientRect();
@@ -74,6 +90,37 @@ test("narrow resolved cards retain reachable secondary controls when new activit
       await page.keyboard.press("Escape");
       await card.getByRole("button", { name: "Back to Feedback", exact: true }).click();
     }
+  }
+});
+
+test("only meaningful permission and response outcomes remain attached to their messages", async ({ page, review }) => {
+  const ref = await openReview(page, review, writeFile(review, "card-outcomes.html", '<p id="copy">Original target context remains readable</p>'));
+  await waitForSdk(page);
+  const examples = [];
+  for (const outcome of ["answered", "applied", "deferred", "clarification-needed"]) {
+    const intent = outcome === "applied" ? "request-change" : "discuss";
+    const receipt = await mutate(review, ref, "create-thread", { pageKey: ref.key, intent,
+      target: { kind: "element", anchor: { selector: "#copy", label: "Original target context remains readable" } },
+      body: `Reviewer message for ${outcome}` });
+    examples.push({ ...receipt.value, outcome, intent });
+  }
+  await sendPending(review, ref);
+  const { work } = await handled(review, ref, { responses: examples.map(item => ({
+    threadId: item.threadId, messageId: item.messageId, messageVersion: 1,
+    outcome: item.outcome, body: `Agent response for ${item.outcome}`,
+  })) });
+  for (const item of examples) {
+    expect(work.messages.find(({ message }) => message.messageId === item.messageId)?.message.intent).toBe(item.intent);
+  }
+  await feedback(page);
+  for (const item of examples) {
+    const card = page.locator(`[data-thread="${item.threadId}"]`);
+    await expect(card.locator(".conversation-response p")).toHaveText(`Agent response for ${item.outcome}`);
+    await expect(card.locator(".conversation-meta").getByText("Discussion", { exact: true })).toHaveCount(0);
+    await expect(card.locator(".conversation-response .conversation-meta").getByText(item.outcome, { exact: true }))
+      .toHaveCount(item.outcome === "answered" ? 0 : 1);
+    await expect(card.locator(".conversation-exchange > .conversation-meta").getByText("Change requested", { exact: true }))
+      .toHaveCount(item.intent === "request-change" ? 1 : 0);
   }
 });
 
@@ -124,7 +171,9 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(card.getByText("Change requested", { exact: true })).toBeVisible();
-  await expect(card.getByText("Discussion", { exact: true })).toBeVisible();
+  await expect(card.getByText("Discussion", { exact: true })).toHaveCount(0);
+  await expect(card.locator(".conversation-exchange").first().getByText("Change requested", { exact: true })).toHaveCount(0);
+  await expect(card.locator(".conversation-exchange").first().getByText("Pending", { exact: true })).toBeVisible();
   const selected = card.getByRole("checkbox", { name: "Send message", exact: true });
   await expect(selected).toHaveCount(2);
   await selected.first().uncheck();
@@ -140,6 +189,18 @@ test("card timestamp and menu focus handoffs leave real authored input usable an
   const card = page.locator(`[data-thread="${threadId}"]`);
   await (await threadAction(page, card, "Beside target")).click();
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "adjacent");
+  await expect(card.locator(".conversation-thread-title")).toHaveCount(0);
+  const more = card.getByRole("button", { name: "Conversation actions", exact: true });
+  await more.focus(); await more.press("Enter");
+  const collapse = page.getByRole("menuitem", { name: "Collapse conversation", exact: true });
+  await expect(collapse).toBeVisible();
+  await collapse.focus(); await collapse.press("Enter");
+  await expect(card.locator(".conversation-thread-content")).toBeHidden();
+  await expect(more).toBeFocused();
+  await more.press("Enter");
+  const expand = page.getByRole("menuitem", { name: "Expand conversation", exact: true });
+  await expand.focus(); await expand.press("Enter");
+  await expect(card.locator(".conversation-thread-content")).toBeVisible();
   const timestamp = card.locator(".conversation-time").first();
   const full = await timestamp.getAttribute("aria-label");
   await timestamp.hover();

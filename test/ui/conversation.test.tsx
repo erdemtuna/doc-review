@@ -50,6 +50,9 @@ async function fixture() {
 }
 it("short reply composition groups the same independent overall note without losing permission, selection or IME", async () => {
   const { owner, shell, updateChrome } = await fixture();
+  const toggle = screen.getByRole("button", { name: /Overall note \(optional\)/ });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(toggle);
   const note = screen.getByRole("textbox", { name: "Overall note" });
   fireEvent.change(note, { target: { value: "Retained overall note", selectionStart: 2, selectionEnd: 8 } });
   act(() => { owner.commands.update("note", { intent: "request-change" }); owner.commands.reply("thread"); });
@@ -57,7 +60,7 @@ it("short reply composition groups the same independent overall note without los
   fireEvent.change(reply, { target: { value: "My reply", selectionStart: 1, selectionEnd: 4 } });
   fireEvent.compositionStart(reply);
   act(() => updateChrome({ viewport: { left: 0, top: 0, width: 320, height: 400 } }));
-  const toggle = screen.getByRole("button", { name: /Overall note · Send details/ });
+  fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(document.getElementById("draft-note")).toBe(note);
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(reply);
@@ -72,6 +75,7 @@ it("short reply composition groups the same independent overall note without los
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(reply);
   expect(owner.getSnapshot().threads[0].draft?.composing).toBe(true);
   expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(1);
+  fireEvent.click(toggle);
   fireEvent.click(toggle);
   fireEvent.focus(note);
   act(() => updateChrome({ viewport: { left: 0, top: 0, width: 320, height: 400 } }));
@@ -169,6 +173,21 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(3);
   shell.dispose();
 });
+it("adjacent conversations omit the redundant target control and retain named menu collapse", async () => {
+  const { owner, shell, updateChrome } = await fixture();
+  act(() => {
+    updateChrome({ adjacent: { left: 800, top: 80, width: 380, height: 600 } });
+    owner.commands.adjacent("thread");
+  });
+  expect(document.querySelector(".conversation-thread-title")).toBeNull();
+  const menu = screen.getByRole("button", { name: "Conversation actions" });
+  fireEvent.pointerDown(menu, { button: 0, ctrlKey: false, pointerType: "mouse" });
+  await waitFor(() => expect(screen.getByRole("menuitem", { name: "Collapse conversation" })).toBeVisible());
+  fireEvent.click(screen.getByRole("menuitem", { name: "Collapse conversation" }));
+  expect(document.querySelector(".conversation-thread-content")).not.toBeVisible();
+  expect(owner.getSnapshot().threads[0].expanded).toBe(false);
+  shell.dispose();
+});
 it("cards extend the former inventory surface and keep both filters visibly selected by default", async () => {
   const { shell } = await fixture();
   const card = screen.getByRole("article");
@@ -193,9 +212,10 @@ it("cards extend the former inventory surface and keep both filters visibly sele
   expect(card.querySelector("time")).toHaveAccessibleName(new Date(1).toLocaleString());
   shell.dispose();
 });
-it("new replies default to Discussion and existing saved messages have no permission checkbox", async () => {
+it("discussion messages omit default pills, replies default to no change permission, and saved messages have no permission checkbox", async () => {
   const { owner, shell } = await fixture();
-  expect(screen.getByText("Discussion", { exact: true })).toBeVisible();
+  expect(screen.queryByText("Discussion", { exact: true })).toBeNull();
+  expect(owner.getSnapshot().threads[0].exchanges[0].reviewer.intent).toBe("discuss");
   expect(screen.getAllByLabelText("Request a change")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Reply" }));
   const boxes = screen.getAllByLabelText("Request a change");
@@ -210,6 +230,7 @@ it("new replies default to Discussion and existing saved messages have no permis
 
 it("Feedback counts saved pending items separately from attention and note-only selection with a styled independent permission", async () => {
   const { owner, shell } = await fixture();
+  fireEvent.click(screen.getByRole("button", { name: /Overall note \(optional\)/ }));
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   const note = screen.getByRole("textbox", { name: "Overall note" });
@@ -318,6 +339,7 @@ it.each(["new", "reply", "edit"] as const)("%s composer restores Enter, Shift+En
 
 it("overall note keys remain multiline and never save, send or cancel the note", async () => {
   const { owner, shell } = await fixture();
+  fireEvent.click(screen.getByRole("button", { name: /Overall note \(optional\)/ }));
   const save = vi.spyOn(owner.commands, "saveDraft"), send = vi.spyOn(owner.commands, "send");
   const note = screen.getByRole("textbox", { name: "Overall note" });
   fireEvent.change(note, { target: { value: "Submission only\nSecond line" } });

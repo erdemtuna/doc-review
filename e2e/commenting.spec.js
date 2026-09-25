@@ -30,6 +30,7 @@ for (const mode of ["view", "edit"]) test(`explicit selection and keyboard block
   await compose(page, "Control feedback");
   await feedback(page);
   expect((await listed(review, ref, "threads")).items.map((item) => item.thread.target.kind).sort()).toEqual(["element", "selection"]);
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("");
 });
 

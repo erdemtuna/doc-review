@@ -6,6 +6,10 @@ import { Icon } from "./icon";
 
 type ConversationAction = { label: string; disabled?: boolean; destructive?: boolean; run(): void };
 
+export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
+  return <span className="conversation-author"><span className="conversation-avatar" aria-hidden="true">{role === "You" ? "Y" : "A"}</span><strong>{role}</strong></span>;
+}
+
 export function ConversationMenu({ actions }: { actions: ConversationAction[] }) {
   const [open, setOpen] = useState(false);
   const current = useRef(open), outside = useRef(false);

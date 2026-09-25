@@ -598,7 +598,7 @@ or unavailable targets. Pending viewport measurements stay in the reserved pane
 until the SDK reports current dimensions. Desktop hosts reserve the same gutter
 to avoid transfer-driven source reflow; narrow Feedback is a separate view.
 Fallback retains the conversation and exposes target-specific explanations,
-including Back to target for offscreen content. Neither fallback nor Close
+including Jump to for offscreen content. Neither fallback nor Close
 changes thread status or anchors. Returning the active thread to Feedback reveals
 its Open/Resolved filter if necessary, rather than hiding an active draft.
 Panel bounds and short-layout styles follow the visual viewport, including a

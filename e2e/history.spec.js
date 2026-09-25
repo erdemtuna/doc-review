@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import http from "node:http";
 import { selectChoice } from "./choice-helpers.js";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode } from "./helpers.js";
 
 async function sendNote(page, text = "Refine this source", change = true) {
   await feedback(page);
+  await overallNote(page);
   const note = page.locator('[data-composer="note"]');
   await note.getByRole("textbox").fill(text);
   await note.getByLabel("Request a change").setChecked(change);
@@ -126,7 +127,8 @@ test("Send waits for the exact source-save acceptance and verification before ba
   await page.route("**/api/conversation/capture", async (route) => { expect(returned).toBe(true); captured = true; await route.continue(); });
   await enterEditMode(page); await frame.locator("#copy").click(); await selectText(frame, "#copy"); await page.keyboard.insertText("Saved before Send");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Saved before Send");
-  await feedback(page); await page.getByRole("textbox", { name: "Overall note" }).fill("Check");
+  await feedback(page); await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await page.getByRole("textbox", { name: "Overall note" }).fill("Check");
   await expect(page.locator("#send")).toBeDisabled();
   expect((await conversation(review, ref, "status")).work).toBeNull(); expect(captured).toBe(false);
   release(); await page.locator("#send").click();
@@ -170,7 +172,8 @@ test("accepted Send remains accepted when its history refresh fails", async ({ p
     if (accepted && body.operation === "list" && body.scope.collection === "history") return failure(route, "History offline");
     await route.continue();
   });
-  await feedback(page); const note = page.getByRole("textbox", { name: "Overall note" }); await note.fill("One accepted note");
+  await feedback(page); await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  const note = page.getByRole("textbox", { name: "Overall note" }); await note.fill("One accepted note");
   await page.locator("#send").click();
   await expect(page.getByRole("alert")).toContainText(/accepted|refresh|History offline/i);
   await expect(note).toHaveValue(""); expect(sends).toBe(1);
@@ -248,7 +251,8 @@ test("strict flush rejects stale and uncorrelated acknowledgements instead of di
     }, true);
   });
   const { ref } = await setup(page, review, "strict-flush.html");
-  await feedback(page); await page.getByRole("textbox", { name: "Overall note" }).fill("Do not lose this");
+  await feedback(page); await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await page.getByRole("textbox", { name: "Overall note" }).fill("Do not lose this");
   await page.locator("#send").click();
   await expect(page.getByRole("alert")).toContainText(/flush|respond|save|page/i, { timeout: 10000 });
   expect((await conversation(review, ref, "status")).work).toBeNull();

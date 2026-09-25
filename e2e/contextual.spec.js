@@ -45,7 +45,10 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).click();
     await frame.locator("mark[data-eh-mark]").first().click();
     await expect(card).toBeVisible();
-    for (const name of ["Show target", "Edit message", "Conversation actions"]) {
+    const adjacent = width >= 900;
+    await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", adjacent ? "adjacent" : "feedback");
+    if (adjacent) await expect(card.locator(".conversation-jump")).toBeHidden();
+    for (const name of [...(adjacent ? [] : ["Jump to"]), "Edit message", "Conversation actions"]) {
       const action = card.getByRole("button", { name, exact: true });
       await action.focus(); await action.press("Tab"); await page.keyboard.press("Shift+Tab");
       await expect(action).toBeFocused();

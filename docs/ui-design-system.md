@@ -14,13 +14,21 @@ parallel state. Drafts are never saved to storage or synced across tabs.
 
 Both Open and Resolved filters start enabled with expanded latest exchanges.
 Their shared segmented controls retain selected paint without hover or focus.
-Thread cards extend the former `inventory-card` spacing and quote treatment:
-reviewer and agent bodies stay 13px, with compact role, permission and time
-metadata. Readable timestamps expose the full date/time through a keyboard-
+Each discussion has one gently rounded bordered card over a subtly different
+inventory background, with clear inter-card gaps. Reviewer and agent messages
+are unboxed, share author/avatar/time metadata and retain 13px body text.
+Ordinary Discussion and answered states have no pill; explicit Change requested,
+non-default response outcomes, pending-unsent and read-only cues remain per-message.
+Sidebar target context occupies its own full-width, up-to-two-line row, above the
+compact Jump to/action/activity row. Adjacent discussions omit the entire repeated
+target control while the verified highlight is visible; named Collapse conversation /
+Expand conversation menu actions retain keyboard access without an empty chevron or border.
+Readable timestamps expose the full date/time through a keyboard-
 accessible, hoverable tooltip. The thread's Conversation actions menu holds
 Resolve/Reopen, eligible Delete thread and host transfers; this is not a
-restoration of the removed global More menu. Focus, Show target and Edit remain
-compact, named icon controls. Include in Send and draft permissions use the
+restoration of the removed global More menu. Focus and Edit remain compact named
+icon controls; every sidebar card has a visible **Jump to** label with a locate icon.
+Reply is a visible outlined action. Include in Send and draft permissions use the
 shared Checkbox primitive; selecting feedback does not change its permission.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
@@ -28,14 +36,17 @@ pages merge by stable identity; reconnect must not leave an unreachable gap.
 Save retains unsent feedback; Send submits the selected saved pending items across
 authorized review pages. Immutable sent corrections are new messages.
 Each new message/note defaults to Discussion. The change checkbox appears only
-during composition/edit; saved intent is a badge, not an editable permission.
+during composition/edit; saved Change requested intent is a badge, not an editable permission.
 
 One mounted thread/editor moves across Feedback, Focus and adjacent geometry.
 No transfer clones a textarea. Collapse and Close preserve drafts and reading
 state; neither resolves a thread. Explicit Resolve/Reopen is server-guarded
 and refuses to discard a local draft. Enter saves, Shift+Enter inserts a newline,
 Escape cancels; active IME composition is never intercepted. The overall note
-stays multiline and submission-only: Enter must not Send.
+stays multiline and submission-only: Enter must not Send. Comments and Your edits
+collapse independently without unmounting their contents. The optional overall
+note starts collapsed, shows Draft when nonempty, retains its own permission and
+cannot collapse during composition. Collapse/resize preserves its node and caret.
 
 Feedback is a flush-right 380px overlay below the measured toolbar (full width
 at 720px and below). Opening Feedback or Focus does not resize or replace the
@@ -69,7 +80,11 @@ the API token. Correlated geometry/status is presentation, not source authority.
 Explicit highlight activation opens one adjacent conversation. Shared targets
 offer a count/chooser. Missing, ambiguous, hidden/not-measurable, loading,
 render-changed and failed/unavailable renders have distinct explanations.
-Offscreen is not missing: Back to target scrolls only a verified target.
+Offscreen is not missing: Jump to scrolls only a verified target. A successful jump
+hides the overlay at every width so the passage is actually visible. Feedback
+returns to the retained inventory position and drafts. Cross-page jumps wait for
+the source barrier and current scoped projection; unavailable targets retain
+their explanation and disabled action. Resolved and ended threads remain navigable.
 There is no manual reattachment or automatic anchor mutation.
 
 `placeConversationSurface` measures every target rectangle and the visual

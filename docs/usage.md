@@ -57,7 +57,7 @@ changed permission prompts **Keep editing / Discard**. Keep editing restores
 your caret. Save or discard dirty work before switching its target.
 Feedback's outer X only hides the panel and preserves drafts.
 
-For saved conversations, **Show target** returns to the document; **Focus** gives one conversation a larger transcript with its
+For saved conversations, **Jump to** (with a location icon) reveals the exact passage and hides Feedback; **Focus** gives one conversation a larger transcript with its
 header and composer reachable. Activate an existing highlight with a click,
 Enter or Space to open one conversation beside it. A shared-target count and
 chooser expose other conversations at that highlight. **Beside target**,
@@ -67,9 +67,9 @@ selection, caret, composition, loaded exchanges and reading position.
 The card never covers its highlighted target. Existing adjacent conversation
 cards use the document gutter; new composition and Feedback do not. If the viewport is narrow/short or placement
 cannot fit, the conversation stays accessible in Feedback instead. Narrow
-Feedback covers the document without changing its width: Close it or use Show
-target to return to the document.
-An offscreen target offers **Back to target**, not a missing-target warning.
+Feedback covers the document without changing its width: Close it or use **Jump to**
+to return to the document. Reopening Feedback restores the sidebar reading position and drafts.
+An offscreen target offers **Jump to**, not a missing-target warning.
 Missing, ambiguous, hidden and unavailable targets have an explanation and no
 false jump. Original anchors and conversations are retained; there is no
 reattachment control. A recovered target does not reopen a card automatically.
@@ -80,13 +80,14 @@ reattachment control. A recovered target does not reopen a card automatically.
 | Save a pending message, reply or edit | `Enter` or **Save**; this does not dispatch |
 | Add a line inside a message | `Shift+Enter` |
 | Cancel a local draft | `Escape` or the editor's X; confirm **Discard** for unsaved changes |
-| Find a thread's target | **Show target** |
-| Return to an offscreen target | **Back to target** |
+| Find a thread's target, including another review page | **Jump to** |
+| Return to an offscreen target | **Jump to** |
 | Dismiss the conversation host | **Close conversation**, or `Escape` from its controls (not a composing editor) |
 | Delete a never-submitted thread | **Conversation actions → Delete thread**, then confirm deletion |
 
 Saving queues a message. Every new message starts with **Request a change**
-unchecked. Saved messages display **Discussion** or **Change requested**;
+unchecked. Saved change requests display **Change requested**; ordinary discussions
+and answered replies need no status pill. Other response outcomes remain explicit;
 only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a
 thread only hides content. **Resolve** and **Reopen** in **Conversation actions** are separate shared actions; save or cancel a
@@ -112,8 +113,9 @@ reviews. Command clicking links lets you review multiple pages in one session.
 Open **Feedback** for conversations, pending edits, submission history and the
 overall note. Open and Resolved filters both start enabled; cards start expanded
 with their latest exchange and saved pending follow-ups. Selected filters remain
-visibly selected after you move away. Compact cards put reviewer and agent text
-before secondary actions; hover or focus a timestamp for its full date and time.
+visibly selected after you move away. Separate bordered discussion cards contain
+plain reviewer/agent messages with author, avatar and time. **Reply** is visible;
+hover or focus a timestamp for its full date and time.
 **Conversation actions** also holds **Beside target** when available.
 **Load earlier** reads
 actual associated reviewer/agent exchanges. Collapse and filters are independent
@@ -126,10 +128,12 @@ without resizing or reloading the document. Click its backdrop or Close to
 return to the page; the toolbar remains available. The inventory scrolls
 independently of the note and bottom action row.
 On short phone-sized screens, the filters share the Close row and the plus
-button starts a new message. While replying, **Overall note · Send details**
-opens the separate note, its permission and selection details; End and Send
-remain available. A focused or composing note stays open. This grouping never
-saves, clears or changes the permissions of either draft.
+button starts a new message. **Comments** and **Your edits** collapse independently.
+**Overall note (optional)** starts collapsed and shows **Draft** when it contains
+text. Expand it to edit its independent permission. Collapse and resize keep its
+text and caret; a composing note cannot be collapsed. End and Send remain available,
+including note-only Send. On very short screens, expand the note to see the detailed
+selection counts. No disclosure saves, clears or changes either draft's permission.
 The toolbar count is saved pending messages plus edits across all review pages,
 not unread activity. Excluded items remain pending and stay in that count.
 The footer lists the selected saved messages, pending edits and optional note;
@@ -345,7 +349,7 @@ the saved evidence again without recapturing it; a failed comparison read has a
 separate **Retry comparison** action. Missing or failed capture is
 never presented as zero changes, and does not undo a handled response.
 
-**Saved pending edits** shows readable Before/After previews, an independent
+**Your edits** shows readable Before/After previews, an independent
 Include in Send checkbox, and **Already saved** or **Source pending** evidence.
 **Exact edit details** retains the complete recorded content and source identity.
 The result note separates edits you saved before Send from agent-reported work;

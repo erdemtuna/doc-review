@@ -108,6 +108,8 @@ test("saved and source-pending edit evidence remains initially readable and inde
       const editor = card.getByRole("textbox", { name: "Reply" });
       await editor.fill("Keep my compact reply");
       const note = page.locator("#draft-note");
+      const toggle = page.getByRole("button", { name: /Overall note \(optional\)/ });
+      await toggle.click();
       await note.fill("Separate note permission and text");
       await page.locator('[data-composer="note"]').getByRole("checkbox").check();
       await editor.evaluate(node => {
@@ -116,9 +118,9 @@ test("saved and source-pending edit evidence remains initially readable and inde
         node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
       });
       await note.evaluate(node => { window.responsiveNote = node; });
+      await toggle.click();
       await page.setViewportSize({ width: 320, height: 400 });
       await page.locator("#theme").click();
-      const toggle = page.getByRole("button", { name: /Overall note · Send details/ });
       await expect(toggle).toHaveAttribute("aria-expanded", "false");
       await toggle.focus(); await page.keyboard.press("Enter");
       await expect(note).toHaveValue("Separate note permission and text");
@@ -145,10 +147,21 @@ test("saved and source-pending edit evidence remains initially readable and inde
       await page.setViewportSize({ width: 1440, height: 900 });
       expect(await note.evaluate(node => node === window.responsiveNote)).toBe(true);
       expect(await editor.evaluate(node => node === window.responsiveEditor)).toBe(true);
+      await toggle.click();
       await note.focus();
       await page.setViewportSize({ width: 320, height: 400 });
       await expect(note).toBeFocused();
       await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await page.screenshot({ path: test.info().outputPath("focused-note-resize.png"), animations: "disabled" });
+      fs.writeFileSync(test.info().outputPath("focused-note-resize.json"), JSON.stringify(await note.evaluate(node => {
+        const result = [];
+        for (let item = node; item; item = item.parentElement) {
+          const style = getComputedStyle(item), rect = item.getBoundingClientRect();
+          result.push({ className: item.className, top: rect.top, height: rect.height, clientHeight: item.clientHeight,
+            scrollTop: item.scrollTop, scrollHeight: item.scrollHeight, overflow: style.overflow, minHeight: style.minHeight });
+        }
+        return result;
+      }), null, 2));
       expect((await fieldGeometry(note)).visible).toBeGreaterThanOrEqual(36);
     });
 async function auditHost(page, card, message, editor, host, info) {

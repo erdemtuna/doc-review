@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, intercept, failure, mutate, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, intercept, failure, mutate, listed } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 const source = `<!doctype html><html><head><style>
@@ -20,7 +20,7 @@ test("long inventory and direct actions fit every width without remounting docum
   const { frame } = await populated(page, review, 24);
   const errors = []; page.on("pageerror", (error) => errors.push(error.message));
   await page.locator("#frame").evaluate((element) => { window.originalFrame = element; });
-  await note(page).fill("Keep this overall feedback note");
+  await (await overallNote(page)).fill("Keep this overall feedback note");
   await note(page).evaluate((element) => {
     window.originalNote = element; element.setSelectionRange(2, 8);
     element.dispatchEvent(new Event("select", { bubbles: true }));
@@ -36,7 +36,7 @@ test("long inventory and direct actions fit every width without remounting docum
       expect(await inventory.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await inventory.evaluate((element) => { element.scrollTop = 0; });
       const first = page.locator(".conversation-thread").first();
-      for (const name of ["Show target", "Edit message", "Conversation actions"]) {
+      for (const name of ["Jump to", "Edit message", "Conversation actions"]) {
         const action = button(first, name);
         await action.focus(); await action.press("Tab"); await page.keyboard.press("Shift+Tab");
         await expect(action).toBeFocused();
@@ -78,7 +78,7 @@ test("textarea and selection survive unrelated updates, a rejected edit, and exp
     window.originalEditor = element; element.setSelectionRange(3, 9);
     element.dispatchEvent(new Event("select", { bubbles: true }));
   });
-  await note(page).fill("Unrelated overall note");
+  await (await overallNote(page)).fill("Unrelated overall note");
   await seedThread(review, ref, "Another browser saved this");
   await page.locator("#theme").click();
   expect(await input.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
@@ -137,7 +137,7 @@ test("confirmed deletion is single-flight and leaves a reachable keyboard target
   expect(deletes).toBe(2);
 });
 
-test("shared inventory includes unvisited member pages and Show target navigates the right member", async ({ page, review }) => {
+test("shared inventory includes unvisited member pages and Jump to navigates the right member", async ({ page, review }) => {
   const other = writeFile(review, "another-reviewed-document-with-a-long-file-name.html", source);
   const ref = await openReview(page, review, writeFile(review, "inventory-entry.html", source));
   const joined = await mutate(review, ref, "join-page", { target: other });
@@ -145,9 +145,11 @@ test("shared inventory includes unvisited member pages and Show target navigates
   await feedback(page); await expect(page.locator(".conversation-thread")).toHaveCount(3);
   await page.locator(".conversation-thread-title").first().press("Enter");
   await expect(page.locator(".conversation-thread-title").first()).toHaveAttribute("aria-expanded", "false");
-  await button(page.locator(".conversation-thread").first(), "Show target").click();
+  await button(page.locator(".conversation-thread").first(), "Jump to").click();
   await waitForSdk(page);
   await expect(page.locator("#reviewPage")).toHaveAttribute("data-value", joined.value.pageKey);
+  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await feedback(page);
   await expect(page.locator(".conversation-thread-title").first()).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".conversation-thread")).toHaveCount(3);
   await page.locator("#send").click();

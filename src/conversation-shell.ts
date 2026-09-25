@@ -48,14 +48,17 @@ export function createConversationShell() {
   const owner = createConversationController({
     ...reference, request: api.request,
     barrier: () => save.barrier(), baseline: () => capture(null),
-    navigate, jump(id) {
+    navigate(key) { pendingJump = null; return navigate(key); }, async jump(id) {
       const thread = owner.getSnapshot().threads.find((item) => item.thread.threadId === id);
       if (!thread) return;
       if (thread.thread.pageKey === frame.state.key && !loading) {
-        sendThreadAction("reveal", id);
-        if (visibleViewport(window).width < 900) owner.commands.open(false);
+        revealThread(id);
       }
-      else { pendingJump = id; void navigate(thread.thread.pageKey).catch(owner.report); }
+      else {
+        pendingJump = id;
+        try { await navigate(thread.thread.pageKey); }
+        catch (cause) { if (pendingJump === id) pendingJump = null; throw cause; }
+      }
     },
     async revert() {
       await save.barrier();
@@ -79,7 +82,7 @@ export function createConversationShell() {
     return createFrameController({
       sessionId, host: createFrameHost(element, artifactOrigin), request: api.request,
       suspended() { loading = true; clearAnchors("render-loading"); publish(); },
-      failed(message) { clearAnchors("render-unavailable"); reportSource(message); },
+      failed(message) { pendingJump = null; clearAnchors("render-unavailable"); reportSource(message); },
       activated() { loading = false; void activate().catch(reportSource); },
     });
   }
@@ -130,7 +133,7 @@ export function createConversationShell() {
     composerRelation: newTarget?.geometry?.relation ?? "unavailable", viewport: visibleViewport(window),
     anchorViews: Object.fromEntries(owner.getSnapshot().threads.map(({ thread }) => [thread.threadId,
       thread.pageKey !== frame.state.key
-        ? { canJump: !loading, offscreen: false, reason: "Show target opens its review page." }
+        ? { canJump: !loading, offscreen: false, reason: "Jump to opens its review page." }
         : describeConversationAnchor(geometry.states.find((state) => state.threadId === thread.threadId) ??
           { threadId: thread.threadId, state: "unavailable", reason: unavailable })])),
     anchorPeers: Object.fromEntries(owner.getSnapshot().threads.map(({ thread }) => [thread.threadId, geometry.peers(thread.threadId)])),
@@ -213,6 +216,12 @@ export function createConversationShell() {
       throw new Error("The target belongs to a replaced or unavailable frame.");
     }
     frame.send(geometry.outgoing(action, id));
+  }
+  function revealThread(id: string) {
+    // Validate before hiding Feedback. Close first so Focus dismissal cannot erase the new reveal.
+    geometry.outgoing("reveal", id);
+    owner.commands.open(false);
+    sendThreadAction("reveal", id);
   }
   function updatePlacement() {
     const current = owner.getSnapshot();
@@ -313,6 +322,7 @@ export function createConversationShell() {
     await load(key);
   }
   async function navigateHref(href: string) {
+    pendingJump = null;
     await save.barrier();
     const resolved = record(await api.request(`/api/session/${sessionId}/resolve-target`, { method: "POST", body: JSON.stringify({ href }) }));
     if (typeof resolved.target !== "string") throw new Error("Navigation target could not be identified.");
@@ -457,9 +467,15 @@ export function createConversationShell() {
         case "eh:threadAnchorStates":
           if (!geometry.receive(message)) break;
           updatePlacement();
-          if (pendingJump) {
+          if (pendingJump && owner.getSnapshot().threads.some(({ thread }) =>
+            thread.threadId === pendingJump && thread.pageKey === frame.state.key)) {
             const id = pendingJump; pendingJump = null;
-            sendThreadAction("reveal", id);
+            const state = geometry.states.find((item) => item.threadId === id);
+            if (state?.state === "found") revealThread(id);
+            else {
+              anchorNotice = describeConversationAnchor(state).reason;
+              owner.commands.focus(null);
+            }
           }
           break;
         case "eh:threadAction": {

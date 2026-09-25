@@ -11,7 +11,7 @@ export function describeConversationAnchor(state?: ConversationAnchorState) {
   if (!state) return { canJump: false, offscreen: false, reason: "Checking the target in the current render." };
   if (state.state === "found") return {
     canJump: true, offscreen: state.relation !== "visible",
-    reason: state.relation === "visible" ? "" : "The target is offscreen, not missing. Use Back to target.",
+    reason: state.relation === "visible" ? "" : "The target is offscreen, not missing. Use Jump to.",
   };
   const reason = state.state === "missing" ? "The original target was not found. The conversation is still available."
     : state.state === "ambiguous" ? "Multiple targets match. No highlight or jump was chosen."
