@@ -27,7 +27,7 @@ for (const changes of [false, true]) test(`an earlier SDK report arriving after 
       probe.replaying = false;
     };
   });
-  const ref = await openReview(page, review, writeFile(review, "anchor-ordering.html",
+  const ref = await openReview(page, review, writeFile(review, `anchor-ordering-${changes ? "changes" : "review"}.html`,
     '<p id="one">First target</p><p id="two">Second target</p><input aria-label="Authored input">'));
   const frame = await waitForSdk(page);
   try {

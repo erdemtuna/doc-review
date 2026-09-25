@@ -21,6 +21,73 @@ const readableTextHeight = (locator) => locator.evaluate(node => {
   return Math.min(18, range.getBoundingClientRect().height);
 });
 
+test("UX baseline: automatic/manual capture overlap preserves the immutable result but leaves a stale warning", async ({ page, review }, info) => {
+  test.setTimeout(60_000);
+  const file = writeFile(review, "capture-overlap-baseline.html", "<p id='copy'>Before overlap</p>");
+  const ref = await openReview(page, review, file);
+  await waitForSdk(page); await feedback(page);
+  await page.locator("#draft-note").fill("Update this paragraph.");
+  await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
+  await page.locator("#send").click();
+  await expect(page.getByText("Queued; not received")).toBeVisible();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const captures = [];
+  await page.route("**/api/conversation/capture", async route => {
+    const body = route.request().postDataJSON();
+    if (body.submissionId === null) return route.continue();
+    const entry = { body, status: null, response: null };
+    captures.push(entry);
+    if (captures.length === 1) await gate;
+    const response = await route.fetch();
+    entry.status = response.status(); entry.response = await response.json();
+    await route.fulfill({ response });
+  });
+  try {
+    fs.writeFileSync(file, "<p id='copy'>After overlap</p>");
+    await expect(page.frameLocator("#frame").locator("#copy")).toHaveText("After overlap");
+    await waitForSdk(page);
+    const { work } = await handled(review, ref, { overallOutcome: "applied", resultNote: "Deterministic fixture response; not live-agent reasoning." });
+    await expect.poll(() => captures.length).toBe(1);
+    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View in Changes" }).click();
+    const changes = page.getByRole("region", { name: "Saved comparison" });
+    const partial = {};
+    for (const mode of ["source", "content"]) {
+      const response = await reviewApi(review, "/api/conversation/comparison", { method: "POST", body: {
+        reviewId: ref.reviewId, entryKey: ref.entryKey, submissionId: work.submissionId, pageKey: ref.key, mode,
+      } });
+      expect(response.status).toBe(200);
+      partial[mode] = response.json().available;
+    }
+    expect(partial).toEqual({ source: true, content: false });
+    await changes.getByRole("button", { name: "Capture current content" }).click();
+    await expect.poll(() => captures.length).toBe(2);
+    await expect.poll(() => captures[1].status).toBe(200);
+    const comparison = async () => (await reviewApi(review, "/api/conversation/comparison", { method: "POST", body: {
+      reviewId: ref.reviewId, entryKey: ref.entryKey, submissionId: work.submissionId, pageKey: ref.key, mode: "content",
+    } })).json();
+    const ready = await comparison();
+    expect(ready.available).toBe(true);
+    const endpoint = (await listed(review, ref, "comparisons", { submissionId: work.submissionId })).items[0].resultRevisionId;
+    release();
+    await expect.poll(() => captures[0].status).toBe(409);
+    expect(captures[0].response.error).toMatchObject({ code: "VERSION_CONFLICT", status: 409, retryable: false });
+    await expect(page.locator(".conversation-notice")).toContainText("Rendered result endpoint is already immutable");
+    expect(await comparison()).toEqual(ready);
+    expect((await listed(review, ref, "comparisons", { submissionId: work.submissionId })).items[0].resultRevisionId).toBe(endpoint);
+    expect(captures[0].body.submissionId).toBe(captures[1].body.submissionId);
+    expect(captures[0].body.pageKey).toBe(captures[1].body.pageKey);
+    await page.screenshot({ path: info.outputPath("overlap-stale-warning-baseline.png") });
+    fs.writeFileSync(info.outputPath("capture-overlap-baseline.json"), JSON.stringify({
+      classification: "Known baseline defect, not desired behavior; no production reconciliation implemented",
+      order: "automatic POST held; manual POST succeeds; automatic POST released and conflicts",
+      captures, partialBeforeManual: partial, endpoint, sameResultContentAvailable: ready.available, immutableEndpointPreserved: true,
+      warning: await page.locator(".conversation-notice").allTextContents(),
+      originalLiveCaller: "unproven",
+    }, null, 2));
+  } finally { release(); await page.unroute("**/api/conversation/capture"); }
+});
+
 test("actual saved human edits and captured agent result are discoverable, distinct and readable without disturbing drafts", async ({ page, review }, info) => {
   test.setTimeout(60_000);
   const file = writeFile(review, "result-discovery.html", "<p id='copy'>Original human wording</p><p id='agent'>Original agent target</p>");

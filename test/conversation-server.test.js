@@ -796,6 +796,33 @@ test("real frame captures freeze Send baselines and late rendered results for fi
   }
 });
 
+test("UX contract baseline: capture required-nullable fields, strict timestamps and normalized null view", async (t) => {
+  const f = await fixture(t);
+  const ref = await f.open();
+  const tab = await f.ok({ operation: "read-review", ...ref }, "/api/conversation/session");
+  const render = await f.ok({ key: ref.entryKey, generation: 1 }, `/api/session/${tab.sessionId}/render`);
+  const served = await fetch(`http://127.0.0.1:${f.server.port}${render.path}`);
+  assert.equal(served.status, 200); await served.text();
+  const ready = await f.ok({ capability: render.capability, generation: 1, pageKey: ref.entryKey },
+    `/api/session/${tab.sessionId}/render/${render.renderId}/ready`);
+  const capture = { ...ref, pageKey: ref.entryKey, submissionId: null, sessionId: tab.sessionId,
+    renderId: render.renderId, generation: 1, expectedSourceHash: ready.sourceHash, semantic: semantic("Original") };
+  for (const field of ["submissionId", "expectedSourceHash"]) {
+    const omitted = { ...capture }; delete omitted[field];
+    rejected(await f.call(omitted, "/api/conversation/capture"), "INVALID_INPUT");
+  }
+  rejected(await f.call({ ...capture, semanticCapturedAt: null }, "/api/conversation/capture"), "INVALID_INPUT");
+  rejected(await f.call({ ...capture, extra: true }, "/api/conversation/capture"), "INVALID_INPUT");
+  rejected(await f.call({ ...capture, sessionId: "foreign" }, "/api/conversation/capture"), "SCOPE_MISMATCH");
+  const accepted = await f.ok({ ...capture, view: null }, "/api/conversation/capture");
+  assert.ok(accepted.revisionId);
+  const revision = f.server.store.revisions.get(accepted.revisionId);
+  assert.equal(revision.semantic.view.status, "unverified");
+  const comparison = { ...ref, submissionId: "not-a-submission", pageKey: ref.entryKey, mode: "content" };
+  rejected(await f.call({ ...comparison, mode: null }, "/api/conversation/comparison"), "INVALID_INPUT");
+  rejected(await f.call({ ...comparison, extra: true }, "/api/conversation/comparison"), "INVALID_INPUT");
+});
+
 test("result capture is independent, reply-only has no new revision, referenced history outlives five rounds", async (t) => {
   const f = await fixture(t);
   const target = f.file();

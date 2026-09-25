@@ -29,6 +29,80 @@ async function controller(t, configure = {}) {
   return { f, ref, target, owner, calls, intercept(value) { intercept = value; } };
 }
 const target = { kind: "element", anchor: { selector: "p", label: "Paragraph" } };
+test("UX baseline: empty hidden drafts retarget and reset permission; whitespace remains a guarded draft", async (t) => {
+  const c = await controller(t);
+  const other = { kind: "element", anchor: { selector: "h2", label: "Second heading" } };
+  c.owner.commands.begin(c.ref.entryKey, target, true);
+  c.owner.commands.update("new", { intent: "request-change" });
+  c.owner.commands.open(false);
+  assert.equal(c.owner.commands.begin(c.ref.entryKey, other, true), true);
+  assert.deepEqual(c.owner.getSnapshot().newMessage.target, other);
+  assert.equal(c.owner.getSnapshot().newMessage.draft.intent, "discuss");
+  c.owner.commands.update("new", { text: " \n\t " });
+  await c.owner.commands.saveDraft("new");
+  assert.equal(c.calls.filter((body) => body.operation === "create-thread").length, 0);
+  c.owner.commands.open(false);
+  assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target, true), /Save or cancel/);
+  assert.equal(c.owner.getSnapshot().newMessage.draft.text, " \n\t ");
+  c.owner.commands.cancelDraft("new");
+  assert.equal(c.owner.commands.begin(c.ref.entryKey, target, true), true);
+});
+
+test("UX baseline: dirty and IME drafts survive panel hiding; explicit cancel currently discards without confirmation", async (t) => {
+  const c = await controller(t);
+  c.owner.commands.begin(c.ref.entryKey, target, true);
+  c.owner.commands.update("new", { composing: true, selectionStart: 0, selectionEnd: 0 });
+  c.owner.commands.open(false);
+  assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target), /Save or cancel/);
+  c.owner.commands.compose();
+  c.owner.commands.update("new", { composing: false, text: "Keep this wording", selectionStart: 2, selectionEnd: 7 });
+  const before = structuredClone(c.owner.getSnapshot().newMessage);
+  c.owner.commands.open(false);
+  c.owner.commands.open(true);
+  assert.deepEqual(c.owner.getSnapshot().newMessage, before);
+  assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target), /Save or cancel/);
+  c.owner.commands.cancelDraft("new");
+  assert.equal(c.owner.getSnapshot().newMessage, null);
+  assert.equal(c.owner.getSnapshot().confirmation, null);
+});
+
+test("UX baseline: saving and uncertain acceptance cannot discard or retarget even after clearing text", async (t) => {
+  const c = await controller(t);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const reached = new Promise(resolve => { started = resolve; });
+  let first;
+  c.intercept(async (body, response) => {
+    if (body.operation === "create-thread" && !first) {
+      first = body; started(); await gate;
+      throw new TypeError("UX fixture lost accepted save response");
+    }
+    return response;
+  });
+  c.owner.commands.begin(c.ref.entryKey, target, true);
+  c.owner.commands.update("new", { text: "Accepted original" });
+  const saving = c.owner.commands.saveDraft("new");
+  await reached;
+  c.owner.commands.update("new", { text: "" });
+  c.owner.commands.cancelDraft("new");
+  assert.ok(c.owner.getSnapshot().newMessage);
+  assert.throws(() => c.owner.commands.begin(c.ref.entryKey, target), /Save or cancel/);
+  release();
+  await assert.rejects(saving, /lost accepted/);
+  assert.equal(c.owner.getSnapshot().uncertain.requestId, first.requestId);
+  c.owner.commands.cancelDraft("new");
+  assert.ok(c.owner.getSnapshot().newMessage);
+  assert.equal(c.owner.commands.begin(c.ref.entryKey, target), false);
+  await c.owner.commands.reconcile(false);
+  const calls = c.calls.filter(body => body.operation === "create-thread");
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(c.owner.getSnapshot().threads.length, 1);
+  assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.body, "Accepted original");
+  assert.equal(c.owner.getSnapshot().newMessage.draft.text, "");
+  assert.equal(c.owner.getSnapshot().uncertain, null);
+});
+
 test("contextual and Feedback hosts share one memory draft and reject IME or nonempty retargets", async (t) => {
   const c = await controller(t);
   assert.equal(c.owner.commands.begin(c.ref.entryKey, target, true), true);

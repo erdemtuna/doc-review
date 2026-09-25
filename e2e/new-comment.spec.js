@@ -6,7 +6,7 @@ const source = `<!doctype html><style>body{padding:36px;font:16px/1.5 system-ui}
 <p id="copy">A concise selection for a new comment.</p><button id="origin">Authored control</button>
 <p id="other">A different target that must not steal a draft.</p><div id="space"></div>`;
 async function start(page, review) {
-  const ref = await openReview(page, review, writeFile(review, "new-comment.html", source));
+  const ref = await openReview(page, review, writeFile(review, `new-comment-${review.references.length}.html`, source));
   const frame = await waitForSdk(page);
   return { ref, frame };
 }
@@ -17,6 +17,118 @@ async function select(page, frame) {
   await frame.locator("#commentAction").click();
   await expect(editor(page)).toBeVisible();
 }
+
+test("UX baseline: empty close can change targets, whitespace cannot; heading label differs from its exact selector", async ({ page, review }, info) => {
+  await openReview(page, review, writeFile(review, "heading-label-baseline.html",
+    "<!doctype html><style>body{padding:40px}h2{margin:40px 0;width:420px}</style><h2 id='previous'>Previous section</h2><h2 id='chosen' tabindex='0'>Chosen heading itself</h2><p id='other' tabindex='0'>Another precise target</p>"));
+  const frame = await waitForSdk(page);
+  await page.evaluate(() => {
+    window.uxTargets = [];
+    window.addEventListener("message", ({ data }) => {
+      if (data?.type === "eh:openComment") window.uxTargets.push(data);
+    });
+  });
+  const open = async selector => {
+    await frame.locator(selector).focus();
+    await frame.locator(selector).press("Control+Alt+m");
+    await expect(editor(page)).toBeVisible();
+  };
+  await open("#chosen");
+  const heading = await page.evaluate(() => window.uxTargets.at(-1));
+  expect(heading.anchor.label).toContain("Previous section");
+  expect(await frame.locator(heading.anchor.selector).evaluate(node => node.id)).toBe("chosen");
+  await composer(page).getByRole("checkbox", { name: "Request a change" }).check();
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await open("#other");
+  const focusOnly = await page.evaluate(() => window.uxTargets.at(-1));
+  expect(focusOnly.anchor.selector).toBe(heading.anchor.selector);
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await frame.locator("#other").click({ clickCount: 3 });
+  await frame.locator("#commentAction").click();
+  await expect(editor(page)).toBeVisible();
+  const other = await page.evaluate(() => window.uxTargets.at(-1));
+  expect(other.anchor.quote).toContain("Another precise target");
+  await expect(composer(page).getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await editor(page).fill("   ");
+  await expect(composer(page).getByRole("button", { name: "Save message" })).toBeDisabled();
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await frame.locator("#chosen").click({ clickCount: 3 });
+  await frame.locator("#chosen").press("Control+Alt+m");
+  await feedback(page);
+  await expect(page.getByRole("alert")).toContainText("Save or cancel");
+  await expect(editor(page)).toHaveValue("   ");
+  await page.screenshot({ path: info.outputPath("whitespace-retarget-baseline.png") });
+  fs.writeFileSync(info.outputPath("heading-and-draft-baseline.json"), JSON.stringify({
+    heading: { selector: heading.anchor.selector, label: heading.anchor.label, actualId: "chosen" },
+    focusOnlyAfterClose: "reopens previous element target and its permission; selecting new prose creates a new target",
+    emptyCloseRetarget: "accepted; permission reset", whitespaceCloseRetarget: "rejected; whitespace retained",
+    originalLiveEmptyBlocker: "not reproduced by a genuinely empty draft",
+  }, null, 2));
+});
+
+test("UX baseline: dirty draft, IME, saving and uncertain acceptance preserve the exact save identity", async ({ page, review }, info) => {
+  const { ref, frame } = await start(page, review);
+  await select(page, frame);
+  await editor(page).fill("Accepted original draft");
+  await editor(page).evaluate(node => {
+    window.uxSavingEditor = node;
+    node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  });
+  await editor(page).press("Enter"); await editor(page).press("Escape");
+  await expect(editor(page)).toHaveValue("Accepted original draft\n");
+  await expect(composer(page).getByRole("button", { name: "Save message" })).toBeDisabled();
+  await editor(page).evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
+  await editor(page).fill("Accepted original draft");
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await feedback(page);
+  expect(await editor(page).evaluate(node => node === window.uxSavingEditor)).toBe(true);
+  await expect(editor(page)).toHaveValue("Accepted original draft");
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const requests = [];
+  await page.route("**/api/conversation", async route => {
+    const body = route.request().postDataJSON();
+    if (body.operation !== "create-thread") return route.continue();
+    requests.push(body);
+    if (requests.length !== 1) return route.continue();
+    await route.fetch();
+    await gate;
+    await route.abort("connectionreset");
+  });
+  try {
+    await editor(page).press("Enter");
+    await expect.poll(() => requests.length).toBe(1);
+    await expect(composer(page).getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await editor(page).fill("Newer unsaved wording");
+    await editor(page).press("Escape");
+    await expect(editor(page)).toHaveValue("Newer unsaved wording");
+    await page.screenshot({ path: info.outputPath("saving-preserves-newer-draft.png") });
+    release();
+    await expect(page.getByText("create-thread: acceptance unknown", { exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath("save-acceptance-unknown.png") });
+    await composer(page).getByRole("button", { name: "Close comment" }).click();
+    await feedback(page);
+    await expect(editor(page)).toHaveValue("Newer unsaved wording");
+    await page.getByRole("button", { name: "Check receipt", exact: true }).click();
+    await expect(page.getByText("create-thread: acceptance unknown", { exact: true })).toHaveCount(0);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    await expect(editor(page)).toHaveValue("Newer unsaved wording");
+    const saved = (await listed(review, ref, "threads")).items;
+    expect(saved).toHaveLength(1);
+    expect(saved[0].latestExchange.reviewer.body).toBe("Accepted original draft");
+    expect(saved[0].latestExchange.reviewer.submissionId).toBeNull();
+    await editor(page).press("Escape");
+    await expect(editor(page)).toHaveCount(0);
+    fs.writeFileSync(info.outputPath("draft-save-baseline.json"), JSON.stringify({
+      requests, acceptedThreads: saved.length, savedBody: saved[0].latestExchange.reviewer.body,
+      observations: ["Synthetic IME Enter does not save; native textarea inserts newline; Escape does not cancel", "Close hides and preserves exact node", "Busy Cancel disabled and Escape ignored",
+        "New typing preserved during lost accepted response", "Check receipt replays exact request; Save does not Send",
+        "Idle dirty Escape discards without confirmation (known defect)"],
+    }, null, 2));
+  } finally { release(); await page.unroute("**/api/conversation"); }
+});
 
 test("selection and keyboard element composition use former adjacent chrome with durable explicit Save", async ({ page, review }, info) => {
   const { ref, frame } = await start(page, review);
