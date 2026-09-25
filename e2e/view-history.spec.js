@@ -1,5 +1,5 @@
 import http from "node:http";
-import { test, expect, openReview, waitForSdk, feedback, conversation, handled, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, feedback, submissionHistory, conversation, handled, listed } from "./helpers.js";
 
 test("returning to the captured live tab retries without reloading or auto-clicking tabs", async ({ page, review }) => {
   let version = "Before";
@@ -46,7 +46,7 @@ test("returning to the captured live tab retries without reloading or auto-click
     await expect(frame.locator("#product-panel")).toHaveText("After product content");
     await waitForSdk(page);
     await feedback(page);
-    await expect(page.getByText(/Response handled; comparison capture unavailable/)).toContainText(/Screens|view/i);
+    await expect(page.getByText(/Result capture unavailable:/)).toContainText(/Screens|view/i);
     let comparison = (await listed(review, session, "comparisons", { submissionId: work.submissionId })).items[0];
     expect(comparison.resultRevisionId).toBeNull();
     await expect(frame.locator("#product")).toHaveAttribute("aria-selected", "true");
@@ -62,6 +62,7 @@ test("returning to the captured live tab retries without reloading or auto-click
     expect(after.blocks.map((block) => block.text).join(" ")).toContain("After screens content");
     expect(after.blocks.map((block) => block.text).join(" ")).not.toContain("After product content");
     await feedback(page);
+    await submissionHistory(page);
     await page.locator(".conversation-submission").first().locator(":scope > summary").click();
     await page.getByRole("button", { name: "Content changes" }).click();
     await page.getByText("Comparison details", { exact: true }).click();

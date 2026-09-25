@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
 
 async function setup(page, review, name, source = "<p id='copy'>First paragraph to review.</p><p id='other'>Second paragraph to review.</p><button id='action'>Authored control</button>") {
   const file = writeFile(review, name, source);
@@ -203,6 +203,7 @@ test("Markdown direct changes stay source-pending through View and immutable com
   const { work } = await handled(review, ref);
   expect(work.edits[0].content.after).toBe("Exact preview wording");
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
+  await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
   await expect(page.getByText(/deferred: Preserved/)).toBeVisible();
   expect(fs.readFileSync(file, "utf8")).toBe(source);

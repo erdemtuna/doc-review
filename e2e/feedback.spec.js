@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, intercept, failure, conversation, seedThread } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, submissionHistory, intercept, failure, conversation, seedThread } from "./helpers.js";
 
 async function setup(page, review, name = "feedback.html") {
   const file = writeFile(review, name, "<!doctype html><p id='copy'>Original paragraph</p><input aria-label='Authored input'>");
@@ -74,6 +74,7 @@ test("uncertain Send preserves newer typing and retries exactly one identity wit
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
   expect(bodies).toHaveLength(2); expect(bodies[1]).toEqual(bodies[0]);
   await expect(note).toHaveValue("Newer note");
+  await submissionHistory(page);
   await page.getByText("Agent command", { exact: true }).click();
   await expect(page.locator(".conversation-handoff code")).toContainText(ref.reviewId);
   await expect(page.locator(".conversation-handoff code")).toContainText(ref.entryKey);

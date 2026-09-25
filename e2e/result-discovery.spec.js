@@ -21,7 +21,7 @@ const readableTextHeight = (locator) => locator.evaluate(node => {
   return Math.min(18, range.getBoundingClientRect().height);
 });
 
-test("UX baseline: automatic/manual capture overlap preserves the immutable result but leaves a stale warning", async ({ page, review }, info) => {
+for (const external of [false, true]) test(`automatic/manual capture ${external ? "reconciles an external immutable winner" : "shares exact ownership"} without a stale warning`, async ({ page, review }, info) => {
   test.setTimeout(60_000);
   const file = writeFile(review, "capture-overlap-baseline.html", "<p id='copy'>Before overlap</p>");
   const ref = await openReview(page, review, file);
@@ -50,7 +50,7 @@ test("UX baseline: automatic/manual capture overlap preserves the immutable resu
     await waitForSdk(page);
     const { work } = await handled(review, ref, { overallOutcome: "applied", resultNote: "Deterministic fixture response; not live-agent reasoning." });
     await expect.poll(() => captures.length).toBe(1);
-    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View in Changes" }).click();
+    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View result" }).click();
     const changes = page.getByRole("region", { name: "Saved comparison" });
     const partial = {};
     for (const mode of ["source", "content"]) {
@@ -62,26 +62,31 @@ test("UX baseline: automatic/manual capture overlap preserves the immutable resu
     }
     expect(partial).toEqual({ source: true, content: false });
     await changes.getByRole("button", { name: "Capture current content" }).click();
-    await expect.poll(() => captures.length).toBe(2);
-    await expect.poll(() => captures[1].status).toBe(200);
+    await page.waitForTimeout(200);
+    expect(captures).toHaveLength(1);
     const comparison = async () => (await reviewApi(review, "/api/conversation/comparison", { method: "POST", body: {
       reviewId: ref.reviewId, entryKey: ref.entryKey, submissionId: work.submissionId, pageKey: ref.key, mode: "content",
     } })).json();
+    if (external) {
+      const winner = await reviewApi(review, "/api/conversation/capture", { method: "POST", body: captures[0].body });
+      expect(winner.status, winner.raw).toBe(200);
+    }
+    release();
+    await expect.poll(() => captures[0].status).toBe(external ? 409 : 200);
+    if (external) expect(captures[0].response.error).toMatchObject({ code: "VERSION_CONFLICT", status: 409, retryable: false });
+    await expect.poll(async () => (await comparison()).available).toBe(true);
     const ready = await comparison();
     expect(ready.available).toBe(true);
     const endpoint = (await listed(review, ref, "comparisons", { submissionId: work.submissionId })).items[0].resultRevisionId;
-    release();
-    await expect.poll(() => captures[0].status).toBe(409);
-    expect(captures[0].response.error).toMatchObject({ code: "VERSION_CONFLICT", status: 409, retryable: false });
-    await expect(page.locator(".conversation-notice")).toContainText("Rendered result endpoint is already immutable");
+    await expect(changes.getByRole("button", { name: "Capture current content" })).toHaveCount(0);
+    await expect(page.locator(".conversation-notice")).not.toContainText(["Rendered result endpoint is already immutable"]);
     expect(await comparison()).toEqual(ready);
     expect((await listed(review, ref, "comparisons", { submissionId: work.submissionId })).items[0].resultRevisionId).toBe(endpoint);
-    expect(captures[0].body.submissionId).toBe(captures[1].body.submissionId);
-    expect(captures[0].body.pageKey).toBe(captures[1].body.pageKey);
-    await page.screenshot({ path: info.outputPath("overlap-stale-warning-baseline.png") });
-    fs.writeFileSync(info.outputPath("capture-overlap-baseline.json"), JSON.stringify({
-      classification: "Known baseline defect, not desired behavior; no production reconciliation implemented",
-      order: "automatic POST held; manual POST succeeds; automatic POST released and conflicts",
+    expect(captures).toHaveLength(1);
+    await page.screenshot({ path: info.outputPath("overlap-reconciled.png") });
+    fs.writeFileSync(info.outputPath("capture-overlap.json"), JSON.stringify({
+      classification: external ? "Typed same-result Content reconciliation" : "One automatic/manual POST",
+      order: external ? "automatic held; explicit joins; external wins; automatic conflicts and reconciles" : "automatic held; explicit joins; shared POST completes",
       captures, partialBeforeManual: partial, endpoint, sameResultContentAvailable: ready.available, immutableEndpointPreserved: true,
       warning: await page.locator(".conversation-notice").allTextContents(),
       originalLiveCaller: "unproven",
@@ -123,7 +128,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await expect(peek).toBeVisible();
   expect(await page.locator(".conversation-submission").evaluate(node => node.open)).toBe(false);
-  await peek.getByRole("button", { name: "View in Changes" }).click();
+  await peek.getByRole("button", { name: "View result" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes.getByRole("region", { name: "Full submission result note" })).toContainText("Updated the agent target.");
   await expect(changes).toContainText("Saved by you before Send; no additional agent edit reported.");
@@ -137,7 +142,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await draft.fill("Keep exact IME draft");
   await draft.evaluate(node => { window.resultDraft = node; node.setSelectionRange(3, 8); node.dispatchEvent(new Event("select", { bubbles: true }));
     node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); });
-  await peek.getByRole("button", { name: "View in Changes" }).click();
+  await peek.getByRole("button", { name: "View result" }).click();
   await changes.getByRole("button", { name: "Source", exact: true }).click();
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
   await changes.getByRole("button", { name: "Close comparison" }).click();
@@ -158,7 +163,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
     await expect.poll(() => visibleTextHeight(preview)).toBeGreaterThanOrEqual(requiredPreview);
     const previewHeight = await visibleTextHeight(preview);
     await page.screenshot({ path: info.outputPath(`result-peek-${theme}-${width}x${height}.png`) });
-    const button = peek.getByRole("button", { name: "View in Changes" });
+    const button = peek.getByRole("button", { name: "View result" });
     await button.click();
     const body = changes.locator(".conversation-result-body");
     const requiredBody = await readableTextHeight(body);
@@ -170,7 +175,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   }
   fs.writeFileSync(info.outputPath("result-readability.json"), JSON.stringify(measurements, null, 2));
   await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await peek.getByRole("button", { name: "View in Changes" }).click();
+  await peek.getByRole("button", { name: "View result" }).click();
   await expect(changes.locator(".conversation-result-body")).toContainText("Updated the agent target.");
 });
 
@@ -181,7 +186,7 @@ test("reply-only results keep their notes without fabricated captures and invali
   await expect(page.getByText("Queued; not received")).toBeVisible();
   await handled(review, ref, { resultNote: "Explanation only; no edits were made." });
   const peek = page.getByRole("region", { name: "Latest submission result" });
-  await peek.getByRole("button", { name: "View in Changes" }).click();
+  await peek.getByRole("button", { name: "View result" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes.locator(".conversation-result-body")).toHaveText("Explanation only; no edits were made.");
   await expect(changes.getByRole("region", { name: "Comparison availability" })).toContainText("No new source changes reported");
@@ -198,6 +203,56 @@ test("reply-only results keep their notes without fabricated captures and invali
   await page.unroute("**/api/conversation/comparison");
   await changes.getByRole("button", { name: "Retry comparison" }).click();
   await expect(changes.getByRole("alert")).toHaveCount(0);
+});
+
+test("header History preserves mounted reply/note permissions and exposes full results, receipts and agent handoff", async ({ page, review }) => {
+  const file = writeFile(review, "history-disclosure.html", "<p id='copy'>A preserved source</p>");
+  const ref = await openReview(page, review, file);
+  await waitForSdk(page);
+  const { threadId } = await seedThread(review, ref, "Explain the passage");
+  await feedback(page);
+  await page.locator("#send").click();
+  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await handled(review, ref, { resultNote: "The complete reply-only result stays available from History and View result. ".repeat(12) });
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  await expect(card.locator(".conversation-response")).toBeVisible();
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  const reply = card.getByRole("textbox", { name: "Reply", exact: true, includeHidden: true });
+  await reply.fill("Retain this unsent reply");
+  await reply.evaluate(node => { window.historyReply = node; node.setSelectionRange(3, 7); node.dispatchEvent(new Event("select", { bubbles: true })); });
+  await card.getByRole("checkbox", { name: "Request a change" }).check();
+  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  const note = page.getByRole("textbox", { name: "Overall note", exact: true, includeHidden: true });
+  await note.fill("A separate note");
+  await note.evaluate(node => { window.historyNote = node; });
+  await expect(page.getByRole("region", { name: "Submission history" })).toHaveCount(0);
+  const history = page.getByRole("button", { name: "History", exact: true });
+  await history.focus(); await history.press("Enter");
+  await expect(page.getByRole("region", { name: "Submission history" })).toBeVisible();
+  await expect(reply).toBeHidden(); await expect(note).toBeHidden();
+  expect(await reply.evaluate(node => node === window.historyReply)).toBe(true);
+  expect(await note.evaluate(node => node === window.historyNote)).toBe(true);
+  await page.locator(".conversation-submission > summary").click();
+  await expect(page.locator(".conversation-submission")).toContainText("The complete reply-only result");
+  await page.getByText("Receipt details", { exact: true }).click();
+  await expect(page.locator(".conversation-submission small")).toBeVisible();
+  await page.getByText("Agent command", { exact: true }).click();
+  await expect(page.locator(".conversation-handoff code")).toContainText(ref.reviewId);
+  await page.setViewportSize({ width: 720, height: 480 });
+  const inventory = page.locator(".conversation-inventory");
+  await inventory.evaluate(node => { node.scrollTop = 100; });
+  await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.locator("#commentsButton").click();
+  await expect(page.getByRole("region", { name: "Submission history" })).toBeVisible();
+  await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
+  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await expect(reply).toBeVisible(); await expect(note).toHaveValue("A separate note");
+  expect(await reply.evaluate(node => [node === window.historyReply, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 7]);
+  await expect(card.getByRole("checkbox", { name: "Request a change" })).toBeChecked();
+  await expect(page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
+  await expect(page.locator("#send")).toHaveText("Send (1)");
+  expect(fs.readFileSync(file, "utf8")).toBe("<p id='copy'>A preserved source</p>");
 });
 
 test("deferred source-pending edits retain complete evidence and selected Send identity without implying a source change", async ({ page, review }, info) => {
@@ -225,7 +280,7 @@ test("deferred source-pending edits retain complete evidence and selected Send i
   const { work } = await handled(review, ref, { resultNote: "Deferred the recorded paragraph pending clarification." });
   expect(work.edits).toHaveLength(1); expect(work.edits[0].source.state).toBe("pending");
   const peek = page.getByRole("region", { name: "Latest submission result" });
-  await peek.getByRole("button", { name: "View in Changes" }).click();
+  await peek.getByRole("button", { name: "View result" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes).toContainText("Source pending at Send");
   await expect(changes).toContainText("Deferred; no application reported for this edit.");
@@ -255,8 +310,8 @@ for (const destination of ["Source", "Close comparison"]) test(`late explicit ca
     fs.writeFileSync(file, "<p id='copy'>Actual agent work</p>");
     await expect(frame.locator("#copy")).toHaveText("Actual agent work"); await waitForSdk(page);
     const { work } = await handled(review, ref, { overallOutcome: "applied", resultNote: "Updated the paragraph; capture is independent." });
-    await expect(page.locator(".conversation-notice")).toContainText("Capture deliberately unavailable");
-    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View in Changes" }).click();
+    await expect(page.getByRole("region", { name: "Latest submission result" })).toContainText("Capture deliberately unavailable");
+    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View result" }).click();
     const changes = page.getByRole("region", { name: "Saved comparison" });
     await expect(changes.locator(".conversation-result-body")).toHaveText("Updated the paragraph; capture is independent.");
     await expect(changes.getByRole("alert")).toContainText("Capture deliberately unavailable");

@@ -14,6 +14,7 @@ import { createConversationAnchorController, describeConversationAnchor } from "
 import { placeConversationSurface, placeNewMessageSurface, visibleViewport } from "./positioning.js";
 import { readNewMessageTarget, type NewMessageTarget } from "./new-message-target.js";
 import { normalizeView, sameObservedView } from "./view-identity.js";
+import { createResultCaptures, decodeComparison, resultCaptureKey, type ResultCaptureScope } from "./conversation-capture.js";
 
 export function createConversationShell() {
   const reference = { reviewId: decodeURIComponent(document.body.dataset.review!), entryKey: decodeURIComponent(document.body.dataset.entry!) };
@@ -37,7 +38,7 @@ export function createConversationShell() {
   let fallbackSpace = false;
   let unavailable: "render-loading" | "render-unavailable" | "render-changed" = "render-loading";
   const capturesAttempted = new Set<string>();
-  let observedView: ReturnType<typeof normalizeView> | null = null, viewSequence = 0;
+  let observedView: ReturnType<typeof normalizeView> | null = null;
   let captureCycle: Promise<void> | null = null;
   const assetUrls = new Map<string, string>();
   const normalizeAssets = (value: string) => {
@@ -88,6 +89,15 @@ export function createConversationShell() {
   }
   let frame = makeFrame();
   const captures = createCaptureRequests({ send: (message: Record<string, unknown>) => frame.send(message), current: () => frame.identity() });
+  const resultCaptures = createResultCaptures({
+    current: currentCapture,
+    compare: (scope) => api.request("/api/conversation/comparison", { method: "POST", body: JSON.stringify({
+      ...reference, submissionId: scope.submissionId, pageKey: scope.pageKey, mode: "content",
+    }) }),
+    capture: (scope) => capture(scope.submissionId, scope),
+    refresh: () => owner.refresh(),
+    changed: publish,
+  });
   const save = createSaveController({
     sessionId, current: () => frame.identity(), policy, request: api.request,
     flush: (strict) => frame.flush(strict), send: (message) => frame.send(message),
@@ -126,7 +136,7 @@ export function createConversationShell() {
     pollCommand: page?.pollCommand ?? "",
     themeSync: frame.themeSync, executionPreference: page?.executionPreference ?? "auto",
     supportsRecovery: page?.kind === "file" && !page.markdown,
-    sourceError, captureError, connectionError, reloadPending, save: save.getSnapshot(), blocked: blocked(),
+    sourceError, captureError, captureFailures: resultCaptures.failures, connectionError, reloadPending, save: save.getSnapshot(), blocked: blocked(),
     canRevert: currentPage()?.canRevert ?? false, policy: policy(), comparison, comparisonOpen,
     adjacent, anchorNotice, anchorThread, composer, composerNotice,
     canComposeBeside: !!newTarget?.geometry && newTarget.geometry.relation !== "unavailable" && !loading,
@@ -302,6 +312,7 @@ export function createConversationShell() {
   }
   async function load(key: string) {
     captures.cancel();
+    observedView = null;
     if (frame.state.renderId) frame.startReload();
     loading = true; sourceError = ""; reloadPending = false; clearAnchors("render-loading");
     const generation = frame.begin(key);
@@ -332,9 +343,22 @@ export function createConversationShell() {
     if (!receipt.value.pageKey) throw new Error("Joined page identity is missing.");
     await navigate(receipt.value.pageKey);
   }
-  async function capture(submissionId: string | null) {
+  function captureScope(submissionId: string): ResultCaptureScope {
+    const identity = frame.identity();
+    if (!identity.key || !identity.renderId || identity.loading) throw new Error("The page is not ready to capture.");
+    return { ...reference, submissionId, pageKey: identity.key, sessionId, renderId: identity.renderId,
+      generation: identity.generation, sourceHash: frame.state.sourceHash, view: normalizeView(observedView) };
+  }
+  function currentCapture(scope: ResultCaptureScope) {
+    if (disposed || loading || frame.identity().loading || !frame.state.renderId) return false;
+    return resultCaptureKey(scope) === resultCaptureKey(captureScope(scope.submissionId));
+  }
+  async function capture(submissionId: string | null, scope?: ResultCaptureScope) {
     const snapshot = record(await save.captureStable(() => captures.request()));
     const identity = frame.identity();
+    if (scope && (!currentCapture(scope) || !sameObservedView(scope.view, snapshot.view))) {
+      throw new Error("The page or visible view changed during capture. Retry on the current page.");
+    }
     await api.request("/api/conversation/capture", { method: "POST", body: JSON.stringify({
       ...reference, pageKey: identity.key, submissionId, sessionId, renderId: identity.renderId,
       generation: identity.generation, expectedSourceHash: snapshot.sourceHash ?? frame.state.sourceHash,
@@ -349,20 +373,14 @@ export function createConversationShell() {
   }
   async function capturePendingResults() {
     for (const item of owner.getSnapshot().history) {
-      const key = `${item.submissionId}:${frame.state.renderId}:${viewSequence}`;
+      if (frame.identity().loading) return;
+      const scope = captureScope(item.submissionId), key = resultCaptureKey(scope);
       if (item.result?.effect !== "changes-reported" || !["pending", "partial", "failed", "unavailable"].includes(item.comparisonStatus) || capturesAttempted.has(key)) continue;
       const submission = owner.getSnapshot().submissions.find((entry) => entry.id === item.submissionId)?.value.submission;
       if (!submission?.pageKeys.includes(frame.state.key ?? "")) continue;
       capturesAttempted.add(key);
-      try {
-        const existing = record(await api.request("/api/conversation/comparison", { method: "POST", body: JSON.stringify({
-          ...reference, submissionId: item.submissionId, pageKey: frame.state.key, mode: "content",
-        }) }));
-        if (typeof existing.available !== "boolean" || existing.mode !== "content") throw new Error("Invalid comparison response.");
-        if (existing.available) continue;
-        await capture(item.submissionId); captureError = ""; publish();
-      }
-      catch (cause) { captureError = `Response handled; comparison capture unavailable: ${cause instanceof Error ? cause.message : cause}`; publish(); }
+      try { await resultCaptures.request(scope); }
+      catch { /* The exact result/page owns its capture failure, not the source-save banner. */ }
     }
   }
   function connect() {
@@ -506,7 +524,7 @@ export function createConversationShell() {
         case "eh:viewChanged": {
           const view = normalizeView(message.view);
           if (!sameObservedView(observedView, view)) {
-            observedView = view; viewSequence++;
+            observedView = view;
             await captureCycle;
             await captureResults();
           }
@@ -575,9 +593,9 @@ export function createConversationShell() {
     comparisonOpen = true;
     comparison = { value: previous, submissionId, pageKey, mode, loading: true, error: "" }; publish();
     try {
-      const value = record(await api.request("/api/conversation/comparison", { method: "POST", body: JSON.stringify({ ...reference, submissionId, pageKey, mode }) }));
-      if (typeof value.available !== "boolean" || value.mode !== mode) throw new Error("Invalid comparison response.");
+      const value = decodeComparison(await api.request("/api/conversation/comparison", { method: "POST", body: JSON.stringify({ ...reference, submissionId, pageKey, mode }) }), mode);
       if (disposed || request !== comparisonRequest) return;
+      if (mode === "content") resultCaptures.confirmContent({ ...reference, submissionId, pageKey }, value);
       comparison = { value: JSON.stringify(previous) === JSON.stringify(value) ? previous : value, submissionId, pageKey, mode, loading: false, error: "" };
     } catch (cause) {
       if (disposed || request !== comparisonRequest) return;
@@ -656,9 +674,14 @@ export function createConversationShell() {
       comparison: selectComparison,
       async recapture(submissionId: string, pageKey: string) {
         if (pageKey !== frame.state.key) throw new Error("Open this submission page before capturing its rendered content.");
-        try { await capture(submissionId); captureError = ""; await owner.refresh(); }
-        catch (cause) { captureError = `Comparison unavailable: ${String(cause)}`; throw cause; }
-        finally { publish(); }
+        const detail = owner.getSnapshot().submissions.find((item) => item.id === submissionId)?.value;
+        if (!detail?.result || !detail.submission.pageKeys.includes(pageKey)) throw new Error("Choose a handled submission and its own page.");
+        const selected = comparisonRequest;
+        try {
+          await resultCaptures.request(captureScope(submissionId));
+          if (!disposed && selected === comparisonRequest && comparisonOpen && comparison?.submissionId === submissionId &&
+            comparison.pageKey === pageKey && comparison.mode === "content") await selectComparison(submissionId, pageKey, "content");
+        } catch { /* The correlated result warning remains available without stealing the current view. */ }
       },
       closeComparison() { comparisonRequest++; comparisonOpen = false; if (comparison) comparison = { ...comparison, loading: false }; publish(); },
     },

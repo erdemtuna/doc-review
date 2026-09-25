@@ -51,11 +51,6 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     setCapturing(true);
     try {
       await shell.commands.recapture(current.submissionId, current.pageKey);
-      const latest = shell.getSnapshot();
-      if (latest.comparisonOpen && latest.comparison?.submissionId === current.submissionId &&
-          latest.comparison.pageKey === current.pageKey && latest.comparison.mode === current.mode) {
-        await shell.commands.comparison(current.submissionId, current.pageKey, current.mode);
-      }
     } catch (cause) { shell.owner.report(cause); }
     finally { setCapturing(false); }
   };
@@ -67,6 +62,8 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
       <Button variant="ghost" size="sm" onClick={shell.commands.closeComparison}>Close comparison</Button></div>
     {detail?.result && <SubmissionResultNote detail={detail} />}
     {history && <p className="conversation-comparison-summary">{resultAvailability(history)}</p>}
+    {chrome.captureFailures.filter(({ scope }) => scope.submissionId === current.submissionId && scope.pageKey === current.pageKey)
+      .map(({ scope, message }) => <p className="conversation-capture-warning" key={scope.submissionId} role="alert">Content capture unavailable: {message}</p>)}
     <header ref={header} className="conversation-comparison-tools">
       <div className="changes-toolbar" role="group" aria-label="Comparison tools">
         <div className="changes-context">

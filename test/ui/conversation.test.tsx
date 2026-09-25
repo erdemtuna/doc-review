@@ -31,7 +31,7 @@ async function fixture() {
   await owner.refresh(); owner.commands.open();
   let chromeState: ReturnType<ConversationShell["getSnapshot"]> = {
     pageKey: "page", pageName: "Fixture", pollCommand: "doc-review poll --review review --entry page", mode: "view" as const, theme: "light" as const, loading: false,
-    sourceError: "", captureError: "", connectionError: "", reloadPending: false, blocked: false, canRevert: false, policy: "writable" as const, comparison: null, comparisonOpen: false,
+    sourceError: "", captureError: "", captureFailures: [], connectionError: "", reloadPending: false, blocked: false, canRevert: false, policy: "writable" as const, comparison: null, comparisonOpen: false,
     themeSync: { desired: { theme: "light" as const, themeRevision: 1 }, status: "applied" as const, appliedRevision: 1, message: null },
     executionPreference: "auto" as const, supportsRecovery: true,
     contentTop: 80, adjacent: null, anchorNotice: "", anchorThread: null, composer: null, composerNotice: "", canComposeBeside: false, composerRelation: "unavailable",

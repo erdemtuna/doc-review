@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, feedback, seedThread, sendPending, handled, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate } from "./helpers.js";
 import { choiceItem, selectChoice } from "./choice-helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
 
@@ -28,6 +28,7 @@ async function setup(page, review, { count = 2, rounds = 2, pages = false } = {}
   }
   await page.route("**/api/conversation/comparison", (route) => route.fulfill({ json: comparison(route.request().postDataJSON().mode, count) }));
   await feedback(page);
+  await submissionHistory(page);
   await expect(page.locator(".conversation-submission")).toHaveCount(rounds);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
   await page.locator(".conversation-submission").first().getByRole("button", { name: "Content changes" }).first().click();
@@ -151,9 +152,10 @@ for (const count of [0, 1]) test(`${count} changes preserve format controls with
 test("comparison menu Escape leaves a hidden conversation draft intact and menus have one owner", async ({ page, review }) => {
   const { region } = await setup(page, review);
   await region.getByRole("button", { name: "Close comparison" }).click();
+  await feedback(page);
   await page.getByRole("button", { name: "New message", exact: true }).click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Preserve hidden draft");
-  await page.locator(".conversation-submission").first().getByRole("button", { name: "Content changes" }).click();
+  await page.getByRole("button", { name: "View result", exact: true }).click();
   await page.locator("#submissionPicker").click();
   await expect(page.getByRole("menu")).toHaveCount(1);
   await page.keyboard.press("Escape"); await expect(page.locator("#submissionPicker")).toBeFocused();

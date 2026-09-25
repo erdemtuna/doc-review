@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, message, handled, expectEditBlocked } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, message, handled, expectEditBlocked, submissionHistory } from "./helpers.js";
 
 test("confirmed source updates survive paused shell painting without requiring reload", async ({ page, review }) => {
   test.setTimeout(30_000);
@@ -105,6 +105,7 @@ test("Review and Changes keep the same iframe and authored runtime state", async
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
   await handled(review, ref);
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
+  await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
   await expect(page.getByRole("button", { name: "Source changes", exact: true })).toBeVisible();
   await page.locator("#commentsButton").click();

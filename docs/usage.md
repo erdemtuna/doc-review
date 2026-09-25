@@ -303,11 +303,21 @@ for it, rather than treating partial content as a complete replacement.
 
 ## Submission history and Changes
 
-Feedback shows the latest agent result before the discussion inventory. **View in
-Changes** opens its full result note and retained comparison. The note is available
-even when a capture is pending, unavailable, or failed. Completed submissions are
-collapsed in **Submissions and results**; expand one for its note, receipt details,
-and **Content changes** or **Source changes** actions.
+Feedback shows the latest agent result before the discussion inventory. **View
+result** opens its full result note and retained comparison. The note is available
+even when a capture is pending, unavailable, or failed. **History** in the Feedback
+header opens earlier submissions without replacing your reply or overall-note
+editors. Use **Back to Feedback** to return to their retained text, permissions and
+reading position. Completed submissions are collapsed in **Submissions and results**;
+expand one for its note, receipt details, named pages and **Content changes** or
+**Source changes** actions. History also contains the **Agent command** and
+**Advanced actions → Abandon submission**, with the existing confirmation.
+
+Content-capture problems appear with the affected result/page, not as an unrelated
+source-save warning. Automatic and explicit captures share one exact in-flight
+request. An immutable conflict is reconciled only when that same result's Content
+comparison is authoritatively available; Source alone is not proof. Changed source,
+changed visible view and genuine capture failures remain explicit.
 
 The document stays mounted and retains unsent drafts while Changes is open. A comparison
 normally compares content captured when feedback was sent with the result

@@ -99,6 +99,9 @@
   .conversation-blockers { color: var(--foreground); }
   .conversation-error code { font-size: 11px; }
   .conversation-history, .conversation-edits { padding: 8px 0; }
+  .conversation-panel.has-history .conversation-new-message { display: none; }
+  .conversation-history pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+  .conversation-capture-warning { font-size: 12px; color: var(--foreground); }
   .conversation-history h3, .conversation-edits h3 { font-size: 14px; margin: 6px 0; }
   .conversation-submission { padding: 8px; margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
   .conversation-submission summary { cursor: pointer; font-weight: 600; }
@@ -173,8 +176,9 @@
     .durable-review #modeButton { padding-inline: 8px; gap: 4px; }
     .durable-review #modeButton > svg:first-child { display: none; }
     .conversation-panel:not(.has-focus):not(.is-composing) > .conversation-panel-header {
-      position: absolute; top: 0; right: 0; padding: 0; width: 36px; height: 36px; border: 0; z-index: 2;
+      position: absolute; top: 0; right: 0; padding: 0; width: 120px; height: 36px; border: 0; z-index: 2; flex-wrap: nowrap;
     }
+    .conversation-panel.has-history:not(.has-focus):not(.is-composing) > .conversation-panel-header { position: static; width: auto; flex-shrink: 0; padding-inline: 8px; }
     .conversation-panel-header h2, .conversation-footer .conversation-composer > label:first-child {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
     }
@@ -187,7 +191,8 @@
       position: sticky; top: 0; z-index: 1; background: var(--card);
     }
     .conversation-overview { display: flex; flex-direction: column; flex-shrink: 0; max-height: 32%; }
-    .conversation-filters { order: -1; padding: 4px 40px 4px 8px; flex-shrink: 0; }
+    .conversation-filters { order: -1; padding: 4px 124px 4px 8px; gap: 4px; flex-shrink: 0; }
+    .conversation-filters .segmented-control { gap: 4px; }
     .conversation-new-trigger > svg { display: block; }
     .conversation-new-trigger > span { display: none; }
     .conversation-inventory { padding: 8px 12px; }
@@ -200,5 +205,13 @@
     .conversation-edits h3 { margin-block: 0; }
     .conversation-edit-list > li { padding-block: 4px; }
     .conversation-panel.has-focus .conversation-inventory { padding: 8px 12px; }
+  }
+}
+@layer utilities {
+  @media (max-width: 480px) and (max-height: 550px) {
+    .conversation-panel-header [aria-controls="conversationHistory"],
+    .conversation-filters .segmented-control button,
+    .conversation-new-trigger { padding-inline: 6px; }
+    .conversation-panel-header [data-slot="badge"] { padding-inline: 2px; }
   }
 }

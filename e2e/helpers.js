@@ -127,6 +127,18 @@ export async function mutate(review, reference, operation, fields = {}) {
 export async function feedback(page) {
   if (await page.locator("#commentsButton").getAttribute("aria-expanded") !== "true") await page.locator("#commentsButton").click();
   await expect(page.getByRole("complementary", { name: "Feedback" })).toBeVisible();
+  const back = page.locator(".conversation-panel-header").getByRole("button", { name: "Back to Feedback", exact: true });
+  if (await back.isVisible()) await back.click();
+}
+
+export async function submissionHistory(page) {
+  const history = page.getByRole("region", { name: "Submission history", exact: true });
+  if (!await history.isVisible()) {
+    await feedback(page);
+    await page.getByRole("button", { name: "History", exact: true }).click();
+  }
+  await expect(history).toBeVisible();
+  return history;
 }
 
 export async function overallNote(page) {

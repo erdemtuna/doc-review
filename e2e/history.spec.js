@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import { selectChoice } from "./choice-helpers.js";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, submissionHistory, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode } from "./helpers.js";
 
 async function sendNote(page, text = "Refine this source", change = true) {
   await feedback(page);
@@ -19,7 +19,7 @@ async function compare(review, ref, submissionId, mode = "content") {
   expect(result.status, result.raw).toBe(200); return result.json();
 }
 async function openComparison(page, mode = "Content") {
-  await feedback(page);
+  await submissionHistory(page);
   const submission = page.locator(".conversation-submission").first();
   if (!await submission.evaluate(node => node.open)) await submission.locator(":scope > summary").click();
   await page.locator(".conversation-submission").first().getByRole("button", { name: `${mode} changes` }).first().click();
@@ -56,6 +56,7 @@ test("multi-page partial history never recaptures an already immutable current-p
     if (request.url().endsWith("/api/conversation/capture") && request.postDataJSON().submissionId === work.submissionId) attempts.push(request);
   });
   await page.reload(); await waitForSdk(page); await feedback(page);
+  await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
   await page.locator(".conversation-submission").getByRole("button", { name: "Content changes" }).first().click();
   await selectChoice(page, "historyTarget", ref.key);
@@ -113,6 +114,7 @@ test("comparison leaves interactive document, new-message draft and selection mo
   const region = await openComparison(page);
   await expect(region).toContainText("No new source changes reported");
   await region.getByRole("button", { name: "Close comparison" }).click();
+  await feedback(page);
   expect(await input.evaluate((element) => element === window.historyDraft)).toBe(true);
   expect(await input.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([2, 7]);
   await expect(frame.locator("#details")).toHaveAttribute("open", "");
@@ -202,12 +204,12 @@ test("result capture failure does not undo handling; explicit recovery stays non
     await route.continue();
   });
   const { work } = await complete(page, review, ref, file);
-  await expect(page.getByText(/Response handled; comparison capture unavailable/)).toBeVisible();
+  await expect(page.getByText(/Result capture unavailable:/)).toBeVisible();
   expect((await conversation(review, ref, "submission", { submissionId: work.submissionId })).submission.state).toBe("handled");
   const source = await compare(review, ref, work.submissionId, "source");
   await page.waitForTimeout(200); expect(attempts).toBe(1);
   fail = false;
-  await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View in Changes" }).click();
+  await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View result" }).click();
   await page.getByRole("button", { name: "Capture current content" }).click();
   await expect.poll(async () => (await compare(review, ref, work.submissionId)).available).toBe(true);
   expect((await compare(review, ref, work.submissionId, "source")).sourceHash).toBe(source.sourceHash);

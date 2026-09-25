@@ -253,8 +253,14 @@ separate milestones, including in background tabs.
 independent loading/error/unavailable states, retry, counts and change navigation.
 `conversation-results.tsx` composes existing inventory, Badge, and timestamp
 primitives for a capture-independent submission note and exact human edit evidence.
-The latest-result preview precedes thread cards in Feedback; handled history is
-secondary disclosure, not a second primary result stream. At heights up to 440px,
+The latest-result preview precedes thread cards in Feedback with **View result**.
+The header's **History** destination holds the full ledger, agent command, receipt
+diagnostics and advanced abandonment confirmation, rather than repeating them under
+the discussion inventory. History and Feedback retain the same mounted reply/note
+editors and independent reading positions. Capture errors belong to their exact
+result/page; older issues remain discoverable through the History issue count.
+Source-save, disconnected and uncertain-acceptance recovery stays visible.
+At heights up to 440px,
 only this preview puts its body before metadata so the first line remains readable
 in the existing short inventory. Its 13px text uses a 20px line box, avoiding a
 fractional predecessor height that would round a transferred reading anchor.
@@ -269,6 +275,10 @@ Shell request sequencing prevents a slow response from replacing a newer choice
 or reopening a closed surface. Closing hides the retained subtree; identical
 data preserves expanded context and row identity. Changing endpoint resets the
 relevant comparison selection.
+Automatic and manual capture share a flight keyed by existing review/entry,
+submission, page, session/render/generation, source hash and observed view identity.
+Only a typed version/immutable conflict may trigger same-result Content reconciliation.
+No blanket 409 suppression, source-only success or late comparison reopening is allowed.
 Before requesting, selection must identify a loaded handled submission, a member
 page, and Content or Source. The existing response contract already requires
 `available` and the requested `mode`; wrong or missing mode is an explicit error.

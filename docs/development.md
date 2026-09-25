@@ -291,6 +291,18 @@ Results store one separate body and generated inline agent messages with
 new versions/captures. Comparison failure is independent of the committed result.
 `submissionReadSchema` checks complete result/receipt associations again on output.
 
+**Bootstrap and exact autosave.** Shared SDK injection consumes only the safe
+opening prefix (doctype, complete leading comments/whitespace, optional `html`
+and `head` opening tags). Inserting before an existing `html`/`head` can make the
+HTML parser redistribute authored whitespace into an implicit head, falsely
+classifying a plain file as dynamic and breaking exact save evidence. Do not
+normalize authored whitespace or loosen dynamic/save validation to compensate.
+Do not search forward for a head tag through potentially unclosed raw text.
+`source-save-compat.spec.js` covers real plain-file autosave and scripted-page
+feedback-only protection together. In browser evidence scripts, use screenshot
+`caret: "initial"` while authored content is editable: Playwright's caret hiding
+can leave an otherwise absent empty `style` attribute on the editable body.
+
 **Paging and anchor projections.** Reviewed defaults are 50, maximum 100, minimum
 1, for every collection; these are page sizes, not retention or submission caps.
 Creation uses a persistent review-wide monotonic `sequence`, independent of mutable

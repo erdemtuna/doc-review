@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback } from "./helpers.js";
+import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 async function call(review, body, route = "/api/conversation") {
@@ -196,10 +196,11 @@ test("reconnected history bridges missed pages and retains loaded records and th
       await call(review, responseFor(work, { resultNote: `Offline result ${index}` }));
     }
     await context.setOffline(false);
-    await expect(page.getByRole("region", { name: "Latest submission result" }).getByText(`Offline result ${start + 54}`, { exact: true })).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator(".conversation-result-peek").getByText(`Offline result ${start + 54}`, { exact: true })).toHaveCount(1, { timeout: 15_000 });
   };
   await completeOffline(0);
   await expect(page.locator(".conversation-submission")).toHaveCount(50);
+  await submissionHistory(page);
   const earlier = page.getByRole("button", { name: "Load earlier submissions", exact: true });
   await earlier.scrollIntoViewIfNeeded();
   const marker = page.getByText("Offline result 5", { exact: true });
@@ -289,6 +290,8 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await expect(second.locator("#send")).toBeDisabled();
   await expectEditBlocked(second, true);
   await message(second, "Prepare a discussion while blocked");
+  await submissionHistory(page);
+  await page.getByText("Advanced actions", { exact: true }).click();
   await page.getByRole("button", { name: "Abandon submission" }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Stop the old agent");
   await expect(page.getByRole("alertdialog")).toContainText(ref.reviewId);
@@ -299,6 +302,8 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await second.locator("#send").click(); await expect(second.getByText("Queued; not received")).toBeVisible();
   await call(review, { ...fresh, operation: "poll" });
   await expect(second.getByText("Received; delivery is not evidence of an active agent")).toBeVisible();
+  await submissionHistory(second);
+  await second.getByText("Advanced actions", { exact: true }).click();
   await second.getByRole("button", { name: "Abandon submission" }).click();
   await second.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(second.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
@@ -611,12 +616,14 @@ test("source results expose real comparisons and reply-only results never replac
   }));
   await expect(page.frameLocator("#frame").locator("p")).toHaveText("After exact source wording");
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Updated the source paragraph.", { exact: true })).toHaveCount(1);
+  await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
   await page.getByRole("button", { name: "Source changes", exact: true }).click();
   await expect(page.getByRole("region", { name: "Saved comparison" })).toContainText("Before source wording");
   await expect(page.getByRole("region", { name: "Saved comparison" })).toContainText("After exact source wording");
   await page.getByRole("button", { name: "Close comparison" }).click();
   const before = await page.locator("#frame").getAttribute("src");
+  await feedback(page);
   await page.locator(".conversation-thread").getByRole("button", { name: "Reply", exact: true }).click();
   await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Explain without more changes");
   await page.getByRole("button", { name: "Save", exact: true }).click();
