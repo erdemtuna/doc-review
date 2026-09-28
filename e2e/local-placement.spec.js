@@ -93,7 +93,7 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
     await (await threadAction(page, page.locator(`[data-thread="${thread.threadId}"]`), "Back to Feedback")).click();
     await expect(panel).toHaveAttribute("data-host", "feedback");
     expect(Math.round((await panel.boundingBox()).width)).toBe(Math.min(380, width));
-    expect(await page.locator(".stage").evaluate(node => node.inert)).toBe(true);
+    expect(await page.locator(".stage").evaluate(node => node.inert)).toBe(false);
     expect(await reply.evaluate(node => node === window.localReply)).toBe(true);
     await expect(reply).toHaveValue("A retained local reply");
     fs.writeFileSync(info.outputPath("geometry.json"), JSON.stringify({ width, height, theme, composer, short }, null, 2));

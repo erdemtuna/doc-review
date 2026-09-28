@@ -374,7 +374,7 @@ the saved evidence again without recapturing it; a failed comparison read has a
 separate **Retry comparison** action. Missing or failed capture is
 never presented as zero changes, and does not undo a handled response.
 
-**Your edits** shows readable Before/After previews, an independent
+Inside **Review selection**, **Your edits** shows readable Before/After previews, an independent
 Include in Send checkbox, and **Already saved** or **Source pending** evidence.
 **Exact edit details** retains the complete recorded content and source identity.
 The result note separates edits you saved before Send from agent-reported work;

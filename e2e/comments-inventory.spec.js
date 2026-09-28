@@ -148,7 +148,7 @@ test("shared inventory includes unvisited member pages and Jump to navigates the
   await button(page.locator(".conversation-thread").first(), "Jump to").click();
   await waitForSdk(page);
   await expect(page.locator("#reviewPage")).toHaveAttribute("data-value", joined.value.pageKey);
-  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await expect(page.locator(".conversation-panel")).toBeVisible();
   await feedback(page);
   await expect(page.locator(".conversation-thread-title").first()).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".conversation-thread")).toHaveCount(3);

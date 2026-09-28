@@ -25,6 +25,26 @@ creates a new review. Never switch an existing handler to that new identity.
 For a repeatable open, supply `--request-id <stable-id>`. `--no-browser` returns
 the same durable link without launching a browser.
 
+## Reviewer interaction
+
+The page starts in View. Feedback is nonmodal: it docks on roomy desktops and
+floats on narrow PC windows, without dimming or disabling the document. Jump to
+reveals the exact passage, hiding a floating panel only when it would obscure the
+target. Focus and other thread actions are in the conversation menu.
+
+Save queues a message; **Send to agent (N)** dispatches a deliberate batch.
+**Review selection** contains message/edit exclusions, exact human edit evidence,
+and the optional overall note with its own unchecked change permission. Excluded
+messages show **Not included** and remain pending. Unsaved drafts are not sent.
+Send freezes the selected versions and note at activation; feedback arriving
+during preparation stays pending. A changed selected version requires reviewing
+the selection again.
+
+Expanded conversations retain two recent sent exchanges and all unsent replies.
+The preceding answer remains visible while composing a follow-up; **Show earlier
+replies** loads older context. Closing Feedback or changing hosts preserves the
+mounted editor and its local draft, but reloading a tab loses unsaved drafts.
+
 ## The review-scoped loop
 
 Copy the actual `handoff.pollCommand`, not these placeholder IDs:

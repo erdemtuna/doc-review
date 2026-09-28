@@ -1,5 +1,5 @@
 import http from "node:http";
-import { test, expect, openReview, waitForSdk, feedback, submissionHistory, conversation, handled, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, feedback, overallNote, submissionHistory, conversation, handled, listed } from "./helpers.js";
 
 test("returning to the captured live tab retries without reloading or auto-clicking tabs", async ({ page, review }) => {
   let version = "Before";
@@ -31,7 +31,7 @@ test("returning to the captured live tab retries without reloading or auto-click
     await frame.locator("#screens").click();
     await expect(frame.locator("#screens-panel")).toBeVisible();
     await feedback(page);
-    await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+    await overallNote(page);
     await page.getByRole("textbox", { name: "Overall note" }).fill("Improve the Screens section");
     await page.locator('[data-composer="note"]').getByLabel("Request a change").check();
     await page.locator("#send").click();

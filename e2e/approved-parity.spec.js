@@ -45,7 +45,7 @@ test("approved Field Notes toolbar and readable card hierarchy survive the accep
     expect(geometry.visibleLine).toBe(geometry.naturalLine);
     expect((await page.locator(".conversation-panel").boundingBox()).width).toBe(Math.min(380, size.panel));
     expect(await page.locator(".conversation-inventory").evaluate(node => node.scrollTop)).toBe(0);
-    expect((await page.locator("#frame").boundingBox()).width).toBe(size.width);
+    expect((await page.locator("#frame").boundingBox()).width).toBe(size.width >= 1020 ? size.width - 380 : size.width);
     await expect(page.getByRole("button", { name: "Open (2)", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("#send")).toHaveText("Send to agent (2)");

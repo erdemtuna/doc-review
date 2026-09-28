@@ -58,6 +58,8 @@ export async function conversationSmoke({ browser, expect, project, state, evide
   };
   const overallNote = async (tab) => {
     await feedback(tab);
+    const selection = tab.getByRole("button", { name: /^Review selection/ });
+    if (await selection.getAttribute("aria-expanded") !== "true") await selection.click();
     if (!await tab.getByRole("textbox", { name: "Overall note", exact: true }).isVisible()) {
       await tab.getByRole("button", { name: /Overall note \(optional\)/ }).click();
     }
@@ -118,7 +120,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     for (const tab of [page, second]) { await tab.goto(opened.url); await ready(tab); }
     await message(page, "Why this wording?");
     await feedback(second);
-    await expect(second.getByText("Why this wording?", { exact: true })).toBeVisible();
+    await expect(second.locator(".conversation-thread").getByText("Why this wording?", { exact: true })).toBeVisible();
     await page.locator("#send").click();
     await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
     const first = (await pick(ref)).submission;
@@ -260,7 +262,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
     await overallNote(page);
     await expect(page.getByRole("textbox", { name: "Overall note", exact: true })).toHaveValue("");
-    await expect(page.getByText("Saved unsent stays in the old review.", { exact: true })).toBeVisible();
+    await expect(page.locator(".conversation-thread").getByText("Saved unsent stays in the old review.", { exact: true })).toBeVisible();
     const fresh = await open(target), freshRef = refFor(fresh);
     assert.notEqual(freshRef.reviewId, ref.reviewId);
     await second.goto(fresh.url); await ready(second); await feedback(second);
@@ -388,7 +390,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     const editor = active.getByRole("textbox", { name: "Reply", exact: true });
     await editor.fill("Keep one installed editor");
     await editor.evaluate((node) => { window.installedEditor = node; node.setSelectionRange(2, 8); node.dispatchEvent(new Event("select", { bubbles: true })); });
-    await active.getByRole("button", { name: "Focus", exact: true }).click();
+    await threadAction(second, active, "Focus");
     await threadAction(second, active, "Beside target");
     assert.deepEqual(await editor.evaluate((node) => [node === window.installedEditor, node.selectionStart, node.selectionEnd]), [true, 2, 8]);
     await expect(second.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(1);

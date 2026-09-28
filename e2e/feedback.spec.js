@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, submissionHistory, intercept, failure, conversation, seedThread } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, overallNote, submissionHistory, intercept, failure, conversation, seedThread } from "./helpers.js";
 
 async function setup(page, review, name = "feedback.html") {
   const file = writeFile(review, name, "<!doctype html><p id='copy'>Original paragraph</p><input aria-label='Authored input'>");
@@ -28,7 +28,7 @@ for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [
       const { ref } = await setup(page, review, `footer-${width}-${height}-${theme}.html`);
       for (let i = 0; i < 8; i++) await seedThread(review, ref, `Saved message ${i}`);
       await expect(page.locator(".conversation-thread")).toHaveCount(8);
-      await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+      await overallNote(page);
       const note = page.getByRole("textbox", { name: "Overall note" });
       await note.fill("Keep this overall note");
       await note.evaluate((element) => { window.savedNote = element; window.savedFrame = document.querySelector("#frame"); element.setSelectionRange(5, 9); element.dispatchEvent(new Event("select", { bubbles: true })); });
@@ -64,7 +64,7 @@ test("uncertain Send preserves newer typing and retries exactly one identity wit
     if (bodies.length === 1) return failure(route, "Send acceptance unknown");
     await gate; await route.continue();
   });
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await overallNote(page);
   const note = page.getByRole("textbox", { name: "Overall note" });
   await note.fill("First note"); await page.locator("#send").click();
   await expect(page.getByRole("alert")).toContainText("Send acceptance unknown");
@@ -91,7 +91,7 @@ test("optional capture failure is independent of delivery and never introduces a
     }, true);
   });
   const { ref } = await setup(page, review, "capture-failure.html");
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await overallNote(page);
   await page.getByRole("textbox", { name: "Overall note" }).fill("Send independently");
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
@@ -105,7 +105,7 @@ test("Revert Cancel preserves edits; confirmation is single-flight and preserves
   const before = fs.readFileSync(file, "utf8");
   await edit(page, " changed");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("paragraph changed");
-  await feedback(page); await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await feedback(page); await overallNote(page);
   await page.getByRole("textbox", { name: "Overall note" }).fill("Keep note");
   const revert = page.getByRole("button", { name: "Revert", exact: true });
   await revert.click(); await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
@@ -127,7 +127,7 @@ test("Revert Cancel preserves edits; confirmation is single-flight and preserves
 
 test("stale End confirmation rejects explicitly without losing drafts; renewed confirmation ends once", async ({ page, review }) => {
   const { ref } = await setup(page, review, "stale-end.html");
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await overallNote(page);
   await page.getByRole("textbox", { name: "Overall note" }).fill("Unsent draft");
   await page.locator("#endReview").click();
   await seedThread(review, ref, "Concurrent saved work");
@@ -151,7 +151,7 @@ for (const action of ["Send", "Revert", "End"]) {
     await intercept(page, "record-edit", (route) => failure(route, "Exact edit could not be recorded", "VERSION_CONFLICT"));
     await page.frameLocator("#frame").locator("#copy").click(); await page.keyboard.press("End"); await page.keyboard.insertText(" second");
     await expect(page.getByRole("alert")).toContainText("Exact edit could not be recorded");
-    await feedback(page); await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+    await feedback(page); await overallNote(page);
     await page.getByRole("textbox", { name: "Overall note" }).fill("Preserve this");
     let requests = 0;
     await intercept(page, action.toLowerCase(), async (route) => { requests++; await route.continue(); });
