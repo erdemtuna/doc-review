@@ -54,6 +54,13 @@ test("reading fixture retains the four reported conversation states", async ({ p
   await expect(card.locator(".conversation-response")).toBeVisible();
   await mutate(review, ref, "reply", { threadId, body: "what could be the alternatives?", intent: "discuss" });
   await expect(card).toContainText("what could be the alternatives?");
+  await expect(card.locator(".conversation-response")).toContainText("The explanation preserves the original meaning.");
+  await expect(card.getByRole("button", { name: "Show earlier replies" })).toHaveCount(0);
   await capture("followup");
+  await page.reload();
+  await waitForSdk(page);
+  await feedback(page);
+  await expect(card.locator(".conversation-response")).toContainText("The explanation preserves the original meaning.");
+  await expect(card).toContainText("what could be the alternatives?");
   fs.writeFileSync(info.outputPath("reading-metrics.json"), JSON.stringify(metrics, null, 2));
 });

@@ -576,6 +576,7 @@ test("earlier context keeps actual associations and all unsent followups are sel
   for (let index = 0; index < 55; index++) await c.f.mutate(c.ref, "reply", { threadId: id, body: `Follow-up ${index}`, intent: "discuss" });
   await c.owner.refresh();
   assert.equal(c.owner.getSnapshot().threads[0].pendingMessageCount, 55);
+  assert.equal(c.owner.getSnapshot().threads[0].exchanges[0].response.body, "First exact answer");
   await c.owner.commands.earlier(id);
   const messages = c.owner.getSnapshot().threads[0].exchanges;
   assert.equal(messages.length, 56);
@@ -583,6 +584,36 @@ test("earlier context keeps actual associations and all unsent followups are sel
   assert.equal(messages.at(-1).response, null);
   await c.owner.commands.send();
   assert.equal((await c.f.read(c.ref, "poll")).submission.messages.length, 55);
+});
+
+test("recent context survives refresh; earlier requests coalesce without hiding the reply draft", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "First");
+  for (let index = 0; index < 4; index++) {
+    if (index) {
+      c.owner.commands.reply(id); c.owner.commands.update(id, { text: `Question ${index}` });
+      await c.owner.commands.saveDraft(id);
+    }
+    await c.owner.commands.send();
+    const work = (await c.f.read(c.ref, "poll")).submission;
+    await c.f.ok(responseFor(work));
+    await c.owner.refresh();
+  }
+  assert.equal(c.owner.getSnapshot().threads[0].exchanges.length, 2);
+  assert.deepEqual(c.owner.getSnapshot().threads[0].exchanges.map(item => item.reviewer.body), ["Question 2", "Question 3"]);
+  const reads = () => c.calls.filter(body => body.scope?.collection === "context").length;
+  const before = reads(); await c.owner.refresh(); assert.equal(reads(), before);
+  c.owner.commands.reply(id); c.owner.commands.update(id, { text: "Retain", selectionStart: 1, selectionEnd: 4, composing: true });
+  const one = c.owner.commands.earlier(id), two = c.owner.commands.earlier(id);
+  assert.equal(one, two);
+  await one;
+  assert.equal(c.owner.getSnapshot().threads[0].exchanges.length, 4);
+  await c.owner.refresh();
+  const thread = c.owner.getSnapshot().threads[0];
+  assert.equal(thread.exchanges.length, 4);
+  assert.equal(thread.draft.text, "Retain");
+  assert.equal(thread.draft.selectionStart, 1);
+  assert.equal(thread.draft.composing, true);
 });
 
 test("ended review observes late completion and supports separate confirmed abandonment", async (t) => {

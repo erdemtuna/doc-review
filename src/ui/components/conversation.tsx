@@ -323,7 +323,8 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
           rememberExchange(owner, id, transcript.current, transcript.current);
         }
       }}>
-        {item.messageCount > item.exchanges.length && <Button size="sm" variant="outline" onClick={() => {
+        {item.messageCount > item.exchanges.length && <Button className="conversation-earlier" size="xs" variant="ghost"
+          disabled={item.contextLoading} aria-busy={item.contextLoading} onClick={() => {
           const element = focus ? transcript.current : transcript.current?.closest<HTMLElement>(".conversation-inventory");
           const previousHeight = element?.scrollHeight ?? 0, previousTop = element?.scrollTop ?? 0;
           act(owner, async () => {
@@ -332,7 +333,8 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
               if (element && element.scrollTop === previousTop) element.scrollTop = previousTop + element.scrollHeight - previousHeight;
             });
           });
-        }}>Load earlier</Button>}
+        }}>{item.contextLoading ? "Loading earlier replies..." : "Show earlier replies"}</Button>}
+        {item.contextError && <p className="conversation-context-error" role="alert">{item.contextError}</p>}
         {item.exchanges.map(({ reviewer, response }, index) => <section className="conversation-exchange" key={reviewer.messageId} data-message={reviewer.messageId}>
           <div className="conversation-meta inventory-meta"><ConversationAuthor role="You" /><ConversationTime value={reviewer.createdAt} />
             {reviewer.intent === "request-change" && <Badge variant="outline">{intentBadge(reviewer.intent)}</Badge>}

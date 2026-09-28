@@ -48,6 +48,7 @@ export function createConversationController(options: Options) {
   let draftCancellation: string | null = null;
   const savingDrafts = new Set<string>();
   const historyOpened = new Set<string>();
+  const contextLoads = new Map<string, Promise<void>>(), contextErrors = new Map<string, string>();
   const submissions = new Map<string, Submission>(), collapsed = new Set<string>(), attention = new Set<string>();
   const fingerprints = new Map<string, string>(), excluded = new Set<string>();
   const lastRecorded = new Map<string, string>();
@@ -63,10 +64,12 @@ export function createConversationController(options: Options) {
   let serial = Promise.resolve(), refreshing: Promise<void> | null = null, refreshAgain = false;
   let selectionKnown = false;
   const writable = () => !!review && review.state === "open" && !uncertain;
-  const displayExchanges = (thread: Thread) => (contexts.get(thread.thread.threadId)?.items ??
-    (thread.latestExchange ? [thread.latestExchange] : [])).filter((item) =>
-    historyOpened.has(thread.thread.threadId) || item.reviewer.submissionId === null ||
-    item.reviewer.messageId === thread.latestExchange?.reviewer.messageId);
+  const displayExchanges = (thread: Thread) => {
+    const items = contexts.get(thread.thread.threadId)?.items ?? (thread.latestExchange ? [thread.latestExchange] : []);
+    if (historyOpened.has(thread.thread.threadId)) return items;
+    const recent = new Set(items.filter(item => item.reviewer.submissionId !== null).slice(-2).map(item => item.reviewer.messageId));
+    return items.filter(item => recent.has(item.reviewer.messageId) || item.reviewer.submissionId === null);
+  };
   function pendingSelection() {
     if (!selectionKnown || !status) return null;
     const messages: SendRequest["messages"] = [], selectedEdits: SendRequest["edits"] = [];
@@ -108,6 +111,7 @@ export function createConversationController(options: Options) {
       ...thread, exchanges: displayExchanges(thread), context: contexts.get(thread.thread.threadId) ?? null,
       draft: drafts.get(thread.thread.threadId) ?? null, expanded: !collapsed.has(thread.thread.threadId),
       attention: attention.has(thread.thread.threadId),
+      contextLoading: contextLoads.has(thread.thread.threadId), contextError: contextErrors.get(thread.thread.threadId) ?? "",
     })),
     submissions: [...submissions.entries()].map(([id, value]) => ({ id, value })),
     excluded: [...excluded], note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected,
@@ -174,8 +178,11 @@ export function createConversationController(options: Options) {
     const nextContexts = new Map<string, Context>();
     await Promise.all(nextThreads.map(async (thread) => {
       const id = thread.thread.threadId;
-      if (contexts.has(id) || thread.pendingMessageCount > 0) {
-        nextContexts.set(id, await readContext(id, contexts.get(id)?.items.length ?? 1, thread.pendingMessageCount));
+      if (contexts.has(id) || thread.messageCount > 1 || thread.pendingMessageCount > 0) {
+        const cached = contexts.get(id), previous = threads.find(item => item.thread.threadId === id);
+        const minimum = Math.min(thread.messageCount, thread.pendingMessageCount + 2);
+        if (cached && cached.items.length >= minimum && JSON.stringify(previous) === JSON.stringify(thread)) nextContexts.set(id, cached);
+        else nextContexts.set(id, await readContext(id, Math.max(cached?.items.length ?? 0, minimum), thread.pendingMessageCount));
       }
     }));
     const nextSubmissions = new Map<string, Submission>();
@@ -418,18 +425,31 @@ export function createConversationController(options: Options) {
         if (draftCancellation !== null && canCancelDraft(draftCancellation)) discardDraft(draftCancellation);
       },
       saveDraft, send, refresh,
-      async earlier(id: string) {
-        const current = contexts.get(id);
-        if (!current) contexts.set(id, await readContext(id, 50));
-        else if (!historyOpened.has(id) && current.items.length > displayExchanges(threads.find((thread) => thread.thread.threadId === id)!).length) {
-          historyOpened.add(id); publish(); return;
-        }
-        else if (current.nextCursor) {
-          const next = await page("context", contextPageSchema, { cursor: current.nextCursor }, id);
-          contexts.set(id, { ...current, items: [...next.items, ...current.items], nextCursor: next.nextCursor });
-        }
-        historyOpened.add(id);
-        publish();
+      earlier(id: string) {
+        const running = contextLoads.get(id);
+        if (running) return running;
+        contextErrors.delete(id);
+        const work = (async () => {
+          const current = contexts.get(id);
+          if (!current) {
+            const context = await readContext(id, 50);
+            if (contexts.has(id)) throw new Error("Conversation changed while loading earlier replies. Try again.");
+            contexts.set(id, context);
+          } else if (historyOpened.has(id) || current.items.length === displayExchanges(threads.find(thread => thread.thread.threadId === id)!).length) {
+            if (current.nextCursor) {
+              const next = await page("context", contextPageSchema, { cursor: current.nextCursor }, id);
+              if (contexts.get(id) !== current) throw new Error("Conversation changed while loading earlier replies. Try again.");
+              contexts.set(id, { ...current, items: [...new Map([...next.items, ...current.items].map(item => [item.reviewer.messageId, item])).values()],
+                nextCursor: next.nextCursor });
+            }
+          }
+          historyOpened.add(id);
+        })().catch(cause => {
+          contextErrors.set(id, cause instanceof Error ? cause.message : String(cause));
+          throw cause;
+        }).finally(() => { contextLoads.delete(id); publish(); });
+        contextLoads.set(id, work); publish();
+        return work;
       },
       historyEarlier() {
         if (historyLoading) return historyLoading;

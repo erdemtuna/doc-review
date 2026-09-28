@@ -120,8 +120,11 @@ visibly selected after you move away. Separate bordered discussion cards contain
 plain reviewer/agent messages with author, avatar and time. **Reply** is visible;
 hover or focus a timestamp for its full date and time.
 **Conversation actions** also holds **Beside target** when available.
-**Load earlier** reads
-actual associated reviewer/agent exchanges. Collapse and filters are independent
+Expanded conversations show two recent sent exchanges and all unsent replies.
+The preceding answer stays visible when preparing a follow-up.
+**Show earlier replies** reads actual associated reviewer/agent exchanges without
+moving your reading position. Already expanded history remains available after
+refreshes. Collapse and filters are independent
 and local to this tab. New activity is marked without forcing expansion or scroll.
 The inventory includes all shared-review member pages, not just this tab's visits.
 Uncheck **Include in Send** or an edit to omit that pending item.
