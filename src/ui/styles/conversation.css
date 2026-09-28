@@ -1,9 +1,7 @@
-/* Important legacy declarations take precedence over later component layers. */
-@layer legacy {
-  .durable-review .conversation-backdrop:not([hidden]) { display: block !important; }
-}
 @layer components {
   .durable-review { --conversation-top: calc(var(--toolbar-h) + 8px); }
+  .durable-review[data-conversation-docked="true"] .stage { margin-right: 380px; }
+  .durable-review[data-conversation-docked="true"] .conversation-panel { box-shadow: none; }
   .durable-review .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "destinations status tools"; }
   .durable-review .shell-status { grid-area: status; justify-self: center; display: flex; align-items: center; }
   .durable-review .shell-tools { grid-area: tools; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
@@ -15,7 +13,6 @@
   .conversation-panel.is-adjacent .conversation-inventory { padding: 8px; background: var(--card); }
   .conversation-panel.is-adjacent .conversation-thread { border: 0; background: transparent; }
   .conversation-panel.is-adjacent .conversation-thread-title { border: 0; padding-left: 0; }
-  .conversation-backdrop { inset: var(--toolbar-h) 0 0; }
   .conversation-panel [hidden], .conversation-panel[hidden] { display: none !important; }
   .conversation-panel-header, .conversation-thread > header, .conversation-comparison > header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
   .conversation-panel-header h2, .conversation-comparison h2 { flex: 1; margin: 0; font-size: 16px; }
@@ -89,10 +86,20 @@
   .conversation-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
   .conversation-actions label, .conversation-edits label { display: inline-flex; align-items: center; gap: 6px; }
   .conversation-panel footer { flex: 0 0 auto; border-top: 1px solid var(--border); }
-  .conversation-panel .conversation-footer { flex: 0 1 auto; min-height: 0; max-height: min(55dvh, 430px); display: grid; grid-template-rows: minmax(0, auto) minmax(28px, 1fr) auto; background: var(--card); }
+  .conversation-panel .conversation-footer { flex: 0 1 auto; min-height: 0; max-height: min(60dvh, 480px); display: flex; flex-direction: column; background: var(--card); }
+  .conversation-selection-toggle { flex-shrink: 0; margin: 6px 8px; }
+  .conversation-selection { min-height: 0; overflow: auto; padding: 0 12px 8px; border-bottom: 1px solid var(--border); }
+  .conversation-selection-page { border: 0; padding: 8px 0; margin: 0; min-width: 0; }
+  .conversation-selection-page legend { color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+  .conversation-selection-message { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; font-size: 13px; }
+  .conversation-selection-message > button { flex-shrink: 0; margin-top: 2px; }
+  .conversation-selection-message > span { min-width: 0; }
+  .conversation-selection-message small { display: block; color: var(--muted-foreground); font-size: 11px; margin-top: 3px; }
+  .conversation-selection-preview { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .conversation-footer .conversation-composer { min-height: 0; overflow: auto; padding: 12px; gap: 8px; background: var(--card); }
   .conversation-footer .conversation-composer textarea { min-height: 40px; height: 56px; max-height: min(18dvh, 120px); }
-  .conversation-footer-support { min-height: 28px; overflow: auto; padding: 0 12px 8px; overflow-wrap: anywhere; }
+  .conversation-footer-support { flex-shrink: 0; min-height: 28px; max-height: 100px; overflow: auto; padding: 0 12px 8px; overflow-wrap: anywhere; }
+  .conversation-footer .feedback-actions { flex-shrink: 0; }
   .conversation-footer .feedback-help { margin: 0; font-size: 12px; line-height: 1.5; }
   .conversation-footer .conversation-handoff { padding: 0; max-height: none; }
   .conversation-note-region, .conversation-note-content { display: contents; }
@@ -167,10 +174,11 @@
   .durable-review[data-conversation-short="true"] .conversation-thread { padding: 8px; }
   .durable-review[data-conversation-short="true"] .conversation-composer { padding: 4px 8px; gap: 3px; }
   .durable-review[data-conversation-short="true"] .conversation-composer textarea { min-height: 36px; height: 40px; }
-  .durable-review[data-conversation-short="true"] .conversation-footer { max-height: calc(100dvh - var(--toolbar-h) - 100px); }
+  .durable-review[data-conversation-short="true"] .conversation-footer { max-height: calc(100dvh - var(--toolbar-h) - 64px); }
   .durable-review[data-conversation-short="true"] .conversation-footer .conversation-composer { padding: 4px 12px; gap: 3px; }
   .durable-review[data-conversation-short="true"] .conversation-footer textarea { height: 36px; max-height: 60px; }
   .durable-review[data-conversation-short="true"] .conversation-footer .feedback-actions { padding-bottom: 6px; }
+  .durable-review[data-conversation-short="true"] .conversation-footer-support { max-height: 28px; }
   .durable-review[data-conversation-short="true"] .conversation-status { max-height: 50px; overflow: auto; }
   .durable-review[data-conversation-short="true"] .has-focus .conversation-status { max-height: 32px; }
   .durable-review[data-conversation-short="true"] .has-focus .focused > header { max-height: 33%; flex-shrink: 1; }
@@ -209,7 +217,7 @@
     .conversation-section-toggle { height: 24px; margin-bottom: 4px; }
     .conversation-note-toggle { margin-block: 0; }
     .conversation-note-region:has(.conversation-note-toggle[aria-expanded="true"]) { min-height: 96px; }
-    .conversation-footer:has(.conversation-note-toggle[aria-expanded="false"]) .conversation-footer-support { display: none; }
+    .conversation-footer:has(.conversation-selection-toggle[aria-expanded="false"]) .conversation-footer-support { display: none; }
     .conversation-empty-with-edits { display: none; }
     .conversation-edits { padding-block: 0; }
     .conversation-edits h3 { margin-block: 0; }

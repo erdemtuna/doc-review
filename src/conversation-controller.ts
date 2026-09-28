@@ -300,6 +300,9 @@ export function createConversationController(options: Options) {
   }
   async function send() {
     if (!writable() || busy || confirming || dispatching || note.composing) return;
+    const selected = pendingSelection();
+    if (!selected) throw new Error("Pending feedback selection is incomplete. Refresh the review before sending.");
+    const sentNote = { ...note };
     dispatching = true; publish();
     try {
       await options.barrier();
@@ -309,9 +312,13 @@ export function createConversationController(options: Options) {
         const context = await readContext(thread.thread.threadId, 1, thread.pendingMessageCount);
         contexts.set(thread.thread.threadId, context);
       }
-      const selected = pendingSelection();
-      if (!selected) throw new Error("Pending feedback selection is incomplete. Refresh the review before sending.");
-      const sentNote = { ...note };
+      const currentSelection = pendingSelection();
+      if (!currentSelection || selected.messages.some(message => !currentSelection.messages.some(current =>
+        current.threadId === message.threadId && current.messageId === message.messageId && current.version === message.version)) ||
+        selected.edits.some(edit => !currentSelection.edits.some(current =>
+          current.pageKey === edit.pageKey && current.editId === edit.editId && current.version === edit.version))) {
+        throw new Error("Selected feedback changed while preparing Send. Review selection and send again.");
+      }
       if (status?.blockers.some((blocker) => blocker.targetKeys.some((key) => key === reference.entryKey || selected.pageKeys.includes(key)))) {
         throw new Error("Send is blocked by outstanding work on this entry or a selected page.");
       }

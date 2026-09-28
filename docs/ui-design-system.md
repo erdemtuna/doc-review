@@ -26,9 +26,10 @@ Expand conversation menu actions retain keyboard access without an empty chevron
 Readable timestamps expose the full date/time through a keyboard-
 accessible, hoverable tooltip. The thread's Conversation actions menu holds
 Resolve/Reopen, eligible Delete thread and host transfers; this is not a
-restoration of the removed global More menu. Focus and Edit remain compact named
-icon controls; every sidebar card has a visible **Jump to** label with a locate icon.
-Reply is a visible outlined action. Include in Send and draft permissions use the
+restoration of the removed global More menu. Focus is a named menu action and Edit
+is a compact icon control; every sidebar card has a visible **Jump to** label with a locate icon.
+Reply is a quiet visible action, sharing the last pending message's action row.
+Optional Review selection and draft permissions use the
 shared Checkbox primitive; selecting feedback does not change its permission.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
@@ -48,11 +49,13 @@ collapse independently without unmounting their contents. The optional overall
 note starts collapsed, shows Draft when nonempty, retains its own permission and
 cannot collapse during composition. Collapse/resize preserves its node and caret.
 
-Feedback is a flush-right 380px overlay below the measured toolbar, including at
-720px narrow-PC widths, clamped to the available viewport below 380px. Opening any host does not resize or replace the
-authored iframe. Its backdrop and inert authored stage prevent interaction
-behind the panel without disabling toolbar navigation, theme, or Close.
-The inventory scrolls independently from the restrained overall note and bottom
+Feedback is a nonmodal flush-right 380px sidebar below the measured toolbar.
+With at least 640px left for the document it docks; below 1020px it floats without
+resizing the authored iframe. Neither mode replaces the frame or alters source.
+The SDK retains a visible text range and restores its vertical position on width
+changes without modifying the selection. Ordinary Feedback has no backdrop or
+inert stage; modal confirmations retain their separate blocking behavior.
+The inventory scrolls independently from optional Review selection and bottom
 actions; footer support text has its own overflow area. End stays left and Send
 right. The note-only Request a change checkbox uses the shared Radix primitive
 and defaults unchecked; it does not grant permission to other messages.
@@ -60,7 +63,10 @@ Focus/adjacent has one transcript scroll area with a reachable header
 and composer. Status/error overflow must not push actions off-screen.
 Synchronous per-draft Save locks prevent double delivery while typing stays
 available. A newer draft survives acceptance of an older saved value.
-Confirm/Send locks begin before asynchronous barriers. Dialogs initially focus
+Confirm/Send locks begin before asynchronous barriers. Send also freezes exact
+selected versions and the note before its first await; concurrent arrivals stay
+pending and revised selections fail explicitly rather than being substituted.
+Dialogs initially focus
 Cancel and restore focus after the authoritative update, not before it.
 
 Only one global lifecycle headline is shown: Reviewing, Waiting for agent, or
@@ -81,7 +87,8 @@ Explicit highlight activation opens one adjacent conversation. Shared targets
 offer a count/chooser. Missing, ambiguous, hidden/not-measurable, loading,
 render-changed and failed/unavailable renders have distinct explanations.
 Offscreen is not missing: Jump to scrolls only a verified target. A successful jump
-hides the overlay at every width so the passage is actually visible. Feedback
+retains Feedback when the target can remain visible, or hides a floating panel
+that would cover it. Feedback
 returns to the retained inventory position and drafts. Cross-page jumps wait for
 the source barrier and current scoped projection; unavailable targets retain
 their explanation and disabled action. Resolved and ended threads remain navigable.
@@ -96,7 +103,7 @@ fit their contents; long transcripts shrink to the available space while reservi
 Reply or the editor and its actions. Initial measurement is noninteractive and
 hidden until a placement exists. Host transitions wait for matching layout and
 fresh frame geometry; observers do not move keyboard focus or reset reading.
-Adjacent cards never use the Feedback backdrop or inert authored stage. Only
+Adjacent cards and Feedback never dim or make the authored stage inert. Only
 unavailable geometry or insufficient usable target-safe space falls back to
 Feedback, with an explanation. Insufficient-space fallback retains the focused
 conversation so a long transcript cannot push its active editor below the inventory.

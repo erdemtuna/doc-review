@@ -54,6 +54,7 @@ async function fixture() {
 }
 it("short reply composition groups the same independent overall note without losing permission, selection or IME", async () => {
   const { owner, shell, updateChrome } = await fixture();
+  fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
   const toggle = screen.getByRole("button", { name: /Overall note \(optional\)/ });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(toggle);
@@ -97,7 +98,7 @@ it("new composition uses one editor and unchecked permission across contextual/F
   });
   const editor = screen.getByRole("textbox", { name: "New message" });
   expect(screen.getByRole("complementary", { name: "Add comment" })).toBeVisible();
-  expect(document.querySelector(".conversation-backdrop")).not.toBeVisible();
+  expect(document.querySelector(".conversation-backdrop")).toBeNull();
   expect(document.querySelector("#commentsButton")).toHaveAttribute("aria-expanded", "false");
   const permission = screen.getByRole("checkbox", { name: "Request a change" });
   expect(permission).toHaveAttribute("data-slot", "checkbox"); expect(permission).not.toBeChecked();
@@ -234,13 +235,15 @@ it("discussion messages omit default pills, replies default to no change permiss
 
 it("Feedback counts saved pending items separately from attention and note-only selection with a styled independent permission", async () => {
   const { owner, shell } = await fixture();
+  expect(screen.queryByRole("textbox", { name: "Overall note" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
   fireEvent.click(screen.getByRole("button", { name: /Overall note \(optional\)/ }));
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   const note = screen.getByRole("textbox", { name: "Overall note" });
   fireEvent.change(note, { target: { value: "Only the note" } });
   const send = screen.getByRole("button", { name: "Send" });
-  expect(send).toHaveTextContent("Send (1)");
+  expect(send).toHaveTextContent("Send to agent (1)");
   expect(send).toHaveAccessibleDescription("0 saved messages · 0 pending edits · 1 overall note selected");
   expect(send).toBeEnabled();
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
@@ -257,20 +260,25 @@ it("Feedback counts saved pending items separately from attention and note-only 
   shell.dispose();
 });
 
-it("only the Feedback overlay makes the authored stage inert, never the adjacent host or toolbar", async () => {
+it("Feedback is nonmodal and docks only with room for the document", async () => {
   const stage = document.createElement("div"); stage.className = "stage"; document.body.append(stage);
   try {
-    const { owner, shell } = await fixture();
-    expect(stage.inert).toBe(true);
-    expect(document.querySelector(".conversation-backdrop")).toBeVisible();
+    const { owner, shell, updateChrome } = await fixture();
+    expect(stage.inert).not.toBe(true);
+    expect(document.body.dataset.conversationDocked).toBe("true");
+    expect(document.querySelector(".conversation-backdrop")).toBeNull();
     expect(screen.getByRole("button", { name: "Switch review tools to dark" })).toBeEnabled();
     act(() => owner.commands.adjacent("thread"));
-    expect(stage.inert).toBe(false);
-    expect(document.querySelector(".conversation-backdrop")).not.toBeVisible();
+    expect(stage.inert).not.toBe(true);
+    expect(document.body.dataset.conversationDocked).toBe("false");
+    expect(document.querySelector(".conversation-backdrop")).toBeNull();
     act(() => owner.commands.focus(null));
-    expect(stage.inert).toBe(true);
+    expect(document.body.dataset.conversationDocked).toBe("true");
+    act(() => updateChrome({ viewport: { left: 0, top: 0, width: 720, height: 760 } }));
+    expect(document.body.dataset.conversationDocked).toBe("false");
+    expect(stage.inert).not.toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(stage.inert).toBe(false);
+    expect(stage.inert).not.toBe(true);
     expect(screen.getByRole("button", { name: "Feedback" })).toHaveFocus();
     shell.dispose();
   } finally { stage.remove(); }
@@ -346,6 +354,7 @@ it.each(["new", "reply", "edit"] as const)("%s composer restores Enter, Shift+En
 
 it("overall note keys remain multiline and never save, send or cancel the note", async () => {
   const { owner, shell } = await fixture();
+  fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
   fireEvent.click(screen.getByRole("button", { name: /Overall note \(optional\)/ }));
   const save = vi.spyOn(owner.commands, "saveDraft"), send = vi.spyOn(owner.commands, "send");
   const note = screen.getByRole("textbox", { name: "Overall note" });

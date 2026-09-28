@@ -25,7 +25,7 @@ export function ConversationMenu({ actions }: { actions: ConversationAction[] })
         aria-label="Conversation actions" title="Conversation actions"><Icon name="moreHorizontal" /></Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent ref={content} align="end" collisionPadding={12}
-      onEscapeKeyDown={(event) => event.stopPropagation()}
+      onEscapeKeyDown={(event) => { if (current.current) event.stopPropagation(); }}
       onInteractOutside={(event) => {
         if (event.target instanceof Node && trigger.current?.contains(event.target)) event.preventDefault();
         else outside.current = true;

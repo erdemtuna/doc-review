@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, reviewSelection, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
 
 async function setup(page, review, name, source = "<p id='copy'>First paragraph to review.</p><p id='other'>Second paragraph to review.</p><button id='action'>Authored control</button>") {
   const file = writeFile(review, name, source);
@@ -30,6 +30,7 @@ for (const mode of ["view", "edit"]) test(`explicit selection and keyboard block
   await compose(page, "Control feedback");
   await feedback(page);
   expect((await listed(review, ref, "threads")).items.map((item) => item.thread.target.kind).sort()).toEqual(["element", "selection"]);
+  await reviewSelection(page);
   await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("");
 });
@@ -68,7 +69,7 @@ test("Escape cancels only the current draft; closing a host never resolves its t
   await reply.fill("Cancelled"); await reply.press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(reply).toHaveCount(0); await expect(panel(page)).toBeVisible();
-  await card(page).getByRole("button", { name: "Focus", exact: true }).click();
+  await (await threadAction(page, card(page), "Focus")).click();
   await card(page).getByRole("button", { name: "Close conversation" }).press("Escape");
   await expect(panel(page)).toBeHidden();
   expect((await listed(review, ref, "threads")).items[0].thread.status).toBe("open");

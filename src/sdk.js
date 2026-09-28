@@ -2788,9 +2788,40 @@ function boot() {
       reposition();
     });
   };
-  document.addEventListener("scroll", scheduleReposition, true);
-  window.addEventListener("scroll", scheduleReposition, true);
-  window.addEventListener("resize", scheduleReposition);
+  let readingAnchor = null;
+  let readingWidth = innerWidth;
+  const rememberPassage = () => {
+    const selection = window.getSelection();
+    let range = selection?.rangeCount && !selection.isCollapsed ? selection.getRangeAt(0).cloneRange() : null;
+    const selected = range?.getBoundingClientRect();
+    if (!selected || selected.bottom <= 0 || selected.top >= innerHeight) {
+      range = document.caretRangeFromPoint?.(innerWidth / 2, innerHeight / 2) ?? null;
+    }
+    if (!range || range.startContainer.getRootNode() !== document || !range.startContainer.isConnected) {
+      readingAnchor = null; return;
+    }
+    const rect = range.getBoundingClientRect();
+    readingAnchor = rect.height ? { range, top: rect.top } : null;
+    readingWidth = innerWidth;
+  };
+  const scrolled = () => {
+    scheduleReposition();
+    // A resize-generated scroll must not replace the anchor before restoration.
+    if (innerWidth === readingWidth) rememberPassage();
+  };
+  document.addEventListener("scroll", scrolled, true);
+  window.addEventListener("scroll", scrolled, true);
+  document.addEventListener("selectionchange", () => { if (innerWidth === readingWidth) rememberPassage(); });
+  window.addEventListener("resize", () => {
+    if (innerWidth !== readingWidth && readingAnchor?.range.startContainer.isConnected) {
+      const delta = readingAnchor.range.getBoundingClientRect().top - readingAnchor.top;
+      if (Number.isFinite(delta)) window.scrollBy({ top: delta, behavior: "instant" });
+    }
+    readingWidth = innerWidth;
+    rememberPassage();
+    scheduleReposition();
+  });
+  rememberPassage();
 
   let scrollQueued = false;
   window.addEventListener(

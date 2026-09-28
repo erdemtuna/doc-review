@@ -58,7 +58,9 @@ changed permission prompts **Keep editing / Discard**. Keep editing restores
 your caret. Save or discard dirty work before switching its target.
 Feedback's outer X only hides the panel and preserves drafts.
 
-For saved conversations, **Jump to** (with a location icon) reveals the exact passage and hides Feedback; **Focus** gives one conversation a larger transcript with its
+For saved conversations, **Jump to** (with a location icon) reveals the exact passage.
+Feedback stays open when the passage can remain visible; a floating panel hides when
+it would cover the target. **Focus**, in Conversation actions, gives one conversation a larger transcript with its
 header and composer reachable. Activate an existing highlight with a click,
 Enter or Space to open one conversation beside it. A shared-target count and
 chooser expose other conversations at that highlight. **Beside target**,
@@ -67,11 +69,11 @@ selection, caret, composition, loaded exchanges and reading position.
 
 The card never covers its highlighted target. Short discussions fit their contents;
 long transcripts scroll with Reply or the active editor kept reachable. No host
-reserves a document gutter or reflows the authored page. Local cards may cover
+reserves a gutter for a local card. Local cards may cover
 unselected prose. If no usable target-safe placement fits, the conversation stays
 accessible in focused Feedback with an explanation and its editor still reachable. Narrow
-Feedback covers the document without changing its width: Close it or use **Jump to**
-to return to the document. Reopening Feedback restores the sidebar reading position and drafts.
+Feedback floats over part of the document without changing its width; the rest of
+the document remains interactive. Reopening Feedback restores the sidebar reading position and drafts.
 An offscreen target offers **Jump to**, not a missing-target warning.
 Missing, ambiguous, hidden and unavailable targets have an explanation and no
 false jump. Original anchors and conversations are retained; there is no
@@ -127,15 +129,18 @@ moving your reading position. Already expanded history remains available after
 refreshes. Collapse and filters are independent
 and local to this tab. New activity is marked without forcing expansion or scroll.
 The inventory includes all shared-review member pages, not just this tab's visits.
-Uncheck **Include in Send** or an edit to omit that pending item.
+Open **Review selection** to exclude pending messages or edits. A **Not included**
+cue on an excluded message returns to those controls.
 
-Feedback opens as a 380px right-side overlay, including at 720px PC widths (clamped to the viewport on smaller screens),
-without resizing or reloading the document. Click its backdrop or Close to
-return to the page; the toolbar remains available. The inventory scrolls
-independently of the note and bottom action row.
+Feedback is a nonmodal 380px sidebar. At 1020px and wider it docks beside a document
+viewport of at least 640px; at narrower PC widths it floats without resizing the
+document (clamped below 380px). There is no dimming or backdrop: clicks in the document
+work normally. Docking preserves the current passage and never reloads the iframe.
+Close, the Feedback toolbar toggle or Escape dismisses it. The inventory and
+expanded Review selection scroll independently; End and Send remain reachable.
 On short phone-sized screens, the filters share the Close row and the plus
 button starts a new message. **Comments** and **Your edits** collapse independently.
-**Overall note (optional)** starts collapsed and shows **Draft** when it contains
+Inside Review selection, **Overall note (optional)** starts collapsed and shows **Draft** when it contains
 text. Expand it to edit its independent permission. Collapse and resize keep its
 text and caret; a composing note cannot be collapsed. End and Send remain available,
 including note-only Send. On very short screens, expand the note to see the detailed
@@ -143,7 +148,11 @@ selection counts. No disclosure saves, clears or changes either draft's permissi
 The toolbar count is saved pending messages plus edits across all review pages,
 not unread activity. Excluded items remain pending and stay in that count.
 The footer lists the selected saved messages, pending edits and optional note;
-**Send (N)** counts that exact selection. During loading, failed reads or unknown
+**Send to agent (N)** counts that exact selection, with no extra confirmation step.
+Send freezes selected message/edit versions and the note at activation. New feedback
+or note typing during preparation remains unsent. If a selected item changes during
+the source-save barrier, Send stops and asks you to review the selection.
+During loading, failed reads or unknown
 acceptance, the count is unavailable rather than zero and Send stays disabled.
 The overall note can be sent on its own. It stays in this tab when you close
 Feedback, inspect a comparison, or change theme. Open message drafts are not

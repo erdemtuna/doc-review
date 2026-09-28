@@ -326,6 +326,40 @@ test("Send locks before its first asynchronous barrier and submits one logical r
   assert.equal(c.owner.getSnapshot().busy, false);
 });
 
+test("Send freezes membership and the note before barriers, retaining later feedback and note typing", async (t) => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const c = await controller(t, { barrier: () => gate });
+  const firstId = await draft(c, "Only the activated message");
+  c.owner.commands.update("note", { text: "Activated note", intent: "discuss" });
+  const sending = c.owner.commands.send();
+  await c.f.mutate(c.ref, "create-thread", { pageKey: c.ref.entryKey, target, body: "Arrived during preparation", intent: "discuss" });
+  c.owner.commands.update("note", { text: "New note typed during Send", intent: "request-change" });
+  release(); await sending;
+  const work = (await c.f.read(c.ref, "poll")).submission;
+  assert.equal(work.messages.length, 1);
+  assert.equal(work.messages[0].message.threadId, firstId);
+  assert.deepEqual(work.overallNote, { body: "Activated note", intent: "discuss" });
+  assert.equal(c.owner.getSnapshot().selection.messages, 1);
+  assert.equal(c.owner.getSnapshot().note.text, "New note typed during Send");
+  assert.equal(c.owner.getSnapshot().note.intent, "request-change");
+});
+
+test("Send rejects selected versions revised while source barriers are running", async (t) => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const c = await controller(t, { barrier: () => gate });
+  const threadId = await draft(c, "Original selection");
+  const reviewer = c.owner.getSnapshot().threads[0].exchanges[0].reviewer;
+  const sending = c.owner.commands.send();
+  await c.f.mutate(c.ref, "update-message", { threadId, messageId: reviewer.messageId, messageVersion: reviewer.version,
+    body: "Revised elsewhere", intent: "request-change" });
+  release();
+  await assert.rejects(sending, /Selected feedback changed.*Review selection/);
+  assert.equal(c.calls.filter(call => call.operation === "send").length, 0);
+  assert.equal(c.owner.getSnapshot().busy, false);
+});
+
 for (const action of ["delete", "resolve", "end", "abandon", "revert"]) {
   test(`${action} confirmation locks synchronously and cannot enqueue duplicate mutations`, async (t) => {
     let reverts = 0;

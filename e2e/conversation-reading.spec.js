@@ -64,3 +64,27 @@ test("reading fixture retains the four reported conversation states", async ({ p
   await expect(card).toContainText("what could be the alternatives?");
   fs.writeFileSync(info.outputPath("reading-metrics.json"), JSON.stringify(metrics, null, 2));
 });
+
+test("docking keeps the current passage and document selection while Feedback stays interactive", async ({ page, review }) => {
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await openReview(page, review, writeFile(review, "reading-anchor.html", `<!doctype html>
+    <style>body{font:18px/1.6 Georgia;margin:32px}p{margin:24px 0}</style>
+    <p>${"Earlier reading context. ".repeat(240)}</p><p id="passage" tabindex="0">Keep this passage in view.</p>
+    <input aria-label="Document input"><p>${"Later reading context. ".repeat(240)}</p>`));
+  const frame = await waitForSdk(page);
+  await frame.locator("#passage").evaluate(node => {
+    node.scrollIntoView({ block: "center" });
+    const range = document.createRange(); range.selectNodeContents(node);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+  });
+  const top = () => frame.locator("#passage").evaluate(node => node.getBoundingClientRect().top);
+  const before = await top();
+  await feedback(page);
+  await expect.poll(top).toBeCloseTo(before, 0);
+  expect(await frame.locator("body").evaluate(() => getSelection().toString())).toBe("Keep this passage in view.");
+  await frame.getByLabel("Document input").fill("Keep typing with Feedback open");
+  await expect(page.locator(".conversation-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect.poll(top).toBeCloseTo(before, 0);
+  await expect(frame.getByLabel("Document input")).toHaveValue("Keep typing with Feedback open");
+});

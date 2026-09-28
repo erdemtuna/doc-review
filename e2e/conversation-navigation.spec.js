@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, conversation, sendPending, handled } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, reviewSelection, overallNote, mutate, conversation, sendPending, handled } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
 test("Jump to reveals the exact passage without an overlay and returns to the same editor and inventory position", async ({ page, review }) => {
@@ -21,8 +21,8 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
     await page.waitForTimeout(100);
     const position = await inventory.evaluate(node => node.scrollTop);
     await jump.focus(); await jump.press("Enter");
-    await expect(page.locator(".conversation-panel")).toBeHidden();
-    await expect(page.locator(".conversation-backdrop")).toBeHidden();
+    await expect(page.locator(".conversation-panel")).toBeVisible();
+    await expect(page.locator(".conversation-backdrop")).toHaveCount(0);
     expect(await page.locator(".stage").evaluate(node => node.inert)).toBe(false);
     await expect(frame.locator(`mark[data-eh-mark="${threadId}"]`)).toBeInViewport();
     await expect(frame.locator(`mark[data-eh-mark="${threadId}"]`)).toHaveClass(/eh-active/);
@@ -38,6 +38,7 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
 });
 
 test("cross-page Jump to verifies membership before revealing and keeps unavailable, resolved and ended destinations honest", async ({ page, review }) => {
+  await page.setViewportSize({ width: 720, height: 800 });
   const ref = await openReview(page, review, writeFile(review, "entry.html", "<p id='copy'>Entry page</p>"));
   await waitForSdk(page);
   const joined = await mutate(review, ref, "join-page", { target: writeFile(review, "member.html", "<p id='copy'>Member exact passage</p><p>Repeated</p><p>Repeated</p>") });
@@ -53,20 +54,20 @@ test("cross-page Jump to verifies membership before revealing and keeps unavaila
   await expect(missingCard.getByRole("button", { name: "Jump to" })).toBeDisabled();
   await expect(missingCard).toContainText("original target was not found");
   await card.getByRole("button", { name: "Jump to" }).click();
-  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await expect(page.locator(".conversation-panel")).toBeVisible();
   await expect(page.frameLocator("#frame").locator(`mark[data-eh-mark="${threadId}"]`)).toBeInViewport();
   await sendPending(review, ref); await handled(review, ref);
   await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
   await feedback(page);
   await expect(card).toContainText("Resolved");
   await card.getByRole("button", { name: "Jump to" }).click();
-  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await expect(page.locator(".conversation-panel")).toBeVisible();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await feedback(page);
   await expect(page.locator("#send")).toBeDisabled();
   await expect(card.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
   await card.getByRole("button", { name: "Jump to" }).click();
-  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await expect(page.locator(".conversation-panel")).toBeVisible();
 });
 
 test("Comments, Your edits and optional note are independent disclosures with authoritative multi-page and note-only Send", async ({ page, review }) => {
@@ -77,6 +78,7 @@ test("Comments, Your edits and optional note are independent disclosures with au
   await seedThread(review, { ...ref, key: joined.value.pageKey }, "Other-page comment");
   await mutate(review, ref, "record-edit", { pageKey: joined.value.pageKey, content: content("Other original", "Exact after") });
   await feedback(page);
+  await reviewSelection(page);
   const noteToggle = page.getByRole("button", { name: /Overall note \(optional\)/ });
   await expect(noteToggle).toHaveAttribute("aria-expanded", "false");
   const note = await overallNote(page);
@@ -88,22 +90,22 @@ test("Comments, Your edits and optional note are independent disclosures with au
   await note.dispatchEvent("compositionend");
   await noteToggle.click();
   await expect(noteToggle).toContainText("Draft");
-  await expect(page.locator("#send")).toHaveText("Send (4)");
+  await expect(page.locator("#send")).toHaveText("Send to agent (4)");
   const comments = page.getByRole("button", { name: "Comments (2)", exact: true });
   const edits = page.getByRole("button", { name: "Your edits (1)", exact: true });
   await comments.click();
   await expect(page.locator("#conversationComments")).toBeHidden();
   await expect(page.locator("#conversationEdits")).toBeVisible();
   await edits.click();
-  await expect(page.locator("#send")).toHaveText("Send (4)");
+  await expect(page.locator("#send")).toHaveText("Send to agent (4)");
   await comments.click();
   await expect(page.locator("#conversationEdits")).toBeHidden();
-  for (const box of await page.getByRole("checkbox", { name: "Send message", exact: true }).all()) await box.uncheck();
+  for (const box of await page.getByRole("checkbox", { name: /^Include message:/ }).all()) await box.uncheck();
   await edits.click();
   await expect(page.locator(".conversation-edit-preview")).toContainText("Other original");
   await expect(page.locator(".conversation-edit-preview")).toContainText("Exact after");
   await page.locator(".conversation-edits").getByRole("checkbox").uncheck();
-  await expect(page.locator("#send")).toHaveText("Send (1)");
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await expect(page.locator("#toolbarCount")).toHaveText("3");
   await noteToggle.click();
   expect(await note.evaluate(node => [node === window.disclosureNote, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 7]);

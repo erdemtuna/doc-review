@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, reviewSelection, sendPending, handled, mutate } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 test("identical pending and handled cards retain readable content and record density across themes and sizes", async ({ page, review }, info) => {
@@ -174,10 +174,11 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await expect(card.getByText("Discussion", { exact: true })).toHaveCount(0);
   await expect(card.locator(".conversation-exchange").first().getByText("Change requested", { exact: true })).toHaveCount(0);
   await expect(card.locator(".conversation-exchange").first().getByText("Pending", { exact: true })).toBeVisible();
-  const selected = card.getByRole("checkbox", { name: "Send message", exact: true });
+  await reviewSelection(page);
+  const selected = page.getByRole("checkbox", { name: /^Include message:/ });
   await expect(selected).toHaveCount(2);
   await selected.first().uncheck();
-  await expect(page.locator("#send")).toHaveText("Send (1)");
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await expect(page.locator("#toolbarCount")).toHaveText("2");
 });
 

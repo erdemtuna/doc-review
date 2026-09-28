@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, feedback, enterEditMode, selectText, selectReviewMode,
+import { test, expect, openReview, waitForSdk, writeFile, feedback, reviewSelection, enterEditMode, selectText, selectReviewMode,
   listed, conversation, handled, seedThread, reviewApi, mutate } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
@@ -26,6 +26,7 @@ for (const external of [false, true]) test(`automatic/manual capture ${external 
   const file = writeFile(review, "capture-overlap-baseline.html", "<p id='copy'>Before overlap</p>");
   const ref = await openReview(page, review, file);
   await waitForSdk(page); await feedback(page);
+  await reviewSelection(page);
   await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
@@ -103,6 +104,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await frame.locator("#copy").click(); await selectText(frame, "#copy"); await page.keyboard.insertText("Exact human wording");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Exact human wording");
   await selectReviewMode(page, "View"); await feedback(page);
+  await reviewSelection(page);
   const edits = page.locator(".conversation-edits");
   await expect(edits).toContainText("Already saved");
   await expect(edits.locator(".conversation-edit-preview")).toContainText("Original human wording");
@@ -111,6 +113,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await include.uncheck();
   await expect(page.locator("#send")).toBeDisabled();
   await include.check();
+  await reviewSelection(page);
   await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.locator("#draft-note").fill("Please update the agent target only.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
@@ -221,6 +224,7 @@ test("header History preserves mounted reply/note permissions and exposes full r
   await reply.fill("Retain this unsent reply");
   await reply.evaluate(node => { window.historyReply = node; node.setSelectionRange(3, 7); node.dispatchEvent(new Event("select", { bubbles: true })); });
   await card.getByRole("checkbox", { name: "Request a change" }).check();
+  await reviewSelection(page);
   await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   const note = page.getByRole("textbox", { name: "Overall note", exact: true, includeHidden: true });
   await note.fill("A separate note");
@@ -251,7 +255,7 @@ test("header History preserves mounted reply/note permissions and exposes full r
   expect(await reply.evaluate(node => [node === window.historyReply, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 7]);
   await expect(card.getByRole("checkbox", { name: "Request a change" })).toBeChecked();
   await expect(page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
-  await expect(page.locator("#send")).toHaveText("Send (1)");
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   expect(fs.readFileSync(file, "utf8")).toBe("<p id='copy'>A preserved source</p>");
 });
 
@@ -267,11 +271,12 @@ test("deferred source-pending edits retain complete evidence and selected Send i
   } });
   await feedback(page);
   const edits = page.locator(".conversation-edits");
+  await reviewSelection(page);
   await expect(edits).toContainText("Source pending");
   const checkbox = edits.getByRole("checkbox", { name: "Include Recorded paragraph in Send" });
   await expect(checkbox).toHaveAttribute("data-slot", "checkbox");
   await checkbox.uncheck(); await expect(page.locator("#send")).toBeDisabled();
-  await checkbox.check(); await expect(page.locator("#send")).toHaveText("Send (1)");
+  await checkbox.check(); await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await edits.getByText("Exact edit details", { exact: true }).click();
   await expect(edits.locator("pre").first()).toContainText("<p>Proposed wording</p>");
   await edits.getByText("Exact edit details", { exact: true }).click();
@@ -296,6 +301,7 @@ for (const destination of ["Source", "Close comparison"]) test(`late explicit ca
   const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
   await feedback(page);
+  await reviewSelection(page);
   await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();

@@ -73,7 +73,7 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
     node.dispatchEvent(new Event("select", { bubbles: true }));
     node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
   });
-  await card(page, one).getByRole("button", { name: "Focus", exact: true }).click();
+  await (await threadAction(page, card(page, one), "Focus")).click();
   await expect(panel(page)).toHaveAttribute("data-host", "focus");
   await expect(card(page, one).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await card(page, one).getByRole("button", { name: "Back to Feedback" }).click();
@@ -95,7 +95,7 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   await card(page, one).getByRole("button", { name: "Save", exact: true }).click();
   await waiting;
   await editor.fill("Newer text stays in the same editor");
-  await card(page, one).getByRole("button", { name: "Focus", exact: true }).click();
+  await (await threadAction(page, card(page, one), "Focus")).click();
   await expect(card(page, one).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   release();
   await expect(card(page, one).getByText("Keep this composition and selected text", { exact: true })).toBeVisible();
@@ -109,7 +109,7 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   await page.screenshot({ path: testInfo.outputPath("adjacent-light-desktop.png"), animations: "disabled" });
   await page.locator("#theme").click();
   const foreground = await panel(page).evaluate((node) => getComputedStyle(node).color);
-  await expect.poll(() => card(page, one).getByRole("button", { name: "Focus", exact: true })
+  await expect.poll(() => card(page, one).getByRole("button", { name: "Conversation actions", exact: true })
     .evaluate((node) => getComputedStyle(node).color)).toBe(foreground);
   await expect.poll(() => editor.evaluate((node) => getComputedStyle(node).color)).toBe(foreground);
   await page.screenshot({ path: testInfo.outputPath("adjacent-dark-desktop.png"), animations: "disabled" });
@@ -197,7 +197,7 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
     const box = await panel(page).boundingBox();
     return box.y + box.height;
   }).toBeLessThanOrEqual(400);
-  await card(page, id).getByRole("button", { name: "Focus", exact: true }).click();
+  await (await threadAction(page, card(page, id), "Focus")).click();
   expect((await card(page, id).locator(".conversation-transcript").boundingBox()).height).toBeGreaterThanOrEqual(48);
   const keyboardSave = await card(page, id).getByRole("button", { name: "Save", exact: true }).boundingBox();
   expect(keyboardSave.y + keyboardSave.height).toBeLessThanOrEqual(400);
@@ -212,7 +212,7 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const box = await panel(page).boundingBox();
       expect(box.y + box.height).toBeLessThanOrEqual(height);
-      await card(page, id).getByRole("button", { name: "Focus", exact: true }).click();
+      await (await threadAction(page, card(page, id), "Focus")).click();
       await card(page, id).getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
       await expect(card(page, id).getByRole("button", { name: "Save", exact: true })).toBeInViewport();
       expect((await card(page, id).locator(".conversation-transcript").boundingBox()).height).toBeGreaterThanOrEqual(48);
@@ -220,7 +220,7 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
       await card(page, id).getByRole("button", { name: "Back to Feedback" }).click();
       if (width < 900) {
         await expect(page.locator(".stage")).toBeVisible();
-        expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(true);
+        expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
         await card(page, id).getByRole("button", { name: "Jump to" }).click();
         await expect(mark(page, id)).toBeVisible();
         await mark(page, id).press("Enter");
@@ -239,8 +239,9 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
       }
       else {
         const source = await page.locator(".stage").boundingBox();
-        expect(source.width).toBe(width);
-        expect(source.x + source.width).toBeGreaterThan(box.x);
+        expect(source.width).toBe(width >= 1020 ? width - 380 : width);
+        if (width >= 1020) expect(source.x + source.width).toBe(box.x);
+        else expect(source.x + source.width).toBeGreaterThan(box.x);
       }
     }
   }
@@ -320,9 +321,9 @@ test("loaded exchanges and reading anchor survive host transfers; resolved conve
   await expect(page.getByText("Queued; not received")).toBeVisible();
   const submission = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(submission));
-  await expect(card(page, id).locator("[data-message]")).toHaveCount(1);
+  await expect(card(page, id).locator("[data-message]")).toHaveCount(2);
   await activate(page, id);
-  await card(page, id).getByRole("button", { name: "Load earlier", exact: true }).click();
+  await card(page, id).getByRole("button", { name: "Show earlier replies", exact: true }).click();
   await expect(card(page, id).locator("[data-message]")).toHaveCount(55);
   const transcript = card(page, id).locator(".conversation-transcript");
   await transcript.evaluate((node) => { node.scrollTop = 1500; node.dispatchEvent(new Event("scroll")); });
@@ -331,7 +332,7 @@ test("loaded exchanges and reading anchor survive host transfers; resolved conve
     const message = [...node.querySelectorAll("[data-message]")].find((item) => item.getBoundingClientRect().bottom > top + 1);
     return { id: message.dataset.message, offset: message.getBoundingClientRect().top - top };
   });
-  await card(page, id).getByRole("button", { name: "Focus", exact: true }).click();
+  await (await threadAction(page, card(page, id), "Focus")).click();
   await expect.poll(() => transcript.evaluate((node, anchor) =>
     node.querySelector(`[data-message="${anchor.id}"]`).getBoundingClientRect().top - node.getBoundingClientRect().top, anchor))
     .toBeCloseTo(anchor.offset, 0);

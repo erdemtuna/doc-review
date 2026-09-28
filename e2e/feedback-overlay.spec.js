@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, reviewSelection, mutate, intercept, failure, conversation } from "./helpers.js";
 
 const source = '<!doctype html><p id="copy">Feedback overlay target</p><label>Authored input <input aria-label="Authored input"></label>';
 
@@ -10,6 +10,7 @@ for (const theme of ["light", "dark"]) {
     await waitForSdk(page);
     for (let i = 0; i < 2; i++) await seedThread(review, ref, `Saved feedback ${i}`);
     await feedback(page);
+    await reviewSelection(page);
     await expect(page.getByRole("button", { name: /Overall note \(optional\)/ })).toHaveAttribute("aria-expanded", "false");
     await overallNote(page);
     const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
@@ -51,7 +52,7 @@ for (const theme of ["light", "dark"]) {
   });
 }
 
-test("Feedback restores the 380px overlay without reflow, with independent inventory/footer and real backdrop/toolbar actions", async ({ page, review }, info) => {
+test("Feedback docks with room, floats without narrow reflow and leaves document controls interactive", async ({ page, review }, info) => {
   test.setTimeout(60000);
   const ref = await openReview(page, review, writeFile(review, "feedback-overlay.html", source));
   const frame = await waitForSdk(page);
@@ -69,9 +70,15 @@ test("Feedback restores the 380px overlay without reflow, with independent inven
       const box = await panel.boundingBox();
       expect(box.width).toBe(Math.min(width, 380));
       expect(box.x + box.width).toBe(width); expect(box.y + box.height).toBe(height);
-      expect(await page.locator("#frame").boundingBox()).toEqual(before);
+      const docked = width >= 1020;
+      await expect.poll(async () => (await page.locator("#frame").boundingBox()).width).toBe(before.width - (docked ? 380 : 0));
       expect(await page.locator("#frame").evaluate((element) => element === window.originalOverlayFrame)).toBe(true);
-      expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(true);
+      expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
+      await expect(page.locator(".conversation-backdrop")).toHaveCount(0);
+      if (width > 380) {
+        await frame.getByLabel("Authored input").fill("Keep authored draft");
+        await expect(panel).toBeVisible();
+      }
       const inventory = panel.locator(".conversation-inventory"), footer = panel.locator("footer");
       const inventoryBox = await inventory.boundingBox(), footerBox = await footer.boundingBox();
       expect(inventoryBox.height).toBeGreaterThanOrEqual(50);
@@ -108,12 +115,9 @@ test("Feedback restores the 380px overlay without reflow, with independent inven
         await expect.poll(() => supportArea.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
         expect(await firstVisible()).toEqual(reading);
       }
-      await expect(panel.locator('footer [data-slot="checkbox"]')).not.toBeChecked();
+      await expect(panel.locator("footer").getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
       await page.locator("#theme").click(); await page.locator("#theme").click();
-      if (width > 380) {
-        await expect(page.locator(".conversation-backdrop")).toBeVisible();
-        await page.mouse.click((width - box.width) / 2, height - 20);
-      } else await panel.getByRole("button", { name: "Close", exact: true }).click();
+      await panel.getByRole("button", { name: "Close", exact: true }).click();
       await expect(panel).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();
       expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
@@ -131,15 +135,18 @@ test("pending and selected cues distinguish exclusions, note-only permission and
   const ref = await openReview(page, review, writeFile(review, "feedback-selection.html", source));
   await waitForSdk(page); await seedThread(review, ref, "Saved discussion"); await feedback(page);
   await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#send")).toHaveText("Send (1)");
-  await page.locator(".conversation-thread").getByRole("checkbox", { name: /^Send message/ }).uncheck();
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
+  await expect(page.locator(".conversation-thread").getByRole("checkbox")).toHaveCount(0);
+  await reviewSelection(page);
+  await page.getByRole("checkbox", { name: /^Include message:/ }).uncheck();
+  await expect(page.locator(".conversation-thread").getByRole("button", { name: "Not included" })).toBeVisible();
   await expect(page.locator("#toolbarCount")).toHaveText("1");
   await expect(page.locator("#send")).toBeDisabled();
   await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
   await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Only this note requests a change");
   const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
   await expect(permission).not.toBeChecked(); await permission.check();
-  await expect(page.locator("#send")).toHaveText("Send (1)");
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await expect(page.locator("#send")).toHaveAccessibleDescription("0 saved messages · 0 pending edits · 1 overall note selected");
   await intercept(page, "list", (route) => failure(route, "Counts cannot be verified"));
   await page.locator("#commentsButton").click();
@@ -158,7 +165,7 @@ test("pending and selected cues distinguish exclusions, note-only permission and
   await page.unroute("**/api/conversation");
   await page.getByRole("button", { name: "Refresh review", exact: true }).click();
   await expect(page.locator("#toolbarCount")).toHaveText("2");
-  const boxes = page.locator(".conversation-thread").getByRole("checkbox", { name: /^Send message/ });
+  const boxes = page.getByRole("checkbox", { name: /^Include message:/ });
   for (const box of await boxes.all()) await box.uncheck();
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();

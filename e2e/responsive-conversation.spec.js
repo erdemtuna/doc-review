@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, enterEditMode, selectText, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, reviewSelection, enterEditMode, selectText, selectReviewMode } from "./helpers.js";
 import { fieldNotes, summaryFeedback, actionFeedback } from "../test/fixtures/readme-review.js";
 import { threadAction } from "./conversation-actions.js";
 
@@ -59,7 +59,7 @@ for (const host of ["inventory", "reply", "focus", "adjacent"]) test(`integrated
       node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     });
 
-    if (host === "focus") await card.getByRole("button", { name: "Focus", exact: true }).click();
+    if (host === "focus") await (await threadAction(page, card, "Focus")).click();
     if (host === "adjacent") {
       await (await threadAction(page, card, "Beside target")).click();
       await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "adjacent");
@@ -68,7 +68,7 @@ for (const host of ["inventory", "reply", "focus", "adjacent"]) test(`integrated
   await auditHost(page, card, message, editor, host, info);
 });
 
-test("saved and source-pending edit evidence remains initially readable and independently selectable across the matrix", async ({ page, review }, info) => {
+test("saved and source-pending edit evidence is reachable and independently selectable across the matrix", async ({ page, review }, info) => {
       test.setTimeout(120_000);
       const samples = [];
       for (const state of ["saved", "pending"]) {
@@ -79,6 +79,7 @@ test("saved and source-pending edit evidence remains initially readable and inde
         await frame.locator("p").click(); await selectText(frame, "p"); await page.keyboard.insertText("Exact revised wording.");
         await selectReviewMode(page, "View");
         await feedback(page);
+        await reviewSelection(page);
         const edits = page.locator(".conversation-edits");
         await expect(edits).toContainText(state === "saved" ? "Already saved" : "Source pending");
         const preview = edits.locator(".conversation-edit-preview dd").first();
@@ -87,6 +88,7 @@ test("saved and source-pending edit evidence remains initially readable and inde
           if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
           else await page.locator("#theme").focus();
           await page.waitForTimeout(100);
+          await preview.scrollIntoViewIfNeeded();
           const text = await textGeometry(preview);
           samples.push({ state, width, height, theme, text });
           await page.screenshot({ path: info.outputPath(`edit-${state}-${theme}-${width}x${height}.png`) });
@@ -96,7 +98,7 @@ test("saved and source-pending edit evidence remains initially readable and inde
         }
         const selection = edits.getByRole("checkbox");
         await selection.uncheck(); await expect(page.locator("#send")).toBeDisabled();
-        await selection.check(); await expect(page.locator("#send")).toHaveText("Send (1)");
+        await selection.check(); await expect(page.locator("#send")).toHaveText("Send to agent (1)");
       }
       fs.writeFileSync(info.outputPath("edits-geometry.json"), JSON.stringify(samples, null, 2));
     });
@@ -107,6 +109,7 @@ test("saved and source-pending edit evidence remains initially readable and inde
       await card.getByRole("button", { name: "Reply", exact: true }).click();
       const editor = card.getByRole("textbox", { name: "Reply" });
       await editor.fill("Keep my compact reply");
+      await reviewSelection(page);
       const note = page.locator("#draft-note");
       const toggle = page.getByRole("button", { name: /Overall note \(optional\)/ });
       await toggle.click();

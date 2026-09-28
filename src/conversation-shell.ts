@@ -229,9 +229,15 @@ export function createConversationShell() {
     frame.send(geometry.outgoing(action, id));
   }
   function revealThread(id: string) {
-    // Validate before hiding Feedback. Close first so Focus dismissal cannot erase the new reveal.
     geometry.outgoing("reveal", id);
-    owner.commands.open(false);
+    const state = geometry.states.find(item => item.threadId === id);
+    const element = document.querySelector<HTMLIFrameElement>("#frame");
+    const panel = document.querySelector<HTMLElement>(".conversation-panel")?.getBoundingClientRect();
+    const bounds = element?.getBoundingClientRect();
+    const besidePanel = state?.state === "found" && state.relation === "visible" && bounds && panel &&
+      state.viewport.width === element?.clientWidth && state.viewport.height === element?.clientHeight &&
+      state.rects.every(rect => rect.right + bounds.left <= panel.left || rect.left + bounds.left >= panel.right);
+    if (document.body.dataset.conversationDocked !== "true" && !besidePanel) owner.commands.open(false);
     sendThreadAction("reveal", id);
   }
   function updatePlacement() {

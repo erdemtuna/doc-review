@@ -141,7 +141,15 @@ export async function submissionHistory(page) {
   return history;
 }
 
+export async function reviewSelection(page) {
+  await feedback(page);
+  const toggle = page.getByRole("button", { name: /^Review selection/ });
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  return page.getByRole("region", { name: "Review selection", exact: true });
+}
+
 export async function overallNote(page) {
+  await reviewSelection(page);
   const disclosure = page.getByRole("button", { name: /Overall note \(optional\)/ });
   if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
   return page.getByRole("textbox", { name: "Overall note", exact: true });
