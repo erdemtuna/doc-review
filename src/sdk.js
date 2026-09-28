@@ -187,7 +187,7 @@ shadow.innerHTML = `
     .active { border: 2px solid var(--review-annotation-border); }
     .block-marker { position: fixed; pointer-events: none; z-index: 2147483644;
       box-sizing: border-box; border-left: 3px solid var(--review-annotation-border); background: var(--review-annotation-tint); }
-    .block-marker[data-active="true"] { border-left-width: 6px; background: var(--review-annotation-active-tint); }
+    .block-marker[data-active="true"] { border-left-width: 3px; background: var(--review-annotation-active-tint); }
     .block-badge { position: fixed; z-index: 2147483647; pointer-events: auto;
       height: 24px; min-width: 32px; box-sizing: border-box; padding: 2px 6px;
       border: 1px solid var(--review-annotation-border); border-radius: 5px; background: var(--review-annotation-background); color: var(--review-annotation-foreground);
@@ -254,9 +254,12 @@ shadow.innerHTML = `
     button:focus-visible, input:focus-visible, .mover:focus-visible, .grip:focus-visible {
       outline: 3px solid var(--review-ring); outline-offset: 2px;
     }
-    .box, .block-marker, .block-badge, .chip, .grip, .hint, .linkbox, .mover, .dropline, .comment-action {
+    .box, .chip, .grip, .hint, .linkbox, .mover, .dropline, .comment-action {
       box-shadow: 0 0 0 1px var(--review-halo-light), 0 0 0 2px var(--review-halo-dark), 0 3px 10px var(--review-review-shadow-color);
     }
+    .block-marker { box-shadow: 0 0 0 1px var(--review-halo-light); }
+    .block-badge { box-shadow: 0 1px 4px var(--review-review-shadow-color); }
+    .box.active { box-shadow: 0 0 0 1px var(--review-halo-light); border-width: 1px; }
     .selection-cues { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; }
     .selection-cue { position: fixed; border-radius: 2px; background: var(--review-annotation-tint);
       box-shadow: inset 0 -2px var(--review-annotation-border), 0 1px var(--review-halo-light), 0 2px var(--review-halo-dark); }

@@ -35,6 +35,15 @@ test("reading fixture retains the four reported conversation states", async ({ p
   const card = page.locator(`[data-thread="${threadId}"]`);
   await expect(card).toBeVisible();
   await capture("short-sidebar");
+  const pending = metrics.find(item => item.state === "short-sidebar" && item.theme === "light");
+  expect(pending.inventoryColor).toBe(pending.toolbarColor);
+  expect(pending.card.height).toBeLessThan(180);
+  const title = await card.locator(".conversation-thread-title").boundingBox();
+  const jump = await card.getByRole("button", { name: "Jump to", exact: true }).boundingBox();
+  expect(Math.abs(title.y - jump.y)).toBeLessThan(8);
+  await expect(card.getByRole("button", { name: "Focus", exact: true })).toHaveCount(0);
+  await (await threadAction(page, card, "Focus")).click();
+  await card.getByRole("button", { name: "Back to Feedback", exact: true }).click();
   await (await threadAction(page, card, "Beside target")).click();
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "adjacent");
   await capture("short-in-place");

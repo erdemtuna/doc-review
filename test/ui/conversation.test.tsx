@@ -8,6 +8,10 @@ import type { ReviewStatus } from "../../src/contracts/page";
 import { ConversationApp } from "@/components/conversation";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+async function focusConversation() {
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Focus" }));
+}
 async function fixture() {
   if (typeof ResizeObserver === "undefined") vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const review: ReviewStatus["review"] = { reviewId: "review", entryKey: "page", version: 1, state: "open", createdAt: 1, endedAt: null };
@@ -161,7 +165,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   const editor = screen.getByRole("textbox", { name: "Reply" });
   fireEvent.change(editor, { target: { value: "Keep this exact draft", selectionStart: 3, selectionEnd: 8 } });
   fireEvent.compositionStart(editor);
-  fireEvent.click(screen.getByRole("button", { name: "Focus" }));
+  await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
@@ -284,7 +288,7 @@ it("adjacent, Focus and Feedback keep the same composing editor and closing neve
   });
   expect(screen.getByRole("complementary", { name: "Feedback" })).toHaveAttribute("data-host", "adjacent");
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
-  fireEvent.click(screen.getByRole("button", { name: "Focus" }));
+  await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
@@ -386,7 +390,7 @@ it("Feedback and Focus share only one global lifecycle headline", async () => {
   const { shell } = await fixture();
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);
   expect(screen.getByLabelText("Submission details")).not.toHaveTextContent("Reviewing");
-  fireEvent.click(screen.getByRole("button", { name: "Focus" }));
+  await focusConversation();
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);

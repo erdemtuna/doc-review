@@ -271,7 +271,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
   const quote = item.thread.target.kind === "selection" ? item.thread.target.anchor.quote : item.thread.target.anchor.label || item.thread.target.anchor.selector;
   const trailingTargetNotice = !!item.draft && !focus && chrome.viewport.width <= 480 && chrome.viewport.height <= 550;
   const replyControl = !item.draft && !disabled && item.thread.status === "open" &&
-    <Button variant="outline" size="sm" data-reply onClick={() => owner.commands.reply(id)}>Reply</Button>;
+    <Button variant="ghost" size="sm" data-reply onClick={() => owner.commands.reply(id)}>Reply</Button>;
   const peersControl = peers.length > 1 && <label className="conversation-peers"><span>{peers.length} conversations at this target</span>
     <select aria-label="Conversation at this target" value={id} onChange={(event) => {
       if (adjacent) act(owner, () => shell.commands.adjacent(event.target.value));
@@ -284,21 +284,20 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
   return <article ref={article} className={`conversation-thread inventory-card${focus ? " focused" : ""}`} data-thread={id}
     hidden={snapshot.host === "compose" || (snapshot.focusId ? !focus : !snapshot.filters[item.thread.status])}>
     <header>
-      {(!adjacent || !!target.reason) && <Button variant="ghost" size="xs" className="conversation-thread-title justify-start rounded-none border-l-2 border-l-border font-normal text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground" aria-expanded={item.expanded} aria-controls={`thread-${id}`}
+      {(!adjacent || !!target.reason) && <Button variant="ghost" size="xs" className="conversation-thread-title justify-start font-normal text-muted-foreground aria-expanded:bg-transparent aria-expanded:text-muted-foreground" aria-expanded={item.expanded} aria-controls={`thread-${id}`}
         onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.collapse(id)}>
         <Icon name={item.expanded ? "chevronDown" : "chevronRight"} size={14} />
         <span className="conversation-target-quote" title={quote}>{quote}</span>
       </Button>}
       <div className="conversation-thread-actions">
       {item.thread.status === "resolved" && <Badge variant="secondary">Resolved</Badge>}
-      <Button size="icon-xs" variant="ghost" className="conversation-icon" title={focus && !adjacent ? "Back to Feedback" : "Focus"}
-        aria-label={focus && !adjacent ? "Back to Feedback" : "Focus"} onMouseDown={(event) => event.preventDefault()}
-        onClick={() => owner.commands.focus(focus && !adjacent ? null : id)}><Icon name="messages" /></Button>
+      {focus && !adjacent && <Button size="xs" variant="ghost" onClick={() => owner.commands.focus(null)}>Back to Feedback</Button>}
       <Button variant="ghost" size="xs" className="conversation-jump" hidden={adjacent && !target.reason} disabled={!target.canJump}
           aria-label="Jump to" aria-describedby={target.reason ? `target-status-${id}` : undefined} title={target.reason || "Jump to the exact passage"}
           onMouseDown={(event) => event.preventDefault()} onClick={() => act(owner, () => owner.commands.jump(id))}>
           <Icon name="locate" />Jump to</Button>
       <ConversationMenu actions={[
+        ...(!focus || adjacent ? [{ label: "Focus", run: () => owner.commands.focus(id) }] : []),
         ...(adjacent && !target.reason ? [{ label: item.expanded ? "Collapse conversation" : "Expand conversation",
           run: () => owner.commands.collapse(id) }] : []),
         { label: item.thread.status === "resolved" ? "Reopen" : "Resolve", disabled, run: () => act(owner, () => owner.commands.confirm("resolve", id)) },
@@ -312,7 +311,8 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
       ]} />
       {focus && <Button size="icon-xs" variant="ghost" className="conversation-icon" aria-label="Close conversation" title="Close conversation"
         onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.open(false)}><Icon name="x" /></Button>}
-      {item.attention && <Button className="conversation-activity" size="xs" variant="secondary" onClick={() => owner.commands.markRead(id)}>New activity</Button>}
+      {item.attention && <Button className="conversation-activity" size="icon-xs" variant="ghost" aria-label="New activity" title="New activity: mark as read"
+        onClick={() => owner.commands.markRead(id)}><span aria-hidden="true" /></Button>}
       </div>
       {adjacent && peersControl}
     </header>
@@ -336,7 +336,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
         {item.exchanges.map(({ reviewer, response }, index) => <section className="conversation-exchange" key={reviewer.messageId} data-message={reviewer.messageId}>
           <div className="conversation-meta inventory-meta"><ConversationAuthor role="You" /><ConversationTime value={reviewer.createdAt} />
             {reviewer.intent === "request-change" && <Badge variant="outline">{intentBadge(reviewer.intent)}</Badge>}
-            {reviewer.submissionId === null && <Badge variant="secondary">{snapshot.review?.state === "ended" ? "Saved unsent · read-only" : "Pending"}</Badge>}
+            {reviewer.submissionId === null && <span className="conversation-pending">{snapshot.review?.state === "ended" ? "Saved unsent · read-only" : "Pending"}</span>}
           </div>
           <p className="conversation-body">{reviewer.body}</p>
           {reviewer.submissionId === null && !disabled && <div className="conversation-actions">
@@ -585,7 +585,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       ? "Send and affected source writes are blocked by outstanding work:" : "Other member pages have outstanding work; their source writes are blocked:"}
       {snapshot.status.blockers.map((blocker) => <p key={blocker.submissionId}><a href={`/r/${encodeURIComponent(blocker.reviewId)}`} target="_blank" rel="noreferrer">{blocker.reviewId}</a> · {blocker.submissionId}</p>)}</div>}
     <div className="conversation-filters" hidden={!!snapshot.focusId || historyVisible}>
-      <SegmentedControl aria-label="Conversation filters">{(["open", "resolved"] as const).map((kind) => <SegmentedControlItem key={kind} size="sm" selected={snapshot.filters[kind]}
+      <SegmentedControl aria-label="Conversation filters" hidden={!snapshot.threads.length}>{(["open", "resolved"] as const).map((kind) => <SegmentedControlItem key={kind} size="sm" selected={snapshot.filters[kind]}
         onClick={() => owner.commands.filter(kind)}>{kind === "open" ? "Open" : "Resolved"} ({snapshot.threads.filter((item) => item.thread.status === kind).length})</SegmentedControlItem>)}</SegmentedControl>
       <Button className="conversation-new-trigger" aria-label="New message" size="sm" variant="ghost" disabled={disabled || !chrome.pageKey} onClick={() => act(owner, () => owner.commands.begin(chrome.pageKey!, { kind: "element", anchor: { selector: "body", label: chrome.pageName || "Page" } }))}>
         <Icon name="plus" /><span>New message</span>
@@ -604,7 +604,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     }}>
       {snapshot.newMessage && <NewMessage shell={shell} snapshot={snapshot} chrome={chrome} />}
       <div hidden={!!snapshot.focusId || contextual || historyVisible}><LatestResult snapshot={snapshot} shell={shell} visible={!historyVisible} /></div>
-      <Button className="conversation-section-toggle" variant="ghost" size="sm" hidden={!!snapshot.focusId || contextual || historyVisible}
+      <Button className="conversation-section-toggle" variant="ghost" size="sm" hidden={!snapshot.threads.length || !!snapshot.focusId || contextual || historyVisible}
         aria-expanded={commentsExpanded} aria-controls="conversationComments" onClick={() => setCommentsExpanded(value => !value)}>
         <Icon name={commentsExpanded ? "chevronDown" : "chevronRight"} size={14} />Comments ({snapshot.threads.length})
       </Button>

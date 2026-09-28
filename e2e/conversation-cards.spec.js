@@ -29,13 +29,13 @@ test("identical pending and handled cards retain readable content and record den
         expect(await card.evaluate(element => {
           const style = getComputedStyle(element), inventory = getComputedStyle(element.closest(".conversation-inventory"));
           return parseFloat(style.borderTopWidth) >= 1 && parseFloat(style.borderRadius) > 0 &&
-            style.backgroundColor !== inventory.backgroundColor && parseFloat(style.marginBottom) >= 8;
+            style.backgroundColor === inventory.backgroundColor && parseFloat(style.marginBottom) >= 8;
         })).toBe(true);
         await expect(card.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "true");
         const title = card.locator(".conversation-thread-title"), actions = card.locator(".conversation-thread-actions");
         const titleBox = await title.boundingBox(), actionsBox = await actions.boundingBox();
-        expect(titleBox.width).toBeGreaterThan(box.width * .8);
-        expect(actionsBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+        expect(titleBox.width).toBeGreaterThan(80);
+        expect(Math.abs(actionsBox.y - titleBox.y)).toBeLessThan(8);
         await expect(title).toContainText(quote);
         await expect(card.locator(".conversation-meta").getByText(/^(Discussion|answered)$/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -82,7 +82,7 @@ test("narrow resolved cards retain reachable secondary controls when new activit
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const [width, height] of [[390, 480], [320, 400]]) {
       await page.setViewportSize({ width, height });
-      await card.getByRole("button", { name: "Focus", exact: true }).click();
+      await (await threadAction(page, card, "Focus")).click();
       const header = card.locator(":scope > header");
       expect(await header.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await card.getByRole("button", { name: "Conversation actions", exact: true }).click();

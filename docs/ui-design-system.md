@@ -320,3 +320,13 @@ source-save and retained-history boundaries. Test both themes, 320/390px narrow
 and keyboard-like short viewports, plus desktop. The full gates are
 `npm run test:all` and `npm run test:package:browser`.
 See [development](development.md) for ownership and reproducible package evidence.
+# Conversation reading redesign
+
+The toolbar is the surface reference for conversation chrome. Feedback inventory
+uses the same card surface, not a large muted-color slab. Discussion boundaries
+remain visible through borders and spacing; messages inside a discussion stay
+unboxed. Target navigation and thread actions share a compact header. Focus is a
+named menu action, while Jump to stays visible. Routine pending/unread state uses
+quiet text rather than competing badges. Exceptional outcomes and edit permissions
+remain explicit. In-place element highlights use one restrained edge treatment,
+with separate keyboard focus indication.
