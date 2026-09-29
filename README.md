@@ -122,6 +122,8 @@ retains drafts and reading position. Comments and Your edits collapse independen
 Collapse or Close never resolves a thread. Resolve/Reopen is explicit; Resolve
 requires no pending or outstanding messages. Drafts are not stored or synced to
 other tabs. An ended review remains a read-only observer of late results.
+Resolved conversations collapse into subdued cards with a check-circle badge;
+you can expand them to read, or Reopen to continue the discussion.
 
 ## Learn more
 

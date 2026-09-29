@@ -108,6 +108,10 @@ every conversation header, not hidden in the menu. Finish or close a local draft
 first; unsent messages and outstanding agent work prevent
 Resolve. An accepted resolution offers **Undo resolve** until the review changes.
 Undo never overrides newer changes from another tab or an ended review.
+Resolving automatically collapses the conversation into a subdued card with a
+check-circle **Resolved** badge. Expand it anytime to read the discussion without
+reopening it. Reopen and Undo expand the conversation again. Resolution in another
+tab never hides your local reply draft.
 
 While adding or updating a comment, typing and selection remain available but another submission of that draft
 and editor cancellation are locked through acceptance or reconciliation. Newer typing is retained.
@@ -127,8 +131,9 @@ Pasted images are saved beside file reviews or staged for the agent in localhost
 reviews. Command clicking links lets you review multiple pages in one session.
 
 Open **Feedback** for conversations, pending edits, submission history and the
-overall note. Open and Resolved filters both start enabled; cards start expanded
-with their latest exchange and saved pending follow-ups. Selected filters remain
+overall note. Open and Resolved filters both start enabled; open cards start expanded
+with their latest exchange and saved pending follow-ups, while resolved cards
+start collapsed. Selected filters remain
 visibly selected after you move away. Separate bordered discussion cards contain
 plain reviewer/agent messages with author, avatar and time. **Reply** is visible;
 hover or focus a timestamp for its full date and time.

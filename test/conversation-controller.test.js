@@ -658,12 +658,20 @@ test("Resolve is one accepted mutation with version-bound Undo and no confirmati
   await c.owner.refresh();
   await Promise.all([c.owner.commands.resolve(id), c.owner.commands.resolve(id)]);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
+  assert.equal(c.owner.getSnapshot().threads[0].attention, false);
+  c.owner.commands.collapse(id);
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
+  c.owner.commands.collapse(id);
   assert.equal(c.owner.getSnapshot().confirmation, null);
   assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, 1);
   const undo = c.owner.getSnapshot().resolutionUndo;
   assert.deepEqual(undo, { threadId: id, reviewVersion: c.owner.getSnapshot().review.version });
   await c.owner.commands.undoResolve();
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
+  assert.equal(c.owner.getSnapshot().threads[0].attention, false);
   assert.equal(c.owner.getSnapshot().resolutionUndo, null);
   await c.owner.commands.resolve(id);
   await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "open" });
@@ -691,12 +699,38 @@ test("uncertain Resolve offers Undo only after its exact receipt is reconciled",
     return response;
   });
   await assert.rejects(c.owner.commands.resolve(id), /Lost accepted/);
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
   assert.equal(c.owner.getSnapshot().resolutionUndo, null);
   const requestId = c.owner.getSnapshot().uncertain.requestId;
   await c.owner.commands.reconcile(false);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
   assert.equal(c.owner.getSnapshot().resolutionUndo.threadId, id);
   assert.deepEqual(new Set(c.calls.filter(body => body.operation === "set-thread-status").map(body => body.requestId)), new Set([requestId]));
+});
+
+test("remote resolution collapses once but never hides a local reply draft", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Ready for remote resolution");
+  await c.owner.commands.send();
+  await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
+  await c.owner.refresh();
+  await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "resolved" });
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
+  assert.equal(c.owner.getSnapshot().threads[0].attention, false);
+  c.owner.commands.collapse(id);
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
+  await c.owner.commands.resolve(id);
+  c.owner.commands.reply(id);
+  c.owner.commands.update(id, { text: "Local draft", selectionStart: 1, selectionEnd: 5 });
+  await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "resolved" });
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
+  assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
+  assert.equal(c.owner.getSnapshot().threads[0].draft.text, "Local draft");
+  assert.equal(c.owner.getSnapshot().threads[0].draft.selectionEnd, 5);
 });
 
 test("Resolve pending guards and stale mutations retain the thread and local draft", async (t) => {
@@ -740,7 +774,7 @@ test("historical response navigation pages to the exact exchange without changin
   t.after(() => reader.dispose());
   await reader.refresh();
   reader.commands.filter("resolved");
-  reader.commands.collapse(id);
+  assert.equal(reader.getSnapshot().threads[0].expanded, false);
   assert.equal(reader.getSnapshot().threads[0].exchanges.length, 2);
   await reader.commands.revealMessage(id, firstId);
   assert.equal(reader.getSnapshot().focusId, id);

@@ -12,7 +12,13 @@ positions, pending selection, mutation locks and uncertain acceptance.
 capture and comparison requests. React renders these owners rather than creating
 parallel state. Drafts are never saved to storage or synced across tabs.
 
-Both Open and Resolved filters start enabled with expanded latest exchanges.
+Both Open and Resolved filters start enabled. Open threads start expanded;
+resolved threads start collapsed with a quiet check-circle **Resolved** badge.
+Accepted resolution collapses the card without leaving a stretched empty Focus
+surface. Muted surfaces and the badge distinguish resolution without bright success
+colors, unread dots, or reduced text/control opacity. Explicit expansion survives
+refreshes; reopening or Undo expands the conversation again. A remote resolution
+never hides an existing local draft.
 Their shared segmented controls retain selected paint without hover or focus.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages

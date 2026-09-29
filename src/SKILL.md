@@ -35,7 +35,10 @@ Resolve/Reopen remain visible in the header. Resolve refuses unfinished drafts,
 unsent messages and outstanding agent work; Undo resolve is available only while
 the accepted review version is still current.
 Resolve is a check-circle icon; Reopen is a return-arrow icon, both with named
-tooltips. Collapse is the last header control.
+tooltips. Collapse is the last header control. Resolved conversations automatically
+collapse and show a subdued check-circle **Resolved** badge; they remain expandable
+for reading. Reopen and Undo expand them again. Resolution from another tab never
+hides a local draft.
 
 Add comment / Add reply / Update comment queue a message;
 **Send to agent (N)** dispatches a deliberate batch.

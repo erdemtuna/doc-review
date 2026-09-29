@@ -293,6 +293,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
     })}</select>
   </label>;
   return <article ref={article} className={`conversation-thread inventory-card${focus ? " focused" : ""}`} data-thread={id}
+    data-status={item.thread.status} data-expanded={item.expanded}
     hidden={snapshot.host === "compose" || (snapshot.focusId ? !focus : !snapshot.filters[item.thread.status])}>
     <header>
       {focus && !navigatingReplies && <div className="conversation-thread-navigation">
@@ -303,6 +304,9 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
       <div className="conversation-thread-toolbar">
       <div className="conversation-thread-identity">
       <ConversationSource target={item.thread.target} />
+      {item.thread.status === "resolved" && <Badge variant="secondary" className="conversation-resolved-status text-muted-foreground">
+        <Icon name="circleCheck" size={12} />Resolved
+      </Badge>}
       {item.attention && <Button className="conversation-activity" size="icon-xs" variant="ghost" aria-label="New activity" title="New activity: mark as read"
         onClick={() => owner.commands.markRead(id)}><span aria-hidden="true" /></Button>}
       </div>

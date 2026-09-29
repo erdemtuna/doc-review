@@ -482,16 +482,28 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard", exact: true }).click();
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    const openHeight = (await card.boundingBox()).height;
     await card.getByRole("button", { name: "Resolve", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    await expect(card).toHaveAttribute("data-status", "resolved");
+    await expect(card.locator(".conversation-resolved-status")).toHaveText("Resolved");
+    await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(card.locator(".conversation-thread-content")).toBeHidden();
+    await expect(card.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+    expect((await card.boundingBox()).height).toBeLessThan(openHeight);
     const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
     await expect(undo).toBeVisible();
     await undo.scrollIntoViewIfNeeded();
     await expect(undo).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`resolved-${host}-${theme}.png`), caret: "initial" });
+    await card.getByRole("button", { name: "Expand conversation", exact: true }).click();
+    await expect(card.locator(".conversation-response")).toBeVisible();
+    await expect(card.locator(".conversation-resolved-status")).toBeVisible();
     await undo.click();
     await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+    await expect(card.locator(".conversation-resolved-status")).toHaveCount(0);
+    await expect(card.locator(".conversation-response")).toBeVisible();
     await expect(undo).toHaveCount(0);
   }
   await card.getByRole("button", { name: "Resolve", exact: true }).click();
@@ -500,6 +512,35 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toHaveCount(0);
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeDisabled();
+});
+
+test("resolved headers stay compact and readable on reload and narrow screens", async ({ page, review }, info) => {
+  const ref = await openReview(page, review, writeFile(review, "resolved-header.html", "<p id='copy'>Exact issue filtering</p>"));
+  await waitForSdk(page);
+  const { threadId } = await seedThread(review, ref, "Good title", {
+    kind: "element", anchor: { selector: "#copy", label: "Exact issue filtering with clear permissions" },
+  });
+  await sendPending(review, ref); await handled(review, ref);
+  await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
+  await page.reload(); await waitForSdk(page); await feedback(page);
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) {
+    await page.setViewportSize({ width, height: 600 });
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    await card.scrollIntoViewIfNeeded();
+    await expect(card.locator(".conversation-thread-content")).toBeHidden();
+    const source = await card.locator(".conversation-source").boundingBox();
+    const badge = await card.locator(".conversation-resolved-status").boundingBox();
+    const actions = await card.locator(".conversation-thread-actions").boundingBox();
+    expect(source.width).toBeGreaterThan(20);
+    expect(source.x + source.width).toBeLessThanOrEqual(badge.x);
+    expect(badge.x + badge.width).toBeLessThanOrEqual(actions.x);
+    expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`resolved-compact-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+  }
+  await card.getByRole("button", { name: "Reopen", exact: true }).click();
+  await expect(card.locator(".conversation-resolved-status")).toHaveCount(0);
+  await expect(card.locator(".conversation-response")).toBeVisible();
 });
 
 test("transient connection recovery preserves authored runtime and drafts without reloading", async ({ page, context, review }) => {

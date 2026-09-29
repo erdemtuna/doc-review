@@ -203,11 +203,18 @@ export function createConversationController(options: Options) {
     for (const thread of nextThreads) {
       const id = thread.thread.threadId;
       const exchange = thread.latestExchange;
-      // Submission bookkeeping is not new conversation content.
-      const fingerprint = JSON.stringify([thread.thread.version, exchange?.reviewer.messageId,
+      // Submission bookkeeping and resolution are not new conversation content.
+      const fingerprint = JSON.stringify([thread.messageCount, exchange?.reviewer.messageId,
         exchange?.reviewer.version, exchange?.response]);
       if (fingerprints.has(id) && fingerprints.get(id) !== fingerprint) attention.add(id);
       fingerprints.set(id, fingerprint);
+      const previous = threads.find(item => item.thread.threadId === id);
+      if (thread.thread.status === "resolved" && previous?.thread.status !== "resolved") {
+        if (!drafts.has(id)) collapsed.add(id);
+        attention.delete(id);
+      } else if (thread.thread.status === "open" && previous?.thread.status === "resolved") {
+        collapsed.delete(id);
+      }
     }
     threads = nextThreads;
     for (const [id, value] of nextContexts) contexts.set(id, value);

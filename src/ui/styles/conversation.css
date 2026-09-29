@@ -40,6 +40,8 @@
   .conversation-thread-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .conversation-thread .conversation-activity { flex-shrink: 0; width: 16px; padding: 0; }
   .conversation-thread { padding: 8px; }
+  .conversation-thread[data-status="resolved"] { background: color-mix(in oklab, var(--muted) 30%, var(--card)); }
+  .conversation-thread[data-expanded="false"] > header { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
   .conversation-activity > span { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
   .conversation-pending { font-size: 11px; color: var(--muted-foreground); }
   .conversation-intent-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; vertical-align: middle; border-radius: 4px; color: var(--foreground); }
@@ -123,6 +125,7 @@
   .conversation-edits pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
   .has-focus .conversation-inventory { overflow: hidden; display: flex; }
   .has-focus .focused { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: 0; }
+  .has-focus .focused[data-expanded="false"] { flex: 0 0 auto; width: 100%; align-self: flex-start; }
   .has-focus .focused > header { flex-shrink: 0; }
   .has-focus .focused .conversation-thread-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .has-focus .focused .conversation-transcript { flex: 0 1 auto; min-height: 0; padding-inline: 4px; margin-inline: -4px; overflow: auto; overscroll-behavior: contain; }
