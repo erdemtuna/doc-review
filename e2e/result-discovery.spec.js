@@ -196,7 +196,9 @@ test("reply-only results lead to the exact conversation without fetching an empt
   let comparisons = 0;
   page.on("request", request => { if (request.url().endsWith("/api/conversation/comparison")) comparisons++; });
   await expect(peek).toContainText("Explanation only; no edits were made.");
-  await peek.getByRole("button", { name: "View reply" }).click();
+  await expect(peek.getByRole("button", { name: "Read more", exact: true })).toHaveCount(0);
+  await peek.getByRole("button", { name: "Replies (1)", exact: true }).click();
+  await peek.getByRole("button", { name: /Please explain/ }).click();
   const card = page.locator(`[data-thread="${thread.threadId}"]`);
   await expect(card).toHaveClass(/focused/);
   await expect(card.locator(".conversation-response")).toBeVisible();
@@ -209,6 +211,103 @@ test("reply-only results lead to the exact conversation without fetching an empt
   const history = (await listed(review, ref, "history")).items[0];
   const references = (await listed(review, ref, "comparisons", { submissionId: history.submissionId })).items;
   expect(references.every(item => item.resultRevisionId === null)).toBe(true);
+});
+
+test("complete summaries and batch reply navigation preserve origin, reading space and drafts", async ({ page, review }, info) => {
+  test.setTimeout(90_000);
+  const ref = await openReview(page, review, writeFile(review, "reply-navigation.html",
+    "<h1>Exact issue filtering</h1><p id='copy'>Goals and non-goals</p>"));
+  await waitForSdk(page);
+  await seedThread(review, ref, "Explain the goals", { kind: "element", anchor: { selector: "#copy", label: "Goals and non-goals" } });
+  await seedThread(review, ref, "Keep this title", { kind: "element", anchor: { selector: "h1", label: "Exact issue filtering" } });
+  await feedback(page);
+  await page.locator("#send").click();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
+  const work = (await conversation(review, ref, "poll")).submission;
+  const note = "Explained the paragraph and acknowledged the title feedback. ".repeat(12) + "Summary ending is readable.";
+  const responses = work.messages.map(({ message }, index) => ({
+    threadId: message.threadId, messageId: message.messageId, messageVersion: message.version,
+    outcome: "answered", body: `Answer ${index + 1}.\n\n` +
+      "Filter before paging. Keep the cursor tied to the same filters. Preserve authorization checks.\n\n".repeat(12) + "Final answer line.",
+  }));
+  const completed = await reviewApi(review, "/api/conversation", { method: "POST", body: responseFor(work, { responses, resultNote: note }) });
+  expect(completed.status, completed.raw).toBe(200);
+  const peek = page.getByRole("region", { name: "Latest submission result" });
+  await expect(peek).toBeVisible();
+  const firstCard = page.locator(`[data-thread="${work.messages[0].message.threadId}"]`);
+  expect(await firstCard.locator(".conversation-thread-toolbar button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))))
+    .toEqual(["New activity", "Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
+  const inventory = page.locator(".conversation-inventory");
+  const tabs = page.getByRole("group", { name: "Feedback destination" });
+  let draftCreated = false;
+  for (const [width, height] of [[1440, 900], [720, 600], [390, 600], [320, 400]]) for (const theme of ["light", "dark"]) {
+    await page.setViewportSize({ width, height });
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    await tabs.getByRole("button", { name: "Feedback", exact: true }).click();
+    await inventory.evaluate(node => { node.scrollTop = 0; });
+    await peek.getByRole("button", { name: "Read more", exact: true }).click();
+    const summary = peek.locator(".conversation-result-preview");
+    expect(await summary.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe("none");
+    await peek.getByRole("button", { name: "Show less", exact: true }).scrollIntoViewIfNeeded();
+    expect(await summary.evaluate(node => node.clientHeight >= node.scrollHeight)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`full-summary-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+    await peek.getByRole("button", { name: "Show less", exact: true }).click();
+    for (const origin of ["Feedback", "History"]) {
+      await tabs.getByRole("button", { name: origin, exact: true }).click();
+      const result = origin === "Feedback" ? peek : page.locator(".conversation-submission").first();
+      if (origin === "History" && !await result.evaluate(node => node.open)) await result.locator(":scope > summary").click();
+      const disclosure = result.getByRole("button", { name: "Replies (2)", exact: true });
+      if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
+      const row = result.locator(".conversation-result-replies button").first();
+      await expect(row.locator(".conversation-source")).not.toBeEmpty();
+      await row.scrollIntoViewIfNeeded();
+      const originTop = await inventory.evaluate(node => node.scrollTop);
+      await row.click();
+      const navigation = page.getByRole("navigation", { name: "Reply navigation" });
+      await expect(navigation.getByRole("status")).toHaveText("1 of 2");
+      await expect(tabs).toBeVisible();
+      await expect(tabs.getByRole("button", { name: origin, exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(navigation.getByRole("button", { name: "Previous reply", exact: true })).toBeDisabled();
+      if (!draftCreated) {
+        await firstCard.getByRole("button", { name: "Reply", exact: true }).click();
+        const draft = firstCard.getByRole("textbox", { name: "Reply", exact: true });
+        await draft.fill("Preserve my follow-up");
+        await firstCard.getByRole("checkbox", { name: "Request a change" }).check();
+        await draft.evaluate(node => {
+          window.replyNavigationDraft = node;
+          node.focus(); node.setSelectionRange(2, 7); node.dispatchEvent(new Event("select", { bubbles: true }));
+        });
+        draftCreated = true;
+      }
+      await navigation.getByRole("button", { name: "Next reply", exact: true }).click();
+      await expect(navigation.getByRole("status")).toHaveText("2 of 2");
+      await expect(navigation.getByRole("button", { name: "Next reply", exact: true })).toBeDisabled();
+      await navigation.getByRole("button", { name: "Previous reply", exact: true }).click();
+      await expect(navigation.getByRole("status")).toHaveText("1 of 2");
+      const draft = firstCard.getByRole("textbox", { name: "Reply", exact: true });
+      await expect(draft).toHaveValue("Preserve my follow-up");
+      const saveBounds = await firstCard.getByRole("button", { name: "Add reply", exact: true }).boundingBox();
+      expect(saveBounds.y + saveBounds.height).toBeLessThanOrEqual(height);
+      await expect(firstCard.getByRole("checkbox", { name: "Request a change" })).toBeChecked();
+      expect(await draft.evaluate(node => [node === window.replyNavigationDraft, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 7]);
+      await firstCard.locator(".conversation-transcript").evaluate(node => { node.scrollTop = node.scrollHeight; });
+      const tail = await firstCard.locator(".conversation-response .conversation-body").evaluate(node => {
+        const text = node.lastChild, range = document.createRange();
+        range.setStart(text, text.textContent.length - "Final answer line.".length); range.setEnd(text, text.textContent.length);
+        const rect = range.getBoundingClientRect(), container = node.closest(".conversation-transcript").getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, containerTop: container.top, containerBottom: container.bottom };
+      });
+      expect(tail.top).toBeGreaterThanOrEqual(tail.containerTop - 1);
+      expect(tail.bottom).toBeLessThanOrEqual(tail.containerBottom + 1);
+      await expect(navigation.getByRole("button", { name: "Back to replies", exact: true })).toBeInViewport();
+      if (origin === "Feedback") await page.screenshot({ path: info.outputPath(`reader-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+      await navigation.getByRole("button", { name: "Back to replies", exact: true }).click();
+      await expect(row).toBeFocused();
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+      await expect(tabs.getByRole("button", { name: origin, exact: true })).toHaveAttribute("aria-pressed", "true");
+      expect(Math.abs(await inventory.evaluate(node => node.scrollTop) - originTop)).toBeLessThanOrEqual(1);
+    }
+  }
 });
 
 test("invalid comparison modes remain explicit and retry keeps the result summary", async ({ page, review }) => {

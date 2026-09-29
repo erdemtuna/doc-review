@@ -54,7 +54,9 @@ permission for that request only; the agent can answer, clarify, apply, or defer
    to Discussion; check **Request a change** only for that message's permission.
 4. **Check the response and result.** Each submitted message gets an inline reply,
    each direct edit gets an exact outcome, and the submission gets one result note.
-   Find the latest result above the conversations and choose **View reply** or **View changes**. Use
+   Find the latest result above the conversations. **Read more** expands a long summary;
+   **Replies (N)** lists its conversations, and **View changes** opens reported changes.
+   The reply reader keeps the destination tabs visible, with **Previous/Next** and **Back to replies**. Use
    **History** in the **Feedback | History** switch for earlier submissions. Choose
    **Content** or **Source** to compare the submission's captured
    before and after content, then continue reviewing. Comparisons show observed

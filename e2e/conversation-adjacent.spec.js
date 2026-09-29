@@ -182,6 +182,8 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
   const editor = card(page, id).getByRole("textbox", { name: "Reply", exact: true });
   await editor.fill("Viewport-safe draft");
   await page.frameLocator("#frame").locator("body").evaluate(() => window.scrollTo(0, 1000));
+  await expect.poll(() => page.evaluate(threadId =>
+    window.anchorReports.at(-1)?.anchors.find(anchor => anchor.threadId === threadId)?.relation, id)).toBe("above");
   await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
   await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeEnabled();
   await expect(card(page, id).getByRole("button", { name: "Show in document" })).toHaveAttribute("title", "Show the exact passage");

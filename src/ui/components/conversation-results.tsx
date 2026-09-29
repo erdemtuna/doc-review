@@ -1,13 +1,15 @@
 import type { ConversationController } from "../../conversation-controller";
 import { Badge } from "./ui/badge";
-import { ConversationTime } from "./conversation-controls";
-import { useState } from "react";
+import { ConversationSource, ConversationTime } from "./conversation-controls";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ConversationShell } from "../../conversation-shell";
 import { Button } from "./ui/button";
+import { Icon } from "./icon";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 export type ResultDetail = Snapshot["submissions"][number]["value"];
 type HistoryItem = Snapshot["history"][number];
+export type RevealReply = (detail: ResultDetail, index: number, trigger: HTMLButtonElement) => Promise<void>;
 
 export const responseOutcomeLabels = {
   applied: "Change reported", answered: "Answered", "clarification-needed": "Needs clarification", deferred: "Deferred",
@@ -19,15 +21,37 @@ export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>[
     : outcome === "deferred" ? "Deferred; no application reported for this edit." : "Edit outcome unavailable.";
 }
 
-export function ResultActions({ detail, shell }: { detail: ResultDetail; shell: ConversationShell }) {
+export function ResultPreview({ body }: { body: string }) {
+  const id = useId(), preview = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false), [overflow, setOverflow] = useState(false);
+  useLayoutEffect(() => {
+    const node = preview.current;
+    if (!node) return;
+    const measure = () => {
+      if (node.clientWidth) setOverflow(node.scrollHeight > parseFloat(getComputedStyle(node).lineHeight) * 2 + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [body]);
+  return <>
+    <p ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}>{body}</p>
+    {overflow && <Button className="conversation-result-expand" size="xs" variant="ghost" aria-expanded={expanded}
+      aria-controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</Button>}
+  </>;
+}
+
+export function ResultActions({ detail, shell, onReveal }: { detail: ResultDetail; shell: ConversationShell; onReveal: RevealReply }) {
+  const repliesId = useId();
   const [expanded, setExpanded] = useState(false);
   const responses = detail.result?.responses ?? [];
   const replies = responses;
   const changes = detail.result?.effect === "changes-reported";
   const [busy, setBusy] = useState(false);
-  const reveal = async (threadId: string, messageId: string) => {
+  const reveal = async (index: number, trigger: HTMLButtonElement) => {
     setBusy(true);
-    try { await shell.owner.commands.revealMessage(threadId, messageId); }
+    try { await onReveal(detail, index, trigger); }
     catch (cause) { shell.owner.report(cause); }
     finally { setBusy(false); }
   };
@@ -39,16 +63,20 @@ export function ResultActions({ detail, shell }: { detail: ResultDetail; shell: 
         void shell.commands.comparison(detail.submission.submissionId, key, "content").catch(shell.owner.report);
       }}>{changes ? "View changes" : "View response"}</Button>}
       {!!replies.length && <Button size="sm" variant={changes ? "ghost" : "outline"} disabled={busy}
-        aria-expanded={replies.length > 1 ? expanded : undefined}
-        onClick={() => replies.length === 1 ? void reveal(replies[0].threadId, replies[0].replyToMessageId) : setExpanded(value => !value)}>
-        {replies.length === 1 ? "View reply" : "View replies"}
+        aria-expanded={expanded} aria-controls={repliesId} onClick={() => setExpanded(value => !value)}>
+        <Icon name={expanded ? "chevronDown" : "chevronRight"} size={14} />Replies ({replies.length})
       </Button>}
     </div>
-    {expanded && <ul className="conversation-result-replies">{replies.map(reply => {
-      const message = detail.submission.messages.find(item => item.message.messageId === reply.replyToMessageId)?.message.body;
+    <ul id={repliesId} hidden={!expanded} className="conversation-result-replies">{replies.map((reply, index) => {
+      const submitted = detail.submission.messages.find(item => item.message.messageId === reply.replyToMessageId);
       return <li key={reply.messageId}><Button size="sm" variant="ghost" disabled={busy}
-        onClick={() => { void reveal(reply.threadId, reply.replyToMessageId); }}>{message ?? "Open conversation"}</Button></li>;
-    })}</ul>}
+        onClick={(event) => { void reveal(index, event.currentTarget); }}>
+        <span className="conversation-result-reply-label">
+          {submitted && <ConversationSource target={submitted.target} />}
+          <span className="conversation-result-reply-excerpt">{submitted?.message.body ?? "Open conversation"}</span>
+        </span><Icon name="chevronRight" size={14} />
+      </Button></li>;
+    })}</ul>
   </div>;
 }
 

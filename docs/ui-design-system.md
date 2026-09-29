@@ -36,6 +36,9 @@ eligible Delete thread and host transfers; this is not a
 restoration of the removed global More menu. Focus is a named menu action and Edit
 is a compact icon control; every card has an icon-only **Show in document** and
 **Resolve/Reopen** actions. Collapse/Expand is a separate named icon button.
+Header order is source title with unread dot, Locate, Resolve/Reopen, More,
+then Collapse/Expand. Resolve uses a check-circle and Reopen a return arrow;
+both retain accessible action names and explanatory tooltips.
 Reply is a quiet visible action, sharing the last pending message's action row.
 Draft permissions use the shared Checkbox primitive. There are no batch-selection
 or exclusion controls; Send includes all saved pending messages and edits.
@@ -301,7 +304,15 @@ independent loading/error/unavailable states, retry, counts and change navigatio
 primitives for a capture-independent submission note and exact human edit evidence.
 The latest-result preview precedes thread cards in Feedback. Shared `ResultActions`
 and `resultHeading` own the same outcome vocabulary and routes in Feedback and
-History: **View replies**, **View changes**, or summary-only **View response**.
+History: **Replies (N)**, **View changes**, or summary-only **View response**.
+Overflowing latest-result notes offer **Read more / Show less** in place; short
+notes need no expansion control. Heading, summary and actions retain that order
+at every height. Reply disclosures label each destination with its source section
+and a comment excerpt, followed by a navigation chevron.
+Reply readers retain Feedback/History and a pinned **Back to replies** plus
+Previous/Next and batch position. Back restores the source destination, expanded
+list, exact inventory scroll and initiating keyboard focus. Transcript scrolling
+does not move these controls or unmount the reply editor.
 Response navigation uses the persisted reviewer/agent association, loads older
 context when needed, and preserves resolved/filter state. It never substitutes
 the latest message for a requested historical reply.

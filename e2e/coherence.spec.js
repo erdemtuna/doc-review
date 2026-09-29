@@ -297,7 +297,8 @@ test("History timeline has connected status icons and visible confirmed abandonm
     await page.getByRole("button", { name: "History", exact: true }).click();
     const oldest = page.locator(".conversation-submission").last();
     await oldest.locator("summary").first().click();
-    await oldest.getByRole("button", { name: "View reply" }).click();
+    await oldest.getByRole("button", { name: "Replies (1)", exact: true }).click();
+    await oldest.getByRole("button", { name: /Original question/ }).click();
     await expect(card).toBeVisible();
     const exchange = card.locator(".conversation-exchange").filter({ hasText: "Original question" });
     await expect(exchange).toBeFocused();
@@ -366,8 +367,8 @@ test("coherence evidence covers the reported conversation, composition and resul
   await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   const latest = page.getByRole("region", { name: "Latest submission result" });
   await expect(latest).toContainText("Agent replied to 2 conversations");
-  await latest.getByRole("button", { name: "View replies" }).click();
-  await latest.getByRole("button", { name: "wdyt about the title", exact: true }).click();
+  await latest.getByRole("button", { name: "Replies (2)", exact: true }).click();
+  await latest.getByRole("button", { name: /wdyt about the title/ }).click();
   await expect(card).toHaveClass(/focused/);
   await expect(card.locator(".conversation-response")).toBeVisible();
   await expect(page.locator(".conversation-comparison-tools")).toHaveCount(0);

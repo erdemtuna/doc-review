@@ -66,6 +66,9 @@ Enter or Space to open one conversation beside it. A shared-target count and
 chooser expose other conversations at that highlight. **Beside target**,
 **Focus** and **Back to Feedback** move the same mounted editor, preserving text,
 selection, caret, composition, loaded exchanges and reading position.
+Headers group the section title and unread dot before Locate, the check-circle
+**Resolve** icon (return-arrow **Reopen** when resolved), More and Collapse.
+Resolve/Reopen have named tooltips and accessible labels.
 
 The card never covers its highlighted target. Short discussions fit their contents;
 long transcripts scroll with Reply or the active editor kept reachable. No host
@@ -402,9 +405,12 @@ never presented as zero changes, and does not undo a handled response.
 **Source pending** evidence. All pending edits are included in Send.
 **Exact edit details** retains the complete recorded content and source identity.
 The result note separates edits you saved before Send from agent-reported work;
-deferred edits do not imply that source was changed. At very short heights, the
-latest-result preview puts its text first; scroll the inventory for its result
-link and remaining details. No result preview, edit disclosure, or comparison
+deferred edits do not imply that source was changed. Long latest-result summaries
+expand in place with **Read more / Show less**. **Replies (N)** discloses section
+labels and comment excerpts; choosing a row opens its exact exchange. The reader
+keeps **Feedback | History** visible, with **Previous/Next** and **Back to replies**.
+Back restores the originating result's expanded list, scroll position and keyboard
+focus in Feedback or History without discarding reply drafts. No result preview, edit disclosure, or comparison
 navigation saves an unsent draft.
 
 ### Storage and limits

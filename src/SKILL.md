@@ -34,6 +34,8 @@ target. Focus and secondary thread actions are in the conversation menu.
 Resolve/Reopen remain visible in the header. Resolve refuses unfinished drafts,
 unsent messages and outstanding agent work; Undo resolve is available only while
 the accepted review version is still current.
+Resolve is a check-circle icon; Reopen is a return-arrow icon, both with named
+tooltips. Collapse is the last header control.
 
 Add comment / Add reply / Update comment queue a message;
 **Send to agent (N)** dispatches a deliberate batch.
@@ -48,6 +50,10 @@ Expanded conversations retain two recent sent exchanges and all unsent replies.
 The preceding answer remains visible while composing a follow-up; **Show earlier
 replies** loads older context. Closing Feedback or changing hosts preserves the
 mounted editor and its local draft, but reloading a tab loses unsaved drafts.
+Long result summaries expand with **Read more / Show less**. **Replies (N)**
+lists source labels and comment excerpts. The reply reader retains the
+Feedback/History tabs, **Previous/Next** and **Back to replies**, restoring the
+originating list, scroll and keyboard focus without discarding drafts.
 
 ## The review-scoped loop
 

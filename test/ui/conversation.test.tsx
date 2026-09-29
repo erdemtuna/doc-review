@@ -75,6 +75,28 @@ it("Feedback and History are stable selected destinations and keep the same repl
   shell.dispose();
 });
 
+it("conversation actions follow Locate, icon Resolve, More, Collapse and Focus retains destination tabs", async () => {
+  const { owner, shell } = await fixture();
+  const toolbar = document.querySelector(".conversation-thread-toolbar")!;
+  expect([...toolbar.querySelectorAll("button")].map(button => button.getAttribute("aria-label")))
+    .toEqual(["Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
+  const resolve = screen.getByRole("button", { name: "Resolve" });
+  expect(resolve).toHaveAttribute("title", "Resolve conversation");
+  expect(resolve.querySelector("svg")).not.toBeNull();
+  expect(resolve.textContent).toBe("");
+  act(() => { owner.commands.reply("thread"); owner.commands.focus("thread"); });
+  const draft = screen.getByRole("textbox", { name: "Reply" });
+  fireEvent.change(draft, { target: { value: "Retained while navigating", selectionStart: 2, selectionEnd: 6 } });
+  const tabs = within(screen.getByRole("group", { name: "Feedback destination" }));
+  fireEvent.click(tabs.getByRole("button", { name: "History" }));
+  expect(owner.getSnapshot().focusId).toBeNull();
+  expect(screen.getByRole("region", { name: "Submission history" })).toBeVisible();
+  fireEvent.click(tabs.getByRole("button", { name: "Feedback" }));
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(draft);
+  expect(draft).toHaveValue("Retained while navigating");
+  shell.dispose();
+});
+
 it("short reply composition groups the same independent overall note without losing permission, selection or IME", async () => {
   const { owner, shell, updateChrome } = await fixture();
   expect(screen.queryByRole("button", { name: "Choose what to send" })).toBeNull();

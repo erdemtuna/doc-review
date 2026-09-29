@@ -107,7 +107,7 @@ test("Review and Changes keep the same iframe and authored runtime state", async
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
   await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
-  await expect(page.getByRole("button", { name: "View reply", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Replies (1)", exact: true })).toBeVisible();
   await page.locator("#commentsButton").click();
   await frame.getByRole("button", { name: "Increment" }).click();
   await frame.getByLabel("Draft").fill("Keep this input");
