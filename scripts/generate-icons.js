@@ -20,6 +20,10 @@ const icons = {
   moreHorizontal: "ellipsis",
   x: "x",
   check: "check",
+  clock: "clock",
+  inbox: "inbox",
+  circleX: "circle-x",
+  circleHelp: "circle-question-mark",
   sun: "sun",
   moon: "moon",
 };

@@ -306,8 +306,15 @@ Waiting has one centered toolbar status rather than repeated queued/sent notices
 Feedback contains no waiting explanation or technical disclosure after Send.
 The header's **History** destination holds submission status, notes and results without
 CLI commands, raw identifiers, receipt JSON or technical disclosures.
-Waiting submissions show status and time without an actions menu or abandonment control;
-related-review links remain available for overlapping work.
+History uses the shared Timeline/TimelineItem components as a newest-first vertical
+list with a continuous connector and Lucide status markers. Amber clock/inbox markers
+indicate queued/delivered work, teal messages indicate responses, green document/pencil
+markers indicate reported changes, amber question marks indicate follow-up, and muted
+crosses indicate abandoned work. Text labels accompany every marker; color alone never
+communicates status, and delivery never claims an agent is actively working.
+Waiting submissions expose a visible **Abandon** button even when collapsed, with the
+existing explicit confirmation. No overflow menu is used. Related-review links remain
+available for overlapping work.
 History and Feedback retain the same mounted reply/note
 editors and independent reading positions. Capture errors belong to their exact
 result/page; older issues remain discoverable through the History issue count.

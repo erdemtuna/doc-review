@@ -107,9 +107,16 @@
   .conversation-panel.has-history .conversation-new-message { display: none; }
   .conversation-capture-warning { font-size: 12px; color: var(--foreground); }
   .conversation-history h3, .conversation-edits h3 { font-size: 14px; margin: 6px 0; }
-  .conversation-submission { padding: 8px; margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
-  .conversation-submission summary { cursor: pointer; font-weight: 600; }
-  .conversation-submission > summary .conversation-time { display: block; margin: 4px 0 0 16px; font-weight: 400; color: var(--muted-foreground); font-size: 11px; }
+  .conversation-submission { min-width: 0; overflow-wrap: anywhere; }
+  .conversation-submission > summary { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; list-style: none; font-weight: 600; border-radius: var(--radius); }
+  .conversation-submission > summary::-webkit-details-marker { display: none; }
+  .conversation-submission > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .conversation-submission-heading { flex: 1; min-width: 0; }
+  .conversation-submission > summary .conversation-time { display: block; width: fit-content; margin-top: 2px; font-weight: 400; color: var(--muted-foreground); font-size: 11px; }
+  .conversation-submission-chevron { margin-top: 4px; color: var(--muted-foreground); }
+  .conversation-submission[open] > summary .conversation-submission-chevron { transform: rotate(90deg); }
+  .conversation-submission-content { font-size: 12px; }
+  .conversation-abandon { margin-top: 6px; color: var(--destructive); }
   .conversation-submission h4 { margin: 12px 0 6px; font-size: 13px; }
   .conversation-result { padding-block: 6px; }
   .conversation-edits pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }

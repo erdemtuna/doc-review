@@ -15,6 +15,7 @@ import { Icon } from "./icon";
 import { ConversationAuthor, ConversationIntent, ConversationMenu, ConversationTime, ConversationSource } from "./conversation-controls";
 import { EditEvidence, ResultActions, editOutcomeSummary, responseOutcomeLabels, resultAvailability, resultHeading } from "./conversation-results";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
+import { Timeline, TimelineItem } from "./ui/timeline";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 type Thread = Snapshot["threads"][number];
@@ -397,10 +398,25 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
     {!snapshot.history.length && <p>No submissions yet. Send saved feedback when you are ready.</p>}
     {[...new Set(snapshot.status?.blockers.map(blocker => blocker.reviewId))].filter(id => id !== snapshot.review?.reviewId)
       .map(id => <p key={id}><a href={`/r/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">Open related review</a></p>)}
+    <Timeline aria-label="Review timeline">
     {snapshot.history.map((item) => {
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
-      return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
-        <summary>{item.result ? (detail ? resultHeading(detail) : "Agent response") : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned batch"} <ConversationTime value={item.createdAt} /></summary>
+      const waiting = item.state === "queued" || item.state === "delivered";
+      const followUp = detail?.result && [
+        detail.result.overallOutcome, ...detail.result.responses.map(response => response.outcome),
+        ...detail.result.editOutcomes.map(outcome => outcome.outcome),
+      ].some(outcome => outcome === "clarification-needed" || outcome === "deferred");
+      const changed = item.result?.effect === "changes-reported";
+      const heading = item.result ? followUp ? "Response needs follow-up" : (detail ? resultHeading(detail) : "Agent response")
+        : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned";
+      return <TimelineItem key={item.submissionId} data-state={item.state}
+        tone={waiting || followUp ? "waiting" : item.state === "abandoned" ? "neutral" : changed ? "changed" : "response"}
+        icon={<Icon size={14} name={item.state === "queued" ? "clock" : item.state === "delivered" ? "inbox"
+          : item.state === "abandoned" ? "circleX" : followUp ? "circleHelp" : changed ? "filePenLine" : "messages"} />}>
+      <details open={item.result ? undefined : true} className="conversation-submission">
+        <summary><span className="conversation-submission-heading"><span>{heading}</span>
+          <ConversationTime value={item.createdAt} /></span><Icon className="conversation-submission-chevron" name="chevronRight" size={14} /></summary>
+        <div className="conversation-submission-content">
         {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <ConversationIntent />}</h4>
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
@@ -418,8 +434,13 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
               title={key !== shell.getSnapshot().pageKey ? "Open this page in Review before capturing current content." : undefined}
               onClick={() => act(owner, () => shell.commands.recapture(item.submissionId, key))}>Capture current content</Button>}
           </div></section>)}
-      </details>;
+        </div>
+      </details>
+      {waiting && <Button className="conversation-abandon" variant="ghost" size="xs" disabled={snapshot.busy || !!snapshot.uncertain}
+        onClick={() => owner.commands.confirm("abandon", item.submissionId)}><Icon name="circleX" size={14} />Abandon</Button>}
+      </TimelineItem>;
     })}
+    </Timeline>
     {snapshot.historyCursor && <Button variant="outline" onClick={() => act(owner, owner.commands.historyEarlier)}>Load earlier submissions</Button>}
   </section>;
 }

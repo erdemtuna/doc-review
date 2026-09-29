@@ -73,14 +73,15 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   const history = page.getByRole("region", { name: "Submission history" });
   await expect(history.locator("pre, code")).toHaveCount(0);
   expect(await history.textContent()).not.toMatch(/You can keep commenting|Technical details|Agent command|Receipt details|Advanced actions|review_|submission_|doc-review poll/);
-  await expect(history.locator("button")).toHaveCount(0);
+  await expect(history.getByRole("button", { name: "Abandon", exact: true })).toBeVisible();
+  await expect(history.locator("[aria-haspopup='menu']")).toHaveCount(0);
   const submission = history.locator(".conversation-submission");
   await submission.locator("summary").click();
   await expect(submission).not.toHaveAttribute("open");
-  await expect(history.locator("button")).toHaveCount(0);
+  await expect(history.getByRole("button", { name: "Abandon", exact: true })).toBeVisible();
   await submission.locator("summary").click();
   await expect(submission).toHaveAttribute("open");
-  await expect(history.locator("button")).toHaveCount(0);
+  await expect(history.getByRole("button", { name: "Abandon", exact: true })).toBeVisible();
   for (const [width, height] of [[1280, 720], [720, 480]]) {
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
@@ -98,7 +99,79 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   await expect(blockers).toBeHidden();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(history).toContainText("Waiting for a response");
-  await expect(history.locator("button")).toHaveCount(0);
+  await expect(history.getByRole("button", { name: "Abandon", exact: true })).toBeVisible();
+});
+
+test("History timeline has connected status icons and visible confirmed abandonment in both themes", async ({ page, review }, info) => {
+  const ref = await openReview(page, review, writeFile(review, "timeline.html", "<h1>Review timeline</h1><p>A passage to review.</p>"));
+  await waitForSdk(page);
+  for (const [body, overallOutcome] of [
+    ["Explain the wording.", "answered"],
+    ["Refine the wording.", "applied"],
+    ["Clarify the scope first.", "clarification-needed"],
+  ]) {
+    await sendPending(review, ref, { body, intent: "request-change" });
+    await handled(review, ref, { overallOutcome, resultNote: body });
+  }
+  await sendPending(review, ref, { body: "Withdraw this request.", intent: "discuss" });
+  await feedback(page);
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  const history = page.getByRole("region", { name: "Submission history" });
+  const abandon = history.getByRole("button", { name: "Abandon", exact: true });
+  await abandon.click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("Stop the old agent");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(abandon).toBeFocused();
+  await expect(history.locator("[data-state='queued']")).toHaveCount(1);
+  await abandon.click();
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(history.locator("[data-state='abandoned']")).toHaveCount(1);
+  await history.locator("[data-state='abandoned'] summary").click();
+  await sendPending(review, ref, { body: "The next review request.", intent: "discuss" });
+  const timeline = history.getByRole("list", { name: "Review timeline" });
+  const entries = timeline.locator(":scope > li");
+  await expect(entries).toHaveCount(5);
+  await expect(entries.first()).toHaveAttribute("data-state", "queued");
+  await expect(entries.nth(1)).toHaveAttribute("data-state", "abandoned");
+  await expect(entries.nth(2)).toHaveAttribute("data-tone", "waiting");
+  await expect(entries.nth(2)).toContainText("Response needs follow-up");
+  await expect(entries.nth(3)).toHaveAttribute("data-tone", "changed");
+  await expect(entries.nth(4)).toHaveAttribute("data-tone", "response");
+  await expect(timeline.locator("[data-slot='timeline-marker'] svg")).toHaveCount(5);
+  await expect(timeline.locator("[aria-haspopup='menu']")).toHaveCount(0);
+  await expect(abandon).toHaveCount(1);
+  for (const [width, height] of [[1280, 720], [720, 480]]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ["light", "dark"]) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      await expect(abandon).toBeInViewport();
+      const geometry = await entries.evaluateAll(nodes => nodes.map(node => {
+        const marker = node.querySelector("[data-slot='timeline-marker']");
+        const bounds = marker.getBoundingClientRect();
+        const connector = getComputedStyle(node, "::before");
+        return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+          line: connector.display, lineWidth: connector.borderLeftWidth, color: getComputedStyle(marker).color,
+          overflow: node.scrollWidth > node.clientWidth };
+      }));
+      expect(new Set(geometry.map(item => item.x)).size).toBe(1);
+      expect(new Set(geometry.map(item => item.color)).size).toBe(4);
+      for (const [index, item] of geometry.entries()) {
+        expect(item.width).toBe(24); expect(item.height).toBe(24); expect(item.overflow).toBe(false);
+        if (index < geometry.length - 1) {
+          expect(item.line).not.toBe("none"); expect(item.lineWidth).toBe("1px");
+          expect(geometry[index + 1].y).toBeGreaterThan(item.y + item.height);
+        } else expect(item.line).toBe("none");
+      }
+      await page.screenshot({ path: info.outputPath(`history-timeline-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+    }
+  }
+  await conversation(review, ref, "poll");
+  await expect(entries.first()).toHaveAttribute("data-state", "delivered");
+  await expect(entries.first()).toContainText("Waiting for a response");
+  await expect(abandon).toBeVisible();
+  await entries.nth(3).locator("summary").click();
+  await expect(entries.nth(3).getByRole("button", { name: "View changes", exact: true })).toBeVisible();
 });
 
   for (const host of ["feedback", "history", "focus", "adjacent"]) test(`Back restores ${host} locally across failed and late comparison reads`, async ({ page, review }, info) => {

@@ -285,7 +285,7 @@ test("checked intent editing and ended late results retain read-only observer", 
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Late response after shared End.", { exact: true })).toBeVisible();
 });
 
-test("fresh and overlapping reviews block source writes and Send, but allow discussion; management abandonment releases them", async ({ page, context, review }) => {
+test("fresh and overlapping reviews block source writes and Send, but allow discussion; visible confirmed abandonment releases them", async ({ page, context, review }) => {
   const file = writeFile(review, "conversation-blocked.html", "<p>Shared target</p>");
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click(); await message(page, "First work");
@@ -298,21 +298,20 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await expectEditBlocked(second, true);
   await message(second, "Prepare a discussion while blocked");
   await submissionHistory(page);
-  await expect(page.getByRole("region", { name: "Submission history" }).locator("button")).toHaveCount(0);
-  const queued = (await call(review, { ...ref, operation: "status" })).work;
-  await call(review, { ...ref, operation: "abandon", requestId: randomUUID(), submissionId: queued.submissionId,
-    expectedVersion: queued.version, confirmExternalWorkMayContinue: true, reason: "Explicit management release of queued fixture work" });
+  await page.getByRole("button", { name: "Abandon", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("Stop the old agent");
+  await expect(page.getByRole("alertdialog")).toContainText(ref.reviewId);
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(page.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
   await expect(second.locator("#send")).toBeEnabled();
   await expectEditBlocked(second, false);
   await second.locator("#send").click(); await expect(second.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
-  const delivered = (await call(review, { ...fresh, operation: "poll" })).submission;
+  await call(review, { ...fresh, operation: "poll" });
   await expect(second.getByRole("status", { name: "Waiting for agent", exact: true }))
     .toHaveAccessibleDescription(/Feedback received; no response yet/);
   await submissionHistory(second);
-  await expect(second.getByRole("region", { name: "Submission history" }).locator("button")).toHaveCount(0);
-  await call(review, { ...fresh, operation: "abandon", requestId: randomUUID(), submissionId: delivered.submissionId,
-    expectedVersion: delivered.version, confirmExternalWorkMayContinue: true, reason: "Explicit management release of delivered fixture work" });
+  await second.getByRole("button", { name: "Abandon", exact: true }).click();
+  await second.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(second.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
 });
 
