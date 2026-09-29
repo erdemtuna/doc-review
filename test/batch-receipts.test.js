@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fixture, responseFor, editContent } from "./fixtures/agent-loop.js";
+import { exactFixture as fixture, responseFor, editContent } from "./fixtures/agent-loop.js";
 import { statePath } from "../lib/paths.js";
 import { failureSchema } from "../lib/contracts/index.js";
 

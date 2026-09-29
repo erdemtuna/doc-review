@@ -98,7 +98,9 @@ End and restart; do not substitute a newer review of the same file.
 
 ```sh
 doc-review poll --review <reviewId> --entry <entryKey> --timeout 600
-doc-review context --review <reviewId> --entry <entryKey> --thread <threadId>
+doc-review context --review <reviewId> --entry <entryKey> --submission <submissionId> --thread <threadId> --limit 1
+doc-review history --review <reviewId> --entry <entryKey> --before <submissionId> --limit 1
+doc-review response-template --review <reviewId> --entry <entryKey> --submission <submissionId> --output-file response.json
 doc-review respond --review <reviewId> --entry <entryKey> --response-file response.json
 doc-review status --review <reviewId> --entry <entryKey>
 ```
@@ -107,7 +109,18 @@ The response file carries the exact submission/version, a stable caller request
 ID, all inline replies and edit outcomes, and one result note. Success includes a
 durable receipt. If the response connection is lost, retry the identical file,
 not source edits. Target-only polling and acknowledgement-only completion are
-retired. See the [response format and recovery rules](src/SKILL.md).
+retired. Templates contain the complete response inventory, but blank outcomes and
+prose intentionally fail validation until filled. Overall-note outcomes are scalar
+strings; their prose goes in `resultNote`.
+
+Agent JSON is bounded to 16 KiB after escaping. Small content stays inline; large
+values have scoped exact reads/exports, and inventories expose complete paging.
+Context includes only earlier submitted exchanges, never current or saved-unsent
+replies. History recovers previous notes/results/edits after lost chat context.
+See the [installed skill](src/SKILL.md) and its on-demand
+[response](src/references/response-contract.md),
+[source](src/references/source-edits.md), and
+[recovery](src/references/context-and-recovery.md) references.
 
 End freezes the shared review but lets accepted work finish. Unsent items stay
 read-only in that ended review, never transfer to a new one. Referenced

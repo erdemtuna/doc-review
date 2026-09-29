@@ -275,17 +275,24 @@ Copy the generated commands rather than reusing these placeholders:
 
 ```sh
 npx -y @erdemtuna/doc-review poll --review <reviewId> --entry <entryKey> --timeout 600
-npx -y @erdemtuna/doc-review context --review <reviewId> --entry <entryKey> --thread <threadId>
+npx -y @erdemtuna/doc-review context --review <reviewId> --entry <entryKey> --submission <submissionId> --thread <threadId> --limit 1
 ```
 
-Poll returns `state: "work"` with `review`, immutable delivered `submission`,
-canonical `pages`, and scoped `handoff` commands. A message's `discuss` intent
+Poll returns `state: "work"` with `review` and a delivered `submission` manifest.
+Its paged `inventory` includes canonical pages, messages and exact edits, with
+scoped `handoff` commands. A message's `discuss` intent
 means an answer without source edits. `request-change` permits only that message's
 change, not a mandatory edit. Clarification and deferral are valid outcomes.
-Context returns bounded exchanges with `reviewer` and nullable `response`;
-use `--cursor <nextCursor>` for earlier windows. Default 50, maximum 100.
+Context returns only earlier submitted exchanges (not the current submission or
+saved-unsent replies), with message intent/body, nullable response, and lifecycle
+evidence. Start with the generated `--limit 1` command and expand deliberately.
+Inventory/context/history expose total/returned counts and completeness;
+use `--cursor <nextCursor>` until the required inventory/evidence is complete.
+Default maximum is 50 records (request limit up to 100), further bounded by bytes.
 
-The agent writes a complete response file and submits it:
+Use the actual `handoff.templateCommand` to generate a complete response file in
+a submission-specific new path. Outcomes/prose start blank and invalid, not as
+guessed success. Fill the file truthfully, then run its `responseCommand`:
 
 ```sh
 npx -y @erdemtuna/doc-review respond --review <reviewId> --entry <entryKey> --response-file response.json --timeout 600
@@ -294,11 +301,21 @@ npx -y @erdemtuna/doc-review respond --review <reviewId> --entry <entryKey> --re
 The file contains `operation: "respond"`, `reviewId`, `entryKey`, `submissionId`,
 the delivered submission's `expectedVersion`, a stable caller `requestId`,
 `responses`, `editOutcomes`, and one `resultNote`. Include `overallOutcome` only
-when an overall note exists. Every selected message and edit must be covered
+when an overall note exists, as a scalar outcome string; its prose belongs in
+`resultNote`. Every selected message and edit must be covered
 exactly once with its exact version. See the
-[complete example and allowed outcomes](../src/SKILL.md#complete-response-then-wait).
+[complete example and allowed outcomes](../src/references/response-contract.md).
 Discussion cannot be reported as Applied; saved human edits use `already-saved`
 only when server evidence exists. Clarify/defer incomplete or ambiguous work.
+
+Each default JSON output is at most 16 KiB UTF-8 after escaping. Large values are
+explicit references, never silently shortened replacements. `content` reads
+complete fields or Unicode-safe chunks with scoped continuations and hashes;
+`--output-file <new-path>` exports exact evidence atomically without overwriting.
+`history --before <submissionId>` recovers prior overall notes/results, and
+`submission --submission <id>` recovers all exact messages, edits and outcomes.
+Historical intent is not renewed permission. See
+[context and recovery](../src/references/context-and-recovery.md).
 
 Successful output is `{ok:true,receipt}` after atomic persistence. Newer unsent
 items survive. Inline exchanges, result notes, and receipts remain durable.

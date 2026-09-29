@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { fixture, responseFor, editContent, scopeArgs } from "./fixtures/agent-loop.js";
+import { exactFixture as fixture, responseFor, editContent, scopeArgs } from "./fixtures/agent-loop.js";
 
 async function opened(t) {
   const f = await fixture(t), file = f.file();
@@ -120,8 +120,11 @@ test("End releases the exact-review waiting agent while retaining read-only sess
   assert.equal(bootstrap.status, 200);
   assert.equal((await bootstrap.json()).review.state, "ended");
   const context = await f.cli("context", ...scopeArgs(ref), "--thread", pending.value.threadId);
-  assert.equal(context.body.items[0].reviewer.body, "Unsent thought");
-  assert.equal(context.body.items[0].reviewer.submissionId, null);
+  assert.equal(context.body.error.code, "INVALID_INPUT", "agent reads require a submitted boundary");
+  const browserContext = await f.ok({ operation: "list", scope: { ...ref, collection: "context", pageKey: null,
+    threadId: pending.value.threadId, submissionId: null, status: "all" }, query: {} });
+  assert.equal(browserContext.items[0].reviewer.body, "Unsent thought");
+  assert.equal(browserContext.items[0].reviewer.submissionId, null, "browser read-only context retains unsent text");
   assert.equal((await attempt(f, ref, "reply", {
     threadId: pending.value.threadId, body: "Too late", intent: "discuss",
   })).body.error.code, "REVIEW_ENDED");

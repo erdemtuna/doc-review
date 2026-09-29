@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fixture, editContent, responseFor } from "./fixtures/agent-loop.js";
+import { exactFixture as fixture, editContent, responseFor } from "./fixtures/agent-loop.js";
 import { limitEditFields, MAX_EDIT_CHARACTERS } from "../lib/edit-limits.js";
 import { directEditContentSchema } from "../lib/contracts/index.js";
 
