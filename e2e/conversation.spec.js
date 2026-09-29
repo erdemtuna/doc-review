@@ -55,15 +55,15 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   const picked = await call(review, { ...ref, operation: "poll" });
   expect(picked.submission.messages[0].message.intent).toBe("discuss");
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   await call(review, responseFor(picked.submission, { resultNote: "No source changes were needed." }));
   await expect(page.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "New activity", exact: true }).click();
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Mark conversation as read", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("No source changes were needed.", { exact: true })).toHaveCount(1);
   expect(fs.readFileSync(file, "utf8")).toBe(original);
   const thread = page.locator(".conversation-thread");
@@ -85,7 +85,7 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await other.locator("#commentsButton").click();
   await other.locator("#endReview").click();
   await expect(other.getByRole("alertdialog")).toContainText("for every tab");
-  await other.getByRole("button", { name: "Confirm", exact: true }).click();
+  await other.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
   await expect(page.getByText("Pending (read-only)", { exact: true })).toBeVisible();
   await expect(page.getByText("Pending (read-only)", { exact: true })).toHaveAttribute("title", /review has ended and is read-only/);
@@ -221,10 +221,10 @@ test("reconnected history bridges missed pages and retains loaded records and th
   await earlier.click();
   await expect(page.locator(".conversation-submission")).toHaveCount(55);
   expect(Math.abs((await marker.boundingBox()).y - before)).toBeLessThan(2);
-  const retained = await page.locator(".conversation-submission > details > small").allTextContents();
+  const retained = await page.locator(".conversation-submission .conversation-result > p").allTextContents();
   await completeOffline(55);
   await expect(page.locator(".conversation-submission")).toHaveCount(110);
-  const ids = await page.locator(".conversation-submission > details > small").allTextContents();
+  const ids = await page.locator(".conversation-submission .conversation-result > p").allTextContents();
   expect(new Set(ids).size).toBe(110);
   expect(ids.slice(-55)).toEqual(retained);
   expect(Math.abs((await marker.boundingBox()).y - before)).toBeLessThan(2);
@@ -279,7 +279,7 @@ test("checked intent editing and ended late results retain read-only observer", 
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await page.locator("#endReview").click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.messages[0].message.intent).toBe("discuss");
@@ -296,7 +296,7 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click(); await message(page, "First work");
   await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
-  await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
   const second = await context.newPage();
   const fresh = await open(second, review, file); expect(fresh.reviewId).not.toBe(ref.reviewId);
   await second.locator("#commentsButton").click();
@@ -307,7 +307,7 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await page.getByRole("button", { name: "Abandon", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Stop the old agent");
   await expect(page.getByRole("alertdialog")).toContainText(ref.reviewId);
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "Abandon submission", exact: true }).click();
   await expect(page.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
   await expect(second.locator("#send")).toBeEnabled();
   await expectEditBlocked(second, false);
@@ -317,7 +317,7 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
     .toHaveAccessibleDescription(/Feedback received; no response yet/);
   await submissionHistory(second);
   await second.getByRole("button", { name: "Abandon", exact: true }).click();
-  await second.getByRole("button", { name: "Confirm", exact: true }).click();
+  await second.getByRole("button", { name: "Abandon submission", exact: true }).click();
   await expect(second.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
 });
 
@@ -333,9 +333,13 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
   await (await threadAction(page, thread, "Resolve")).click();
   await expect(page.getByRole("button", { name: "Undo resolve" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Resolved (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
+  const resolved = page.getByRole("button", { name: "Resolved (1)", exact: true });
+  await expect(resolved).toHaveAttribute("aria-pressed", "false");
+  await resolved.click();
   const collapse = thread.locator(".conversation-thread-title");
+  await expect(collapse).toHaveAttribute("aria-expanded", "false");
+  await collapse.click();
+  await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
   await collapse.focus(); await page.keyboard.press("Enter");
   await expect(collapse).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Enter"); await expect(collapse).toHaveAttribute("aria-expanded", "true");
@@ -396,10 +400,11 @@ test("response transport loss reconciles Send without duplicating immutable work
   });
   await page.locator("#send").click();
   await expect(page.getByText("send: acceptance unknown", { exact: true })).toBeVisible();
-  const receiptMessage = await page.locator(".conversation-error p").last().innerText();
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  const receiptMessages = await page.locator(".review-recovery-message").filter({ hasText: "send: acceptance unknown" }).locator("p").allTextContents();
+  expect(receiptMessages).toEqual(["Failed to fetch", expect.stringContaining("Check the receipt")]);
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   const recovery = page.getByRole("status", { name: "Review recovery" });
-  await expect(recovery).toContainText(receiptMessage);
+  await expect(recovery.getByRole("alert").locator("p")).toHaveText(receiptMessages);
   await expect(recovery.locator("code")).toHaveText(lost.requestId);
   await page.locator("#seeChanges").click();
   await page.setViewportSize({ width: 320, height: 450 });
@@ -429,9 +434,9 @@ test("unknown End stays visible in its dialog and replays the same request witho
     }
     await route.continue();
   });
-  await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Acceptance is unknown");
-  await expect(page.getByRole("button", { name: "Confirm", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "End review", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: "Check receipt", exact: true }).click();
   await expect(page.locator(".conversation-panel").getByText("end: acceptance unknown", { exact: true })).toHaveCount(0);
@@ -594,7 +599,7 @@ test("bounded earlier history preserves reviewer/reply associations and new acti
   await expect(thread.locator(".conversation-exchange").last().locator(".conversation-response")).toHaveCount(0);
   await thread.locator(".conversation-thread-title").click();
   await mutate(review, ref, "reply", { threadId: id, body: "Arrived while collapsed", intent: "discuss" });
-  await expect(thread.getByRole("button", { name: "New activity" })).toBeVisible();
+  await expect(thread.getByRole("button", { name: "Mark conversation as read" })).toBeVisible();
   await expect(thread.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "false");
 });
 
@@ -693,7 +698,7 @@ test("review-local revert preserves conversations and exact pending edits", asyn
   await feedback(page);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Revert", exact: true }).click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "Revert edits", exact: true }).click();
   await expect.poll(() => fs.readFileSync(file, "utf8")).toBe(original);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toBeDisabled();
   await feedback(page);
@@ -709,7 +714,7 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     await feedback(page);
     await page.getByRole("button", { name: /Note to agent/ }).click();
     await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Local draft survives reattachment only");
-    await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
     await expect(page.locator("#send")).toBeDisabled();

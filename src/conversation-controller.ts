@@ -123,7 +123,7 @@ export function createConversationController(options: Options) {
     resolutionUndo: review?.state === "open" && review.version === resolutionUndo?.reviewVersion ? resolutionUndo : null,
     confirmation, draftCancellation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
     busy: busy || confirming || dispatching, loading, savingDraftIds: [...savingDrafts], sendBlocked: sendBlocked(), draftCount: draftCount(), attentionCount: attention.size,
-    selection: selectionSummary(),
+    selection: selectionSummary(), canComment: writable(),
     unsavedMessageDraftCount: [...drafts.values(), ...(newMessage ? [newMessage.draft] : [])].filter((draft) => draft.text.length > 0).length,
   }));
   function publish() { if (!disposed) store.publish(); }

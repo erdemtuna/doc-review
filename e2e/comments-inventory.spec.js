@@ -121,8 +121,8 @@ test("confirmed deletion is single-flight and leaves a reachable keyboard target
   const first = page.locator(".conversation-thread").first();
   await (await threadAction(page, first, "Delete thread")).click();
   try {
-    await button(page.getByRole("alertdialog"), "Confirm").evaluate((element) => { element.click(); element.click(); });
-    await expect(button(page.getByRole("alertdialog"), "Confirm")).toBeDisabled();
+    await button(page.getByRole("alertdialog"), "Delete thread").evaluate((element) => { element.click(); element.click(); });
+    await expect(button(page.getByRole("alertdialog"), "Delete thread")).toBeDisabled();
     await expect(button(page.getByRole("alertdialog"), "Cancel")).toBeDisabled();
     await page.keyboard.press("Escape"); await expect(page.getByRole("alertdialog")).toBeVisible();
     await expect.poll(() => deletes).toBe(1);
@@ -130,7 +130,7 @@ test("confirmed deletion is single-flight and leaves a reachable keyboard target
   await expect(page.locator(".conversation-thread")).toHaveCount(1);
   await expect(page.locator(".conversation-thread-title")).toBeFocused();
   await (await threadAction(page, page.locator(".conversation-thread"), "Delete thread")).click();
-  await button(page.getByRole("alertdialog"), "Confirm").click();
+  await button(page.getByRole("alertdialog"), "Delete thread").click();
   await expect(page.locator(".conversation-thread")).toHaveCount(0);
   await expect(page.getByText("Select text or a passage in the document to add a comment.", { exact: true })).toBeVisible();
   await expect(page.locator("#commentsButton")).toBeFocused();

@@ -4,6 +4,7 @@ import { test, expect, openReview, waitForSdk, writeFile, selectText, intercept,
 
 const source = fs.readFileSync(new URL("../test/fixtures/contextual-review.html", import.meta.url), "utf8");
 async function select(frame) {
+  await frame.locator("#detail").click();
   await selectText(frame, "#detail");
   await frame.locator("#commentAction").click();
 }
@@ -43,7 +44,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     const card = page.locator(".conversation-thread");
     await expect(card).toHaveCount(1);
     // Closing does not activate an adjacent conversation; activation is explicit.
-    await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).click();
+    await page.locator(".conversation-panel-header").getByRole("button", { name: "Close feedback", exact: true }).click();
     await frame.locator("mark[data-eh-mark]").first().click();
     await expect(card).toBeVisible();
     const adjacent = await panel.getAttribute("data-host") === "adjacent";

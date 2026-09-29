@@ -12,7 +12,7 @@ async function setup(page, review, name) {
   return { ref, file };
 }
 const note = (page) => page.getByRole("textbox", { name: "Note to agent", exact: true });
-const close = (page) => page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true });
+const close = (page) => page.locator(".conversation-panel-header").getByRole("button", { name: "Close feedback", exact: true });
 
 test("thread disclosure retains DOM and tab-lifetime choices across pages; reload expands and loses only local drafts", async ({ page, review }) => {
   const { ref } = await setup(page, review, "disclosure-first.html");
@@ -90,7 +90,8 @@ test("a source failure stays visible independently of collapsed conversation con
   await intercept(page, "save-edit", (route) => ++attempts === 1 ? failure(route, "Source save unavailable") : route.continue());
   await frame.locator("#copy").click(); await page.keyboard.press("End"); await page.keyboard.type(" changed");
   await feedback(page);
-  await expect(page.getByRole("alert")).toContainText("Source save unavailable");
+  await expect(page.getByRole("alert").filter({ hasText: "Source:" })).toContainText("Source save unavailable");
+  await expect(page.getByRole("alert").filter({ hasText: "acceptance unknown" })).toContainText("Source save unavailable");
   await expect(page.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("#send")).toBeDisabled();
   expect(fs.readFileSync(file, "utf8")).toBe(source);
@@ -122,7 +123,7 @@ test("Send selects all saved items across authorized pages beyond one page of re
   await draft.fill("Unsaved contextual draft is excluded");
   await (await overallNote(page)).fill("A submission-level note, not a conversation");
   await expect(page.locator("#send")).toHaveText("Send to agent (105)");
-  await expect(page.locator("#send")).toHaveAccessibleDescription("Ready to send: 2 comments · 102 edits · 1 note");
+  await expect(page.locator("#send")).toHaveAccessibleDescription("Ready to send: 2 comments · 102 edits · 1 note 1 unfinished draft excluded from Send.");
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;

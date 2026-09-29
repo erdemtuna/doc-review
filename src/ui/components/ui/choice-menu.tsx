@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { Button } from "./button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "./dropdown-menu";
-import { Icon } from "../icon";
+import { Icon, type IconName } from "../icon";
 
-export type ChoiceOption = { readonly value: string; readonly label: string };
+export type ChoiceOption = {
+  readonly value: string; readonly label: string; readonly description?: string;
+  readonly icon?: IconName; readonly disabled?: boolean;
+};
 type Props = {
   id: string;
   label: string;
@@ -12,6 +15,9 @@ type Props = {
   triggerLabel: string;
   valueLabel?: string;
   textId?: string;
+  menuId?: string;
+  size?: "default" | "sm" | "xs";
+  icon?: IconName;
   disabled?: boolean;
   open: boolean;
   restoreFocus: boolean;
@@ -49,17 +55,18 @@ export function ChoiceMenu(props: Props) {
     };
   }, []);
   const selected = props.options.find((option) => option.value === props.value);
-  const menuId = `${props.id}Menu`;
+  const menuId = props.menuId ?? `${props.id}Menu`;
   const open = props.open && !props.disabled;
   return <DropdownMenu modal={false} open={open} onOpenChange={(next) => {
     if (next) { returnFocus.current = true; chosen.current = null; pendingFocus.current = null; }
     props.onOpenChange(next);
   }}>
     <DropdownMenuTrigger asChild>
-      <Button id={props.id} ref={trigger} variant="outline" className="choice-trigger min-w-0 shrink"
+      <Button id={props.id} ref={trigger} variant="outline" size={props.size} className="choice-trigger min-w-0 shrink border-input"
         data-value={props.value} disabled={props.disabled}
         aria-label={`${props.label}: ${props.valueLabel || selected?.label || props.triggerLabel}`}
-        title={selected?.label || props.triggerLabel} aria-controls={open ? menuId : undefined}>
+        aria-controls={open ? menuId : undefined}>
+        {props.icon && <Icon name={props.icon} />}
         <span id={props.textId} className="choice-label" aria-live={props.textId ? "polite" : undefined}>{props.triggerLabel}</span>
         <Icon name="chevronDown" />
       </Button>
@@ -84,15 +91,17 @@ export function ChoiceMenu(props: Props) {
       }}>
       <DropdownMenuRadioGroup value={props.value} onValueChange={(value) => {
         const latest = current.current;
-        if (!latest.open || latest.disabled || !latest.options.some((option) => option.value === value)) return;
+        if (!latest.open || latest.disabled || !latest.options.some((option) => option.value === value && !option.disabled)) return;
         returnFocus.current = true;
         chosen.current = value;
         latest.onOpenChange(false);
         latest.onValueChange(value);
       }}>
         {props.options.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value}
-          data-choice-value={option.value} textValue={option.label} className="min-h-8 whitespace-normal p-2 pr-8 wrap-anywhere">
-          {option.label}
+          disabled={option.disabled} data-choice-value={option.value} textValue={option.label} className="min-h-8 gap-2 whitespace-normal p-2 pr-8 wrap-anywhere">
+          {option.icon && <Icon name={option.icon} />}
+          <span><span className="block">{option.label}</span>
+            {option.description && <> <span className="block text-xs text-muted-foreground">{option.description}</span></>}</span>
         </DropdownMenuRadioItem>)}
       </DropdownMenuRadioGroup>
     </DropdownMenuContent>}

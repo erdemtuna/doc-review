@@ -19,7 +19,7 @@ test("toolbar preserves authored state and draft identity across themes and save
   await sendPending(review, ref, { body: "Update the example", intent: "request-change" });
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await handled(review, ref, { overallOutcome: "applied" });
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   await frame.getByLabel("Authored-page draft").fill("Keep this authored draft");
   await frame.getByRole("button", { name: "Increment counter" }).click();
   await page.locator("#frame").evaluate((element) => { window.originalFrame = element; });
@@ -254,7 +254,7 @@ test("toolbar controls reflow without clipping when their text is enlarged", asy
   await openReview(page, review, writeFile(review, "toolbar-large-text.html", fixture));
   await waitForSdk(page);
   await page.addStyleTag({ content: ".shell-toolbar button { font-size:24px;line-height:1.5;height:auto; }" });
-  for (const name of ["Review", "Changes", "View", "Feedback"]) {
+  for (const name of ["Review", "Changes", "Page mode: View", "Feedback"]) {
     const button = page.getByRole("button", { name, exact: true });
     const box = await button.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -519,7 +519,7 @@ test("long mutation errors occupy an on-demand recovery row below real pointer c
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Keep this draft");
   await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("could not be verified");
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   await expect(page.locator(".conversation-global-status").getByRole("alert")).toBeVisible();
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });

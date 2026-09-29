@@ -116,7 +116,7 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
   test(`${theme} SDK controls ignore opposing authored surfaces and preserve live DOM`, async ({ page }) => {
     const { frame, errors } = await openSdk(page, background);
     await command(page, { type: "eh:setTheme", theme, themeRevision: 1 });
-    await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable" });
+    await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable", canComment: true });
     await frame.evaluate(() => {
       const host = document.querySelector("[data-eh-ui]");
       const shadow = host.shadowRoot;
@@ -273,7 +273,7 @@ test("SDK repositions an open link draft on frame resize and dismisses disconnec
   const { frame, errors } = await openSdk(page);
   await page.locator("iframe").evaluate((element) => { element.style.width = "800px"; element.style.height = "500px"; });
   await command(page, { type: "eh:setTheme", theme: "light", themeRevision: 1 });
-  await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable" });
+  await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable", canComment: true });
   await frame.locator("#target").click();
   await frame.locator("#target").evaluate((element) => {
     const range = document.createRange();

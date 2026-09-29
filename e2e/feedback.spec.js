@@ -8,7 +8,7 @@ async function setup(page, review, name = "feedback.html") {
   return { file, ref };
 }
 async function edit(page, suffix) {
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   const frame = await enterEditMode(page);
   await frame.locator("#copy").click(); await page.keyboard.press("End"); await page.keyboard.insertText(suffix);
 }
@@ -33,7 +33,7 @@ for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [
       await note.fill("Keep this overall note");
       await note.evaluate((element) => { window.savedNote = element; window.savedFrame = document.querySelector("#frame"); element.setSelectionRange(5, 9); element.dispatchEvent(new Event("select", { bubbles: true })); });
       await page.locator("#theme").click(); await page.locator("#theme").click();
-      await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click(); await feedback(page);
+      await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click(); await feedback(page);
       expect(await note.evaluate((element) => element === window.savedNote && document.querySelector("#frame") === window.savedFrame)).toBe(true);
       expect(await note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);
       await actionsFit(page, width, height);
@@ -115,7 +115,7 @@ test("Revert Cancel preserves edits; confirmation is single-flight and preserves
   await intercept(page, "revert", async (route) => { requests++; await gate; await route.continue(); });
   await revert.click();
   const dialog = page.getByRole("alertdialog");
-  await dialog.getByRole("button", { name: "Confirm" }).evaluate((button) => { button.click(); button.click(); });
+  await dialog.getByRole("button", { name: "Revert edits" }).evaluate((button) => { button.click(); button.click(); });
   await expect.poll(() => requests).toBe(1);
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
   await page.keyboard.press("Escape"); await expect(dialog).toBeVisible();
@@ -132,12 +132,12 @@ test("stale End confirmation rejects explicitly without losing drafts; renewed c
   await page.locator("#endReview").click();
   await seedThread(review, ref, "Concurrent saved work");
   const dialog = page.getByRole("alertdialog");
-  await dialog.getByRole("button", { name: "Confirm" }).click();
+  await dialog.getByRole("button", { name: "End review" }).click();
   await expect(page.getByRole("alert")).toContainText(/version|changed|stale/i);
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.locator("#endReview").click();
-  await dialog.getByRole("button", { name: "Confirm" }).click();
+  await dialog.getByRole("button", { name: "End review" }).click();
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await expect(page.getByRole("textbox", { name: "Note to agent" })).toHaveValue("Unsent draft");
   expect((await conversation(review, ref, "read-review")).state).toBe("ended");
@@ -157,7 +157,7 @@ for (const action of ["Send", "Revert", "End"]) {
     let requests = 0;
     await intercept(page, action.toLowerCase(), async (route) => { requests++; await route.continue(); });
     await page.getByRole("button", { name: action === "End" ? "End review" : action, exact: true }).click();
-    if (action !== "Send") await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+    if (action !== "Send") await page.getByRole("alertdialog").getByRole("button", { name: action === "End" ? "End review" : "Revert edits" }).click();
     await expect(page.getByRole("alert")).toContainText(/record|persist|save|edit/i);
     expect(requests).toBe(0);
     expect((await conversation(review, ref, "read-review")).state).toBe("open");

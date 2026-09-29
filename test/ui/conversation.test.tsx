@@ -81,7 +81,10 @@ it("conversation actions follow Locate, icon Resolve, More, Collapse and Focus r
   expect([...toolbar.querySelectorAll("button")].map(button => button.getAttribute("aria-label")))
     .toEqual(["Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
   const resolve = screen.getByRole("button", { name: "Resolve" });
-  expect(resolve).toHaveAttribute("title", "Resolve conversation");
+  expect(resolve).not.toHaveAttribute("title");
+  fireEvent.focus(resolve);
+  expect(await screen.findByRole("tooltip", { name: "Resolve conversation" })).toBeVisible();
+  fireEvent.blur(resolve);
   expect(resolve.querySelector("svg")).not.toBeNull();
   expect(resolve.textContent).toBe("");
   act(() => { owner.commands.reply("thread"); owner.commands.focus("thread"); });
@@ -261,21 +264,24 @@ it("adjacent conversations separate source context, navigation and collapse cont
   expect(owner.getSnapshot().threads[0].expanded).toBe(false);
   shell.dispose();
 });
-it("cards extend the former inventory surface and keep both filters visibly selected by default", async () => {
+it("cards default to Open only and filters independently allow both or neither", async () => {
   const { shell } = await fixture();
   const card = screen.getByRole("article");
   expect(card).toHaveClass("inventory-card");
   expect(screen.getByRole("button", { name: "Collapse conversation", expanded: true })).toBeVisible();
   const open = screen.getByRole("button", { name: "Open (1)" });
   const resolved = screen.getByRole("button", { name: "Resolved (0)" });
-  for (const filter of [open, resolved]) {
-    expect(filter).toHaveAttribute("aria-pressed", "true");
-    expect(filter).toHaveAttribute("data-variant", "secondary");
-  }
+  expect(open).toHaveAttribute("aria-pressed", "true");
+  expect(resolved).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(resolved);
+  expect(resolved).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(open);
   expect(card).not.toBeVisible();
   expect(open).toHaveAttribute("data-variant", "ghost");
   expect(resolved).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(resolved);
+  expect(resolved).toHaveAttribute("aria-pressed", "false");
+  expect(open).toHaveAttribute("aria-pressed", "false");
   fireEvent.click(open);
   expect(card).toBeVisible();
   expect(screen.getByText("Saved discussion")).toBeVisible();
@@ -344,7 +350,7 @@ it("Feedback is nonmodal and docks only with room for the document", async () =>
     act(() => updateChrome({ viewport: { left: 0, top: 0, width: 720, height: 760 } }));
     expect(document.body.dataset.conversationDocked).toBe("false");
     expect(stage.inert).not.toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close feedback" }));
     expect(stage.inert).not.toBe(true);
     expect(screen.getByRole("button", { name: "Feedback" })).toHaveFocus();
     shell.dispose();
@@ -504,7 +510,7 @@ it("uses descriptive focusable status Badges in a separate center slot, includin
   expect(assertBadge("Review ended", "secondary", receipt)).toBeVisible();
   expect(screen.getByRole("status", { name: "Review ended" })).toHaveAccessibleDescription(/Accepted work can still finish/);
   act(() => updateChrome({ comparisonOpen: false }));
-  expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
   shell.dispose();
 });
 

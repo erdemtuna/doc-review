@@ -37,7 +37,7 @@ it("owns accessible destinations with stable controls and one command per Strict
   const changes = screen.getByRole("button", { name: "Changes" });
   expect(review).toHaveAttribute("aria-controls", "frame");
   expect(review).toHaveAttribute("aria-pressed", "true");
-  expect(changes).toHaveAttribute("aria-controls", "historyPanel");
+  expect(changes).toHaveAttribute("aria-controls", "conversationChanges");
   await user.click(changes);
   expect(commands.setComparing).toHaveBeenCalledExactlyOnceWith(true);
   expect(changes).toHaveAttribute("aria-pressed", "true");
@@ -60,7 +60,7 @@ it("uses a nonmodal keyboard mode menu with selected policy and focus restoratio
   const { runtime, commands } = fixture();
   const user = userEvent.setup();
   render(<Toolbar runtime={runtime} />);
-  const trigger = screen.getByRole("button", { name: "View" });
+  const trigger = screen.getByRole("button", { name: "Page mode: View" });
   trigger.focus();
   await user.keyboard("{Enter}");
   expect(trigger).toHaveAttribute("aria-controls", "modeMenu");
@@ -75,7 +75,7 @@ it("uses a nonmodal keyboard mode menu with selected policy and focus restoratio
   await user.click(trigger);
   await user.click(screen.getByRole("menuitemradio", { name: /^Edit/ }));
   expect(commands.setMode).toHaveBeenCalledExactlyOnceWith("edit");
-  expect(screen.getByRole("button", { name: "Edit" })).toBe(trigger);
+  expect(screen.getByRole("button", { name: "Page mode: Edit" })).toBe(trigger);
 });
 
 it("blocks unavailable and ended commands even before a stale snapshot is republished", () => {
@@ -89,7 +89,7 @@ it("blocks unavailable and ended commands even before a stale snapshot is republ
   expect(commands.setMode).not.toHaveBeenCalled();
   expect(commands.setModeMenu).not.toHaveBeenCalled();
   act(() => { runtime.publish(); });
-  expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
   expect(snapshot.modeDisabled).toBe(false);
   state.ended = true;
   runtime.commands.setComparing(true);
@@ -105,7 +105,7 @@ it("extends the former controls with ended read-only navigation without mounting
   state.ended = true;
   const user = userEvent.setup();
   render(<ToolbarControls state={state} commands={commands} readOnlyNavigation changesId="conversationChanges" />);
-  expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
   const changes = screen.getByRole("button", { name: "Changes" });
   expect(changes).toHaveAttribute("aria-controls", "conversationChanges");
   await user.click(changes); await user.click(screen.getByRole("button", { name: "Review" }));

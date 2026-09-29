@@ -4,6 +4,7 @@ import { ConversationSource, ConversationTime } from "./conversation-controls";
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ConversationShell } from "../../conversation-shell";
 import { Button } from "./ui/button";
+import { DisclosureTrigger } from "./ui/disclosure-trigger";
 import { Icon } from "./icon";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
@@ -37,8 +38,8 @@ export function ResultPreview({ body, actions }: { body: string; actions: (expan
   }, [body]);
   return <>
     <p ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}>{body}</p>
-    {actions(overflow && <Button size="sm" variant="ghost" aria-expanded={expanded}
-      aria-controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</Button>)}
+    {actions(overflow && <DisclosureTrigger expanded={expanded}
+      controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</DisclosureTrigger>)}
   </>;
 }
 
@@ -65,10 +66,10 @@ export function ResultActions({ detail, shell, onReveal, leadingAction }: {
           ? shell.getSnapshot().pageKey! : detail.submission.pageKeys[0];
         void shell.commands.comparison(detail.submission.submissionId, key, "content").catch(shell.owner.report);
       }}>{changes ? "View changes" : "View response"}</Button>}
-      {!!replies.length && <Button className="ml-auto" size="sm" variant={changes ? "ghost" : "outline"} disabled={busy}
-        aria-expanded={expanded} aria-controls={repliesId} onClick={() => setExpanded(value => !value)}>
-        <Icon name={expanded ? "chevronDown" : "chevronRight"} size={14} />Replies ({replies.length})
-      </Button>}
+      {!!replies.length && <DisclosureTrigger className="ml-auto" variant={changes ? "ghost" : "outline"} disabled={busy}
+        expanded={expanded} controls={repliesId} onClick={() => setExpanded(value => !value)}>
+        Replies ({replies.length})
+      </DisclosureTrigger>}
     </div>
     <ul id={repliesId} hidden={!expanded} className="conversation-result-replies">{replies.map((reply, index) => {
       const submitted = detail.submission.messages.find(item => item.message.messageId === reply.replyToMessageId);

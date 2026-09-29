@@ -1,15 +1,16 @@
 import { StrictMode } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Gallery, initialTheme } from "@/preview/gallery";
 import { Icon } from "@/components/icon";
 
 beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   localStorage.clear();
   document.documentElement.dataset.theme = "light";
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("G1 component vocabulary", () => {
   it("keeps the existing theme preference contract", () => {
@@ -35,13 +36,14 @@ describe("G1 component vocabulary", () => {
     expect([note.selectionStart, note.selectionEnd]).toEqual([5, 9]);
   });
 
-  it("offers a native selector and stable selected format", async () => {
+  it("offers the production single-choice menu and stable pressed format", async () => {
     const user = userEvent.setup();
     render(<Gallery />);
-    await user.selectOptions(screen.getByLabelText("Review round"), "1");
-    expect(screen.getByRole("status").textContent).toContain("Sample round 1 selected");
-    await user.click(screen.getByRole("radio", { name: "Source" }));
-    expect(screen.getByRole("radio", { name: "Source" }).getAttribute("aria-checked")).toBe("true");
+    await user.click(screen.getByRole("button", { name: /^Submission:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Submission 1 - Handled" }));
+    expect(screen.getByRole("status").textContent).toContain("Sample submission 1 selected");
+    await user.click(screen.getByRole("button", { name: "Source" }));
+    expect(screen.getByRole("button", { name: "Source" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText(/Source is selected/)).toBeTruthy();
   });
 

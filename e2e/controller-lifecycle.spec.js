@@ -132,7 +132,7 @@ test("ending review keeps a read-only observer without replacing the authored do
   await page.locator("#frame").evaluate((element) => { window.reviewFrameBeforeEnd = element; });
   await page.locator("#commentsButton").click();
   await page.locator("#endReview").click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   expect(await page.locator("#frame").evaluate((element) => element === window.reviewFrameBeforeEnd)).toBe(true);
   await expectEditBlocked(page, true);

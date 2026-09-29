@@ -46,6 +46,24 @@ export const test = base.extend({
 
 export { expect };
 
+export async function renderedContrast(locator, property = "color") {
+  return locator.evaluate((node, property) => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d"), ancestors = [];
+    for (let current = node; current; current = current.parentElement) ancestors.unshift(current);
+    context.fillStyle = "white"; context.fillRect(0, 0, 1, 1);
+    const surfaces = property === "outlineColor" ? ancestors.slice(0, -1) : ancestors;
+    for (const ancestor of surfaces) { context.fillStyle = getComputedStyle(ancestor).backgroundColor; context.fillRect(0, 0, 1, 1); }
+    const luminance = channels => channels.slice(0, 3).map(value => value / 255)
+      .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+      .reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+    const background = luminance([...context.getImageData(0, 0, 1, 1).data]);
+    context.fillStyle = getComputedStyle(node)[property]; context.fillRect(0, 0, 1, 1);
+    const foreground = luminance([...context.getImageData(0, 0, 1, 1).data]);
+    return (Math.max(background, foreground) + .05) / (Math.min(background, foreground) + .05);
+  }, property);
+}
+
 export async function reviewApi(review, route, { method = "GET", body } = {}) {
   const response = await fetch(`http://127.0.0.1:${review.port}${route}`, {
     method,

@@ -204,12 +204,71 @@ typed SVG `Icon` adapter. Retain scoped portals, focus, Radix state variants and
 reduced-motion behavior. Component and icon licenses ship in third-party notices.
 
 Button, Badge, Textarea, ChoiceMenu and SegmentedControl are shared by production
-surfaces. Native controls are appropriate where they preserve accessible
-behavior. Radio menus have one open owner and Escape returns focus to the
-trigger. Do not add a second icon library or HTML-based icon injection.
+surfaces. The control assessment covered 59 direct production Button call sites
+at the pre-consolidation baseline (static sites, not runtime instances). Extraction
+reduces that count without changing the purposes below.
+
+| Button variant | Purpose |
+| --- | --- |
+| `default` | Primary Add/Update/Send, result entry, and Check receipt |
+| `outline` | Neutral explicit commands, recovery and picker boundaries |
+| `secondary` | Supporting actions, including Retry same request |
+| `ghost` | Quiet navigation, disclosure and contextual commands |
+| `destructive` | Confirmed deletion/End/Abandon/Revert, or explicit source-discard reload |
+| `destructive-ghost` | Quiet destructive entry points: visible History Abandon and Revert |
+
+Neutral controls own their resting foreground; they never inherit error ink.
+Destructive ink persists through hover, focus and expanded states. There is no
+link variant: real related-review destinations remain anchors. Used sizes are
+`default`/`icon` (32px), `sm` (28px), and `xs`/`icon-xs` (24px), backed by shared
+height tokens. Full-width reply destinations and `comparison-context-row` are
+named multiline layout exceptions, not new button variants. Body/editor text
+remains 13px; the SDK's geometry-positioned 30px comment affordance is a separate
+non-React boundary using the same generated palette and icons.
+
+All six single-value pickers use the nonmodal `ChoiceMenu`: View/Edit, review
+page, submission, comparison page, jump-to-change and shared-target conversation.
+Rich options support an icon, explanation and disabled state; disabled values
+are guarded in both rendering and dispatch. Label typeahead, selected-item
+reachability and essential `--input` boundaries are shared. Async page selection
+returns focus only if the trigger is still available and the user has not moved
+to an editor, dialog or another control. Outside/iframe clicks, hidden/removed
+triggers and immediate reopening must not steal focus. `ConversationMenu` holds
+commands, not choices, over the same low-level Radix menu foundation.
+
+Four segmented groups share one family: Review/Changes, Feedback/History and
+Document/Source are single-choice; Open/Resolved is independent multiple choice
+and permits both or neither. These remain Tab-reachable pressed buttons, not
+tabs or exclusive radio filters. NativeSelect is retained only for recovery
+preview fixture tooling; Toggle/ToggleGroup are removed.
+
+`IconButton` composes Button and a visible hover/keyboard `ControlHint` without a
+competing native title. Informational intent, timestamp and lifecycle targets
+remain focusable information, not fake commands. Escape dismisses a visible hint
+before a subsequent Escape reaches the outer panel. Menu Escape and editor
+cancellation/IME remain separate contracts. The unread-dot command is explicitly
+named **Mark conversation as read**.
+
+`DisclosureTrigger` owns binary button appearance and expanded/controls semantics,
+not state or mounting. Comments, Your edits, Note to agent, thread collapse,
+result preview and Replies retain their content/editor trees. History/evidence
+use native details/summary. Earlier replies/submissions and 20-item comparison
+context expansion remain progressive loading, including final focus handoff.
+
+`confirmationPresentation` exhaustively maps action to title, verb and intent.
+Resolve/Reopen stay neutral; destructive actions say what will happen rather
+than generic Confirm. Authoritative async actions use ordinary Button and keep
+the dialog open on failure; only synchronous preview confirmation uses
+AlertDialogAction. `RecoveryNotice` and `ReceiptRecovery` serve both Feedback and
+global hosts. Error ink belongs to the message, not Refresh review. Check receipt
+is primary; Retry same request is secondary and preserves the original identity.
+The unfinished-draft exclusion is independent of the collapsed note and remains
+visible beside the Send workflow on short phones. Do not add a second icon library
+or HTML-based icon injection.
 
 `src/review-palette.js` owns the light/dark color map. Build-time generation
-updates semantic UI tokens, shell aliases and SDK tool colors together.
+updates semantic shell/UI tokens and SDK tool colors together. Unreferenced
+legacy color aliases are removed after migrating the final style consumers.
 `src/ui/styles/tokens.css` owns non-color density, typography, layering and
 motion. Keep generated outputs synchronized, never manually recolored.
 
@@ -235,8 +294,9 @@ Offscreen comment targets produce no routine status text or tooltip warning.
 Show in document still reveals them; missing, ambiguous or unavailable targets retain
 their actionable explanations.
 
-Tailwind theme/utilities are imported without global Preflight. Baselines and
-tokens are scoped to `.review-ui`, including portals. Never inject shell styles
+Tailwind theme/utilities are imported without global Preflight. Component baselines
+and color tokens are scoped to `.review-ui`, including portals; non-color tokens
+also apply to the outer shell root. Never inject shell styles
 or tokens into authored HTML/body. The SDK themes only review-owned tools,
 highlights and selection cues; it does not serialize theme metadata into source.
 
@@ -252,9 +312,9 @@ The toolbar reuses the former release (`1e85f842`) presentation through
 `ToolbarControls`: the named noninteractive 32px brand and Review/Changes
 segmented destination on the left, the lifecycle badge at the true horizontal
 toolbar midpoint, and compact Feedback/theme actions followed by the icon-bearing
-View/Edit radio menu at the far right. The production More menu and its optional
-script-policy entries are removed; contextual error recovery remains. The legacy controller is
-not mounted. Multi-page navigation uses one existing ChoiceMenu next to the
+View/Edit ChoiceMenu at the far right. The production More menu and its optional
+script-policy entries are removed; contextual error recovery remains.
+Multi-page navigation uses one ChoiceMenu next to the
 destinations; a single-page review does not duplicate its filename. Revert stays
 with the Feedback edit actions, not a separate toolbar strip.
 
@@ -289,8 +349,8 @@ shares its lower edge with document, Feedback/Focus, adjacent placement and
 comparison surfaces. No viewport-specific fixed status offset competes with
 buttons. Equal outer grid tracks keep the status at the actual midpoint, not the
 center of remaining space. Durable review uses a second row at 760px and below;
-at 480px and below the centered badge and right-aligned mode occupy separate rows
-to avoid overlapping the longest Waiting label. Legacy toolbars retain 600px. Conversation
+at 640px and below the lifecycle badge shares the destinations row while mode
+stays on the tools row, avoiding overlap with the longest Waiting label. Conversation
 placement uses actual target and surface measurements, not that toolbar breakpoint.
 
 Changes retains the last valid submission/page/format selection, otherwise
@@ -316,7 +376,23 @@ iframe or losing drafts. A retained old frame has only a theme channel, not an
 edit channel. Frame configuration and the two-paint replacement handoff are
 separate milestones, including in background tabs.
 
+The private `FrameReviewConfiguration.canComment` capability is independent of
+View/Edit and source save policy. Owner, shell, frame controller and SDK must agree
+on its current boolean before accepting configuration. Initial, missing, stale
+and mismatched acknowledgments cannot enable creation. End and uncertain
+acceptance disable selection/block/keyboard creation while existing annotations
+remain readable and navigable. Outstanding agent work blocks source editing but
+still permits discussion. Reloads and page changes carry the current capability;
+public page contracts and persisted review data do not change.
+
 ## Retained comparison presentation
+
+`styles/comparison.css` is the single `.comparison-host` style owner for rich
+content, table cells, rules, quotations, marks, inert saved links, diff paint,
+current-change rails and Source mode. It does not depend on retired DOM IDs or
+legacy aliases. Essential borders must survive the `.review-ui` reset. Use a
+valid positional table-cell selector in fixtures and assert actual table markup,
+not a vacuous query over an empty reconstruction.
 
 `conversation-comparison.tsx` owns submission/page/Document-or-Source controls,
 independent loading/error/unavailable states, retry, counts and change navigation.

@@ -1,10 +1,20 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { Brand } from "@/components/brand";
+import { ConversationAuthor, ConversationIntent, ConversationSource, ConversationTime, ConversationMenu } from "@/components/conversation-controls";
+import { ResultPreview } from "@/components/conversation-results";
+import { ComparisonView } from "@/components/comparison";
+import type { ComparisonInput } from "@/components/comparison";
+import { ReceiptRecovery } from "@/components/recovery-notice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { ChoiceMenu } from "@/components/ui/choice-menu";
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
+import { Checkbox } from "@/components/ui/checkbox";
+import { IconButton } from "@/components/ui/icon-button";
+import { Timeline, TimelineItem } from "@/components/ui/timeline";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -13,7 +23,17 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+const comparison: ComparisonInput = { available: true, rows: [
+  { id: "quote", kind: "modified", changeId: "quote",
+    beforeBlock: { tag: "blockquote", text: "Old guidance", runs: [{ text: "Old guidance", marks: [] }] },
+    afterBlock: { tag: "blockquote", text: "Clear next step", runs: [{ text: "Clear next step", marks: ["mark"] }] } },
+  { id: "rule", kind: "unchanged", beforeBlock: { tag: "hr", text: "" }, afterBlock: { tag: "hr", text: "" } },
+  { id: "cell", kind: "modified", changeId: "cell",
+    beforeBlock: { tag: "td", text: "Before", selector: "body > table:nth-of-type(1) > tbody:nth-of-type(1) > tr:nth-of-type(1) > td:nth-of-type(1)" },
+    afterBlock: { tag: "td", text: "After", selector: "body > table:nth-of-type(1) > tbody:nth-of-type(1) > tr:nth-of-type(1) > td:nth-of-type(1)" } },
+], changes: [{ id: "quote", kind: "modified", before: "Old guidance", after: "Clear next step" },
+  { id: "cell", kind: "modified", before: "Before", after: "After" }] };
 
 function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return <section className="preview-section" aria-label={title}>
@@ -33,6 +53,9 @@ export function Gallery() {
   const [theme, setTheme] = useState(initialTheme);
   const [note, setNote] = useState("Keep the introduction concise and make the next step clearer.");
   const [format, setFormat] = useState("content");
+  const [round, setRound] = useState("2"), [roundOpen, setRoundOpen] = useState(false);
+  const [filters, setFilters] = useState({ open: true, resolved: false });
+  const [intent, setIntent] = useState(false);
   const [notice, setNotice] = useState("Sample controls only. No review data is changed.");
   function switchTheme() {
     const next = theme === "dark" ? "light" : "dark";
@@ -43,7 +66,7 @@ export function Gallery() {
   return <div className="review-ui preview-shell">
     <header className="preview-header">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground text-background"><Icon name="messages" /></span>
+        <Brand />
         <div><p className="text-sm font-semibold">doc review</p><p className="text-xs text-muted-foreground">Design foundations</p></div>
       </div>
       <Button variant="outline" size="sm" onClick={switchTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
@@ -52,9 +75,9 @@ export function Gallery() {
     </header>
     <main className="preview-main">
       <div className="preview-intro">
-        <div className="mb-4 flex items-center gap-2"><Badge variant="outline">G1</Badge><span className="preview-kicker">Component review / 01 of 10</span></div>
+        <div className="mb-4 flex items-center gap-2"><Badge variant="outline">Components</Badge><span className="preview-kicker">Current production vocabulary</span></div>
         <h1 className="preview-title">Less chrome.<br />More room to review.</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Compact controls, a quiet neutral palette, and clearer states. This is an isolated design preview; the existing review workspace has not changed.</p>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Shared production components with synthetic state. This gallery does not send feedback or simulate controller success; use preview:shell for a live isolated review.</p>
       </div>
       <div className="preview-grid">
         <Section title="Controls & interaction" description="Try the controls, open a menu, and move through the page with Tab.">
@@ -64,8 +87,11 @@ export function Gallery() {
               <Button onClick={() => setNotice("Sample action completed. No feedback was sent.")}><Icon name="send" />Send feedback</Button>
               <Button variant="outline" onClick={() => setNotice("Sample secondary action selected.")}>Capture result</Button>
               <Button variant="ghost" onClick={() => setNotice("Sample action cancelled.")}>Cancel</Button>
+              <Button variant="secondary">Selected context</Button>
+              <Button variant="destructive">Delete thread</Button>
+              <Button variant="destructive-ghost"><Icon name="circleX" />Abandon</Button>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild><Button variant="outline" size="icon" aria-label="Open sample menu"><Icon name="moreHorizontal" /></Button></DropdownMenuTrigger>
+                <DropdownMenuTrigger asChild><IconButton variant="outline" size="icon" aria-label="Open sample menu"><Icon name="moreHorizontal" /></IconButton></DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="review-ui">
                   <DropdownMenuLabel>Sample actions</DropdownMenuLabel>
                   <DropdownMenuItem onSelect={() => setNotice("Edit selected from the sample menu.")}><Icon name="pencil" />Edit comment</DropdownMenuItem>
@@ -82,25 +108,33 @@ export function Gallery() {
           </div>
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="preview-field">
-              <Label htmlFor="sample-round">Review round</Label>
-              <NativeSelect id="sample-round" defaultValue="2" onChange={(event) => setNotice(`Sample round ${event.target.value} selected.`)}>
-                <NativeSelectOption value="2">Round 2 - Completed</NativeSelectOption>
-                <NativeSelectOption value="1">Round 1 - Completed</NativeSelectOption>
-              </NativeSelect>
+              <Label htmlFor="sample-round">Submission</Label>
+              <ChoiceMenu id="sample-round" label="Submission" value={round} triggerLabel={`Submission ${round}`}
+                options={[{ value: "2", label: "Submission 2 - Handled" }, { value: "1", label: "Submission 1 - Handled" }]}
+                open={roundOpen} onOpenChange={setRoundOpen} restoreFocus
+                onValueChange={value => { setRound(value); setNotice(`Sample submission ${value} selected.`); }} />
             </div>
             <div className="preview-field">
               <Label id="sample-format-label">Comparison format</Label>
-              <ToggleGroup type="single" variant="outline" value={format} aria-labelledby="sample-format-label"
-                onValueChange={(value) => { if (value) setFormat(value); }}>
-                <ToggleGroupItem value="content">Content</ToggleGroupItem>
-                <ToggleGroupItem value="source">Source</ToggleGroupItem>
-              </ToggleGroup>
+              <SegmentedControl aria-labelledby="sample-format-label">
+                <SegmentedControlItem selected={format === "content"} onClick={() => setFormat("content")}>Document</SegmentedControlItem>
+                <SegmentedControlItem selected={format === "source"} onClick={() => setFormat("source")}>Source</SegmentedControlItem>
+              </SegmentedControl>
+            </div>
+            <div className="preview-field">
+              <p className="preview-kicker">Independent filters (both or neither)</p>
+              <SegmentedControl selection="multiple" aria-label="Sample conversation filters">
+                {(["open", "resolved"] as const).map(filter => <SegmentedControlItem key={filter} size="sm"
+                  selected={filters[filter]} onClick={() => setFilters(current => ({ ...current, [filter]: !current[filter] }))}>
+                  {filter === "open" ? "Open" : "Resolved"}</SegmentedControlItem>)}
+              </SegmentedControl>
             </div>
           </div>
           <div className="preview-field">
             <Label htmlFor="sample-note">Note to agent</Label>
             <Textarea id="sample-note" value={note} onChange={(event) => setNote(event.target.value)} rows={3}
               aria-describedby="sample-note-help" />
+            <label className="conversation-intent"><Checkbox checked={intent} onCheckedChange={value => setIntent(value === true)} />Request a change</label>
             <p id="sample-note-help" className="text-xs text-muted-foreground">Edits here are local to this preview. Try selecting text and changing theme.</p>
           </div>
           <div className="preview-field">
@@ -121,7 +155,7 @@ export function Gallery() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Keep editing</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => setNotice("Sample confirmation completed. Nothing was deleted.")}>Discard sample edits</AlertDialogAction>
+                    <AlertDialogAction variant="destructive" onClick={() => setNotice("Sample confirmation completed. Nothing was deleted.")}>Discard sample edits</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -146,29 +180,44 @@ export function Gallery() {
               <p className="text-lg font-semibold tracking-tight">A clear next step</p>
               <p className="text-sm">Body text stays readable without competing with the document.</p>
               <p className="text-xs text-muted-foreground">Supporting details stay secondary, not invisible.</p>
-              <p className="font-mono text-xs text-muted-foreground">32px controls / 8px base radius / system fonts</p>
+              <p className="font-mono text-xs text-muted-foreground">24 / 28 / 32px controls; 13px conversation text; 8px base radius</p>
             </div>
           </Section>
-          <Section title="Comparison semantics" description="Color samples only, not the new comparison renderer.">
+          <Section title="Comparison semantics" description="The live inert comparison renderer with saved synthetic rich content.">
             <div className="preview-row">
               <Badge className="bg-review-added text-review-added-foreground">+ 3 Added</Badge>
               <Badge className="bg-review-modified text-review-modified-foreground">~ 2 Modified</Badge>
               <Badge className="bg-review-removed text-review-removed-foreground">- 1 Removed</Badge>
             </div>
-            <div className="overflow-hidden rounded-md border border-border">
-              <div className="preview-diff" style={{ background: "var(--review-removed)", color: "var(--review-removed-foreground)", borderColor: "var(--review-removed-border)" }}>
-                <span aria-hidden="true">- </span><del>Send a separate note for every change.</del>
-              </div>
-              <div className="preview-diff" style={{ background: "var(--review-added)", color: "var(--review-added-foreground)", borderColor: "var(--review-added-border)" }}>
-                <span aria-hidden="true">+ </span><ins>Send your feedback together, in one batch.</ins>
-              </div>
+            <div className="comparison-host">
+              <div className="comparison-surface comparison-content"><ComparisonView comparison={comparison} selectedIndex={0} /></div>
             </div>
             <p className="text-xs text-muted-foreground">Text labels and marks accompany color. {format === "content" ? "Content" : "Source"} is selected in the sample format control.</p>
+          </Section>
+          <Section title="Conversations and results" description="Shared informational hints, commands, unboxed messages and lifecycle evidence.">
+            <article className="conversation-thread inventory-card">
+              <header><div className="conversation-thread-toolbar">
+                <ConversationSource target={{ kind: "element", anchor: { selector: "p", label: "Sample passage" } }} />
+                <IconButton aria-label="Show in document" onClick={() => setNotice("Sample Locate action; no document is attached.")}><Icon name="locate" /></IconButton>
+                <ConversationMenu actions={[{ label: "Focus", run: () => setNotice("Sample Focus action; use the live shell to move a conversation.") },
+                  { label: "Delete thread", destructive: true, disabled: true, run() {} }]} />
+              </div></header>
+              <div className="conversation-meta"><ConversationAuthor role="You" /><ConversationTime value={Date.UTC(2026, 8, 29)} /><ConversationIntent /></div>
+              <p className="conversation-body">Keep this message unboxed inside its conversation card.</p>
+            </article>
+            <Timeline aria-label="Sample review timeline"><TimelineItem tone="response" icon={<Icon name="messages" />}>
+              <strong>Agent response</strong>
+              <ResultPreview body="A complete response stays readable and can expand without leaving the result. This synthetic response demonstrates the production preview and disclosure composition."
+                actions={control => <div className="conversation-actions"><Button size="sm" onClick={() => setNotice("Sample result entry; use the live shell for navigation.")}>View response</Button>{control}</div>} />
+            </TimelineItem></Timeline>
+            <ReceiptRecovery uncertain={{ operation: "send", requestId: "synthetic-request", message: "Receipt could not be confirmed. Your exact request is retained." }}
+              busy={false} onCheck={() => setNotice("Preview only: Check receipt requested.")} onRetry={() => setNotice("Preview only: Retry same request requested.")}
+              onRefresh={() => setNotice("Preview only: Refresh review requested.")} />
           </Section>
         </div>
       </div>
       <footer className="preview-footer">
-        <span>Review the foundation before we apply it to the shell.</span>
+        <span>Production components; synthetic states, not an alternate workflow.</span>
         <span><kbd className="preview-key">Tab</kbd> focus <span className="mx-1">/</span> <kbd className="preview-key">Esc</kbd> dismiss</span>
       </footer>
     </main>

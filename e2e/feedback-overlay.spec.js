@@ -114,7 +114,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
       }
       await expect(panel.locator("footer").getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
       await page.locator("#theme").click(); await page.locator("#theme").click();
-      await panel.getByRole("button", { name: "Close", exact: true }).click();
+      await panel.getByRole("button", { name: "Close feedback", exact: true }).click();
       await expect(panel).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();
       expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
@@ -122,7 +122,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
       await feedback(page);
       await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toHaveValue("Retain note between overlay openings");
       await page.screenshot({ path: info.outputPath(`feedback-overlay-${theme}-${width}.png`) });
-      await panel.getByRole("button", { name: "Close", exact: true }).click();
+      await panel.getByRole("button", { name: "Close feedback", exact: true }).click();
     }
   }
   await expect(frame.getByLabel("Authored input")).toHaveValue("Keep authored draft");

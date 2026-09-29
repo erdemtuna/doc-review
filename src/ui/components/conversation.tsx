@@ -3,6 +3,10 @@ import { createPortal } from "react-dom";
 import type { ConversationShell } from "../../conversation-shell.js";
 import type { ConversationController, ConversationDraft } from "../../conversation-controller.js";
 import { Button } from "./ui/button";
+import { IconButton } from "./ui/icon-button";
+import { DisclosureTrigger } from "./ui/disclosure-trigger";
+import { confirmationPresentation } from "./conversation-confirmation";
+import { ReceiptRecovery, RecoveryNotice } from "./recovery-notice";
 import { Badge } from "./ui/badge";
 import { Textarea } from "./ui/textarea";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "./ui/alert-dialog";
@@ -61,8 +65,7 @@ function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationCont
       width = inventory.clientWidth; height = inventory.clientHeight;
       if (resumed) return;
       const bounds = inventory.getBoundingClientRect(), editor = field.getBoundingClientRect();
-      const composer = field.closest(".conversation-composer")!.getBoundingClientRect();
-      if (!editor.height || (!draft.messageId && (editor.top < bounds.top || composer.top >= bounds.bottom))) return;
+      if (!editor.height || (!draft.messageId && editor.top < bounds.top)) return;
       const firstLine = Math.min(36, editor.height);
       const bottom = bounds.top + inventory.clientTop + inventory.clientHeight;
       if (editor.top < bounds.top) inventory.scrollTop += editor.top - bounds.top;
@@ -80,9 +83,9 @@ function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationCont
   }}>
     {id === "note" ? <label className="sr-only" htmlFor={`draft-${id}`}>{label}</label> : <div className={id === "new" || draft.messageId ? "sr-only" : "conversation-composer-heading"}>
       <label htmlFor={`draft-${id}`}>{label}</label>
-      {id !== "new" && !draft.messageId && !disabled && <Button variant="ghost" size="icon-xs"
+      {id !== "new" && !draft.messageId && !disabled && <IconButton
         aria-label={`Close ${draft.messageId ? "edit" : "reply"}`} disabled={saving || draft.composing}
-        onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
+        onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></IconButton>}
     </div>}
     <Textarea ref={input} className="min-h-9" id={`draft-${id}`} rows={id === "note" ? 2 : undefined}
       placeholder={id === "note" ? "Optional context for the agent" : undefined} value={draft.text} readOnly={disabled}
@@ -182,9 +185,9 @@ function NewMessage({ shell, snapshot, chrome }: {
   return <div ref={element} className="conversation-new-message" hidden={!!snapshot.focusId}>
     <header className="compose-head">
       <strong>Add comment</strong>
-      <Button variant="ghost" size="icon" aria-label="Close comment" title="Close comment"
+      <IconButton size="icon" aria-label="Close comment"
         disabled={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes("new") || item.draft.composing || snapshot.review?.state !== "open"}
-        onClick={() => shell.owner.commands.cancelDraft("new")}><Icon name="x" /></Button>
+        onClick={() => shell.owner.commands.cancelDraft("new")}><Icon name="x" /></IconButton>
     </header>
     {chrome.composerNotice && <p className="conversation-notice" role="status">{chrome.composerNotice}</p>}
     <div className="contextual-direction" hidden={!edge}>
@@ -204,6 +207,13 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
   const adjacent = focus && snapshot.host === "adjacent";
   const target = chrome.anchorViews[id] ?? { canJump: false, offscreen: false, reason: "Checking the target." };
   const peers = chrome.anchorPeers[id] ?? [id];
+  const [peerMenuOpen, setPeerMenuOpen] = useState(false);
+  useEffect(() => {
+    const close = () => setPeerMenuOpen(false);
+    window.addEventListener("blur", close);
+    return () => window.removeEventListener("blur", close);
+  }, []);
+  useEffect(() => { setPeerMenuOpen(false); }, [snapshot.focusId, snapshot.open, snapshot.host]);
   const disabled = snapshot.review?.state !== "open" || !!snapshot.uncertain || snapshot.busy;
   const transcript = useRef<HTMLDivElement>(null);
   const article = useRef<HTMLElement>(null), previousDraft = useRef(item.draft);
@@ -297,28 +307,36 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
   const draftView = item.draft && <Draft owner={owner} id={id} draft={item.draft} disabled={snapshot.review?.state !== "open"}
     saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes(id)} />;
   const messageControls = (reviewer: Thread["exchanges"][number]["reviewer"]) => <>
-    <Button size="icon-xs" variant="ghost" className="conversation-icon" aria-label="Edit message" title="Edit message"
-      data-edit-message={reviewer.messageId} onClick={() => act(owner, () => owner.commands.edit(reviewer))}><Icon name="pencil" /></Button>
+    <IconButton className="conversation-icon" aria-label="Edit message"
+      data-edit-message={reviewer.messageId} onClick={() => act(owner, () => owner.commands.edit(reviewer))}><Icon name="pencil" /></IconButton>
   </>;
   const lastPending = item.exchanges.at(-1)?.reviewer;
   const pinnedMessageControls = focus && replyControl && lastPending?.submissionId === null;
-  const peersControl = peers.length > 1 && <label className="conversation-peers"><span>{peers.length} conversations at this target</span>
-    <select aria-label="Conversation at this target" value={id} onChange={(event) => {
-      if (adjacent) act(owner, () => shell.commands.adjacent(event.target.value));
-      else owner.commands.focus(event.target.value);
-    }}>{peers.map((peer, index) => {
+  const peerOptions = peers.map((peer, index) => {
       const thread = snapshot.threads.find((item) => item.thread.threadId === peer);
-      return <option key={peer} value={peer}>{index + 1}: {thread?.latestExchange?.reviewer.body.slice(0, 60) || "Conversation"} · {thread?.thread.status}</option>;
-    })}</select>
-  </label>;
+      return { value: peer, label: `${index + 1}: ${thread?.latestExchange?.reviewer.body.slice(0, 60) || "Conversation"}`,
+        description: thread?.thread.status === "resolved" ? "Resolved" : "Open" };
+  });
+  const peersControl = peers.length > 1 && <div className="conversation-peers"><span>{peers.length} conversations at this target</span>
+    <ChoiceMenu id={`peer-${id}`} label="Conversation at this target" value={id} size="sm"
+      options={peerOptions} triggerLabel={peerOptions.find(option => option.value === id)?.label ?? "Conversation"}
+      open={peerMenuOpen} onOpenChange={setPeerMenuOpen} restoreFocus={!snapshot.focusId || focus}
+      onValueChange={peer => act(owner, async () => {
+        if (adjacent) await shell.commands.adjacent(peer); else owner.commands.focus(peer);
+        requestAnimationFrame(() => {
+          const next = document.getElementById(`peer-${peer}`);
+          if (document.activeElement === document.body && next && !next.closest("[hidden], [inert]")) next.focus({ preventScroll: true });
+        });
+      })} />
+  </div>;
   return <article ref={article} className={`conversation-thread inventory-card${focus ? " focused" : ""}`} data-thread={id}
     data-status={item.thread.status} data-expanded={item.expanded}
     hidden={snapshot.host === "compose" || (snapshot.focusId ? !focus : !snapshot.filters[item.thread.status])}>
     <header>
       {focus && !navigatingReplies && <div className="conversation-thread-navigation">
         <Button size="xs" variant="ghost" onClick={() => owner.commands.focus(null)}>Back to Feedback</Button>
-        <Button size="icon-xs" variant="ghost" className="conversation-icon" aria-label="Close conversation" title="Close conversation"
-          onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.open(false)}><Icon name="x" /></Button>
+        <IconButton className="conversation-icon" aria-label="Close conversation"
+          onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.open(false)}><Icon name="x" /></IconButton>
       </div>}
       <div className="conversation-thread-toolbar">
       <div className="conversation-thread-identity">
@@ -326,22 +344,20 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
       {item.thread.status === "resolved" && <Badge variant="secondary" className="conversation-resolved-status text-muted-foreground">
         <Icon name="circleCheck" size={12} />Resolved
       </Badge>}
-      {item.attention && <Button className="conversation-activity" size="icon-xs" variant="ghost" aria-label="New activity" title="New activity: mark as read"
-        onClick={() => owner.commands.markRead(id)}><span aria-hidden="true" /></Button>}
+      {item.attention && <IconButton className="conversation-activity" aria-label="Mark conversation as read" hint="New activity: mark conversation as read"
+        onClick={() => owner.commands.markRead(id)}><span aria-hidden="true" /></IconButton>}
       </div>
       <div className="conversation-thread-actions">
-      <Button variant="ghost" size="icon-xs" className="conversation-jump conversation-icon" disabled={!target.canJump}
-          aria-label="Show in document" aria-describedby={target.reason ? `target-status-${id}` : undefined} title={target.reason || "Show the exact passage"}
+      <IconButton className="conversation-jump conversation-icon" disabled={!target.canJump}
+          aria-label="Show in document" aria-describedby={target.reason ? `target-status-${id}` : undefined} hint="Show the exact passage"
           onMouseDown={(event) => event.preventDefault()} onClick={() => act(owner, () => owner.commands.jump(id))}>
-          <Icon name="locate" /></Button>
-      <TooltipProvider><Tooltip><TooltipTrigger asChild>
-        <Button size="icon-xs" variant="ghost" className="conversation-icon" disabled={disabled}
+          <Icon name="locate" /></IconButton>
+        <IconButton className="conversation-icon" disabled={disabled}
           aria-label={item.thread.status === "resolved" ? "Reopen" : "Resolve"}
-          title={item.thread.status === "resolved" ? "Reopen conversation" : "Resolve conversation"}
+          hint={item.thread.status === "resolved" ? "Reopen conversation" : "Resolve conversation"}
           onClick={() => act(owner, () => owner.commands.resolve(id))}>
           <Icon name={item.thread.status === "resolved" ? "rotateCcw" : "circleCheck"} />
-        </Button>
-      </TooltipTrigger><TooltipContent>{item.thread.status === "resolved" ? "Reopen conversation" : "Resolve conversation"}</TooltipContent></Tooltip></TooltipProvider>
+        </IconButton>
       <ConversationMenu actions={[
         ...(!focus || adjacent ? [{ label: "Focus", run: () => owner.commands.focus(id) }] : []),
         ...(!adjacent ? [{
@@ -351,12 +367,9 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
         ...(item.messageCount === item.pendingMessageCount ? [{ label: "Delete thread", disabled, destructive: true,
           run: () => act(owner, () => owner.commands.confirm("delete", id)) }] : []),
       ]} />
-      <Button variant="ghost" size="icon-xs" className="conversation-thread-title conversation-icon"
-        aria-label={item.expanded ? "Collapse conversation" : "Expand conversation"} aria-expanded={item.expanded} aria-controls={`thread-${id}`}
-        title={item.expanded ? "Collapse conversation" : "Expand conversation"}
-        onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.collapse(id)}>
-        <Icon name={item.expanded ? "chevronDown" : "chevronRight"} size={14} />
-      </Button>
+      <DisclosureTrigger iconOnly className="conversation-thread-title conversation-icon"
+        aria-label={item.expanded ? "Collapse conversation" : "Expand conversation"} expanded={item.expanded} controls={`thread-${id}`}
+        onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.collapse(id)} />
       </div>
       </div>
       {adjacent && peersControl}
@@ -390,9 +403,9 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
               title={snapshot.review?.state === "ended" ? "Not sent; this review has ended and is read-only" : "Saved feedback waiting to be sent"}>
               Pending{snapshot.review?.state === "ended" && <span className="sr-only"> (read-only)</span>}
             </Badge>}
-            {item.draft?.messageId === reviewer.messageId && snapshot.review?.state === "open" && <Button variant="ghost" size="icon-xs" className="conversation-close-edit"
+            {item.draft?.messageId === reviewer.messageId && snapshot.review?.state === "open" && <IconButton className="conversation-close-edit"
               aria-label="Close edit" disabled={disabled || snapshot.savingDraftIds.includes(id) || item.draft.composing}
-              onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
+              onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></IconButton>}
           </div>
           {item.draft?.messageId === reviewer.messageId ? draftView : <>
           <p className="conversation-body">{reviewer.body}</p>
@@ -471,7 +484,7 @@ function History({ snapshot, shell, visible, onReveal }: { snapshot: Snapshot; s
           </div></section>)}
         </div>
       </details>
-      {waiting && <Button className="conversation-abandon" variant="ghost" size="xs" disabled={snapshot.busy || !!snapshot.uncertain}
+      {waiting && <Button className="conversation-abandon" variant="destructive-ghost" size="xs" disabled={snapshot.busy || !!snapshot.uncertain}
         onClick={() => owner.commands.confirm("abandon", item.submissionId)}><Icon name="circleX" size={14} />Abandon</Button>}
       </TimelineItem>;
     })}
@@ -628,6 +641,8 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     if (!replyNavigationBusy && !navigatingReplies) setReplyNavigation(null);
   }, [navigatingReplies, replyNavigationBusy]);
   const readonly = snapshot.review?.state !== "open";
+  const confirmation = snapshot.confirmation && confirmationPresentation(snapshot.confirmation.action,
+    snapshot.threads.some(item => item.thread.threadId === snapshot.confirmation?.id && item.thread.status === "resolved"));
   const disabled = readonly || snapshot.busy || !!snapshot.uncertain;
   const work = snapshot.status?.work;
   const status = !snapshot.review ? "Loading review" : readonly ? "Review ended" : work ? "Waiting for agent" : "Reviewing";
@@ -641,7 +656,12 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     chrome.save.status === "saved" ? "Source saved." : chrome.save.status === "saving" ? "Saving source." : null,
   ].filter(Boolean).join(" ");
   const outsideFeedback = !snapshot.open || chrome.comparisonOpen || contextual;
-  const globalErrors = outsideFeedback ? [snapshot.error, chrome.sourceError && `Source: ${chrome.sourceError}`, chrome.connectionError].filter(Boolean) : [];
+  const feedbackErrors = [
+    snapshot.connected && !snapshot.uncertain ? snapshot.error : "",
+    chrome.sourceError && `Source: ${chrome.sourceError}`,
+    snapshot.connected ? chrome.connectionError : "",
+  ].filter((value): value is string => !!value);
+  const globalErrors = outsideFeedback ? feedbackErrors : [];
   const globalUncertain = outsideFeedback && snapshot.uncertain;
   const needsSourceRecovery = chrome.reloadPending || !!chrome.sourceError || (chrome.loading && !!snapshot.error);
   const showRecovery = globalErrors.length > 0 || globalUncertain || !snapshot.connected ||
@@ -673,7 +693,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       }
     }}>
     <header className="conversation-panel-header" hidden={snapshot.host === "adjacent" || contextual}>
-      <SegmentedControl variant="navigation" aria-label="Feedback destination">
+      <SegmentedControl aria-label="Feedback destination">
         <SegmentedControlItem selected={!historyOpen} aria-controls="conversationInventory" onClick={() => selectHistory(false)}>Feedback</SegmentedControlItem>
         <SegmentedControlItem selected={historyOpen} aria-label="History"
           aria-description={chrome.captureFailures.length ? `${chrome.captureFailures.length} capture issues in History` : undefined}
@@ -681,7 +701,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
           {chrome.captureFailures.length > 0 && <Badge variant="outline" aria-label={`${chrome.captureFailures.length} capture issues`}>{chrome.captureFailures.length}</Badge>}
         </SegmentedControlItem>
       </SegmentedControl>
-      <Button variant="ghost" size="icon" aria-label="Close" title="Close feedback" onClick={() => owner.commands.open(false)}><Icon name="x" /></Button></header>
+      <IconButton size="icon" aria-label="Close feedback" onClick={() => owner.commands.open(false)}><Icon name="x" /></IconButton></header>
     <div className="conversation-overview" hidden={contextual}>
     {chrome.anchorNotice && snapshot.host !== "adjacent" &&
       !(snapshot.host === "feedback" && !historyVisible && snapshot.threads.some(item =>
@@ -695,17 +715,14 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       {snapshot.resolutionUndo && <Button size="xs" variant="outline" disabled={snapshot.busy || !!snapshot.uncertain}
         onClick={() => act(owner, owner.commands.undoResolve)}>Undo resolve</Button>}
     </div>
-    {((snapshot.connected && (snapshot.error || chrome.connectionError)) || chrome.sourceError) && <div className="conversation-error" role="alert">
-      {snapshot.connected && snapshot.error && <p>{snapshot.error}</p>}{chrome.sourceError && <p>Source: {chrome.sourceError}</p>}{snapshot.connected && chrome.connectionError && <p>{chrome.connectionError}</p>}
-      <Button size="sm" variant="outline" onClick={() => act(owner, owner.commands.refresh)}>Refresh review</Button>
-    </div>}
-    {snapshot.uncertain && <div className="conversation-error"><strong>{snapshot.uncertain.operation}: acceptance unknown</strong><p>{snapshot.uncertain.message}</p>
-      <code>{snapshot.uncertain.requestId}</code><div className="conversation-actions">
-        <Button disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(false))}>Check receipt</Button>
-        <Button disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(true))}>Retry same request</Button>
-      </div></div>}
+    {feedbackErrors.length > 0 && <RecoveryNotice messages={feedbackErrors}
+      actions={<Button size="sm" variant="outline" onClick={() => act(owner, owner.commands.refresh)}>Refresh review</Button>} />}
+    {snapshot.uncertain && <ReceiptRecovery uncertain={snapshot.uncertain} error={snapshot.error} busy={snapshot.busy}
+      onRefresh={snapshot.connected && !feedbackErrors.length ? () => act(owner, () => owner.commands.refresh()) : undefined}
+      onCheck={() => act(owner, () => owner.commands.reconcile(false))}
+      onRetry={() => act(owner, () => owner.commands.reconcile(true))} />}
     <div className="conversation-filters" hidden={!!snapshot.focusId || historyVisible}>
-      <SegmentedControl aria-label="Conversation filters" hidden={!snapshot.threads.length}>{(["open", "resolved"] as const).map((kind) => <SegmentedControlItem key={kind} size="sm" selected={snapshot.filters[kind]}
+      <SegmentedControl selection="multiple" aria-label="Conversation filters" hidden={!snapshot.threads.length}>{(["open", "resolved"] as const).map((kind) => <SegmentedControlItem key={kind} size="sm" selected={snapshot.filters[kind]}
         onClick={() => owner.commands.filter(kind)}>{kind === "open" ? "Open" : "Resolved"} ({snapshot.threads.filter((item) => item.thread.status === kind).length})</SegmentedControlItem>)}</SegmentedControl>
     </div>
     {(snapshot.captureNotice || chrome.captureError) && <p className="conversation-notice" role="status">{snapshot.captureNotice || chrome.captureError}</p>}
@@ -713,17 +730,17 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     {navigatingReplies && <nav className="conversation-reply-navigation" aria-label="Reply navigation">
       <Button size="xs" variant="ghost" onClick={backToReplies}><Icon name="chevronLeft" size={14} />Back to replies</Button>
       <div>
-        <Button size="icon-xs" variant="ghost" aria-label="Previous reply" title="Previous reply"
+        <IconButton aria-label="Previous reply"
           disabled={replyNavigationBusy || replyNavigation.index === 0}
           onClick={() => act(owner, () => navigateReply(replyNavigation.detail, replyNavigation.index - 1, replyNavigation.origin))}>
           <Icon name="chevronLeft" size={14} />
-        </Button>
+        </IconButton>
         <span role="status">{replyNavigation.index + 1} of {replyNavigation.detail.result!.responses.length}</span>
-        <Button size="icon-xs" variant="ghost" aria-label="Next reply" title="Next reply"
+        <IconButton aria-label="Next reply"
           disabled={replyNavigationBusy || replyNavigation.index === replyNavigation.detail.result!.responses.length - 1}
           onClick={() => act(owner, () => navigateReply(replyNavigation.detail, replyNavigation.index + 1, replyNavigation.origin))}>
           <Icon name="chevronRight" size={14} />
-        </Button>
+        </IconButton>
       </div>
     </nav>}
     <div id="conversationInventory" className="conversation-inventory" ref={inventory} onScroll={() => {
@@ -737,10 +754,10 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     }}>
       {snapshot.newMessage && <NewMessage shell={shell} snapshot={snapshot} chrome={chrome} />}
       <div hidden={!!snapshot.focusId || contextual || historyVisible}><LatestResult snapshot={snapshot} shell={shell} visible={!historyVisible} onReveal={revealReply} /></div>
-      <Button className="conversation-section-toggle" variant="ghost" size="sm" hidden={!snapshot.threads.length || !!snapshot.focusId || contextual || historyVisible}
-        aria-expanded={commentsExpanded} aria-controls="conversationComments" onClick={() => setCommentsExpanded(value => !value)}>
-        <Icon name={commentsExpanded ? "chevronDown" : "chevronRight"} size={14} />Comments ({snapshot.threads.length})
-      </Button>
+      <DisclosureTrigger className="conversation-section-toggle" hidden={!snapshot.threads.length || !!snapshot.focusId || contextual || historyVisible}
+        expanded={commentsExpanded} controls="conversationComments" onClick={() => setCommentsExpanded(value => !value)}>
+        Comments ({snapshot.threads.length})
+      </DisclosureTrigger>
       <div className="conversation-comments" id="conversationComments" hidden={historyVisible || (!commentsExpanded && !snapshot.focusId)}>
       {snapshot.threads.map((item) => <ThreadCard key={item.thread.threadId} owner={owner} item={item} snapshot={snapshot} shell={shell} chrome={chrome} navigatingReplies={navigatingReplies} />)}
       {!snapshot.threads.length && !snapshot.newMessage && <p className={snapshot.edits.length ? "conversation-empty-with-edits" : undefined}>Select text or a passage in the document to add a comment.</p>}
@@ -748,11 +765,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       {(!!snapshot.edits.length || chrome.canRevert) && <section className="conversation-edits" aria-label="Your edits"
         hidden={!!snapshot.focusId || contextual || historyVisible}>
         <div className="feedback-edit-status">
-          <Button className="conversation-section-toggle" variant="ghost" size="sm" aria-expanded={editsExpanded}
-            aria-controls="conversationEdits" onClick={() => setEditsExpanded(value => !value)}>
-            <Icon name={editsExpanded ? "chevronDown" : "chevronRight"} size={14} />Your edits ({snapshot.edits.length})
-          </Button>
-          <Button className="feedback-revert" variant="ghost" size="sm" disabled={chrome.blocked || chrome.loading || !chrome.canRevert}
+          <DisclosureTrigger className="conversation-section-toggle" expanded={editsExpanded}
+            controls="conversationEdits" onClick={() => setEditsExpanded(value => !value)}>
+            Your edits ({snapshot.edits.length})
+          </DisclosureTrigger>
+          <Button className="feedback-revert" variant="destructive-ghost" size="sm" disabled={chrome.blocked || chrome.loading || !chrome.canRevert}
             onClick={() => owner.commands.confirm("revert")}>Revert</Button>
         </div>
         <ul id="conversationEdits" hidden={!editsExpanded} className="feedback-edit-list conversation-edit-list">{snapshot.edits.map(edit => <li key={edit.editId}>
@@ -766,11 +783,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     </div>
     <footer className="conversation-footer" hidden={!!snapshot.focusId || contextual || historyVisible}>
       <div className="conversation-footer-controls">
-      <Button className="conversation-note-toggle" variant="ghost" size="sm" disabled={snapshot.note.composing}
-        aria-expanded={noteOpen} aria-controls="conversationNoteDetails" onClick={() => setNoteExpanded(value => !value)}>
-        <Icon name={noteOpen ? "chevronDown" : "chevronRight"} size={14} />Note to agent
+      <DisclosureTrigger className="conversation-note-toggle" disabled={snapshot.note.composing}
+        expanded={noteOpen} controls="conversationNoteDetails" onClick={() => setNoteExpanded(value => !value)}>
+        Note to agent
         {snapshot.note.text.trim() && <span className="conversation-pending">Draft</span>}
-      </Button>
+      </DisclosureTrigger>
       </div>
       <div className="conversation-footer-details" hidden={!noteOpen}>
       <div className="conversation-note-content" id="conversationNoteDetails" hidden={!noteOpen}>
@@ -779,11 +796,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       </div>
       <div className="conversation-footer-support" hidden={!snapshot.unsavedMessageDraftCount && (selection !== null || !snapshot.connected)}>
         <p id="sendSelectionDescription" className={selection ? "sr-only" : "feedback-help"} role="status">{selectionDescription}</p>
-        {!!snapshot.unsavedMessageDraftCount && <p className="feedback-help">{snapshot.unsavedMessageDraftCount} unfinished drafts are not included. Add or update your comments before sending.</p>}
+        {!!snapshot.unsavedMessageDraftCount && <p id="sendDraftExclusion" className="feedback-help" role="status">{snapshot.unsavedMessageDraftCount} unfinished {snapshot.unsavedMessageDraftCount === 1 ? "draft" : "drafts"} excluded from Send.</p>}
       </div>
       <div className="feedback-actions">
         <Button id="endReview" variant="ghost" className="feedback-end" disabled={disabled || chrome.loading} onClick={() => owner.commands.confirm("end")}>End review</Button>
-        <Button id="send" className="feedback-send" aria-label="Send" aria-describedby={snapshot.connected ? "sendSelectionDescription" : "conversationConnectionStatus"} aria-busy={snapshot.busy}
+        <Button id="send" className="feedback-send" aria-label="Send" aria-describedby={[snapshot.connected ? "sendSelectionDescription" : "conversationConnectionStatus", snapshot.unsavedMessageDraftCount ? "sendDraftExclusion" : ""].filter(Boolean).join(" ")} aria-busy={snapshot.busy}
           disabled={disabled || chrome.loading || snapshot.sendBlocked || !selection?.total || snapshot.note.composing}
           onClick={() => act(owner, owner.commands.send)}>{selection ? `Send to agent (${selection.total})` : "Send to agent"}</Button>
       </div>
@@ -815,22 +832,21 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         onOpenChange={(open) => { if (open) { modeFocus.current = false; setModeMenuOpen(false); } setPageMenuOpen(open); }}
         onValueChange={(key) => act(owner, () => owner.commands.navigate(key))} /> : null} />
     {showRecovery && <div className="conversation-global-status" role="status" aria-label="Review recovery">
-      {globalUncertain && <div><strong>{globalUncertain.operation}: acceptance unknown</strong>
-        <p>{globalUncertain.message}</p><code>{globalUncertain.requestId}</code>
-        <div className="conversation-actions">
-          <Button size="sm" disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(false))}>Check receipt</Button>
-          <Button size="sm" disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(true))}>Retry same request</Button>
-        </div>
-      </div>}
+      {globalUncertain && <ReceiptRecovery uncertain={globalUncertain} error={snapshot.error} busy={snapshot.busy}
+        onRefresh={snapshot.connected && !feedbackErrors.length ? () => act(owner, () => owner.commands.refresh()) : undefined}
+        onCheck={() => act(owner, () => owner.commands.reconcile(false))}
+        onRetry={() => act(owner, () => owner.commands.reconcile(true))} />}
       {!snapshot.connected && <span id="conversationConnectionStatus">Connection lost. Showing previously loaded information.</span>}
-      {snapshot.connected && globalErrors.length > 0 && <div role="alert">{globalErrors.map((error, index) => <p key={index}>{error}</p>)}</div>}
+      {snapshot.connected && globalErrors.length > 0 && <RecoveryNotice messages={globalErrors.filter((value): value is string => !!value)}
+        actions={<Button size="sm" variant="outline" onClick={() => act(owner, owner.commands.refresh)}>Refresh review</Button>} />}
       {!snapshot.connected && (snapshot.error || chrome.connectionError) && <details><summary>Connection details</summary>{snapshot.error}<br />{chrome.connectionError}</details>}
-      {!snapshot.connected && outsideFeedback && chrome.sourceError && <p role="alert">Source: {chrome.sourceError}</p>}
-      {(globalErrors.length > 0 || !snapshot.connected) && <Button size="sm" variant="outline"
-        onClick={() => act(owner, snapshot.connected ? owner.commands.refresh : shell.commands.reconnect)}>{snapshot.connected ? "Refresh review" : "Reconnect"}</Button>}
-      {chrome.themeSync.status === "failed" && <span role="alert">{chrome.themeSync.message}
-        <Button size="sm" variant="outline" onClick={() => act(owner, shell.commands.retryTheme)}>Retry theme</Button></span>}
-      {needsSourceRecovery && <Button size="sm" variant="outline" onClick={() => act(owner, shell.commands.reload)}>Reload source (discard local page edits)</Button>}
+      {!snapshot.connected && outsideFeedback && chrome.sourceError && <RecoveryNotice messages={[`Source: ${chrome.sourceError}`]} />}
+      {!snapshot.connected && <div className="review-recovery-actions"><Button size="sm" variant="outline"
+        onClick={() => act(owner, shell.commands.reconnect)}>Reconnect</Button></div>}
+      {chrome.themeSync.status === "failed" && <RecoveryNotice messages={[chrome.themeSync.message ?? "Review tools could not confirm the selected annotation theme."]}
+        actions={<Button size="sm" variant="outline" onClick={() => act(owner, shell.commands.retryTheme)}>Retry theme</Button>} />}
+      {needsSourceRecovery && <div className="review-recovery-actions"><Button size="sm" variant="destructive"
+        onClick={() => act(owner, shell.commands.reload)}>Reload source (discard local page edits)</Button></div>}
     </div>}
     {createPortal(<>
       {panel}
@@ -841,12 +857,12 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       }} onCloseAutoFocus={(event) => {
         event.preventDefault();
         setRestoreConfirmationFocus(true);
-      }}><AlertDialogHeader><AlertDialogTitle>{snapshot.confirmation?.action === "end" ? "End shared review?" : snapshot.confirmation?.action === "abandon" ? "Abandon submission?" : "Confirm review action"}</AlertDialogTitle>
+      }}><AlertDialogHeader><AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
         <AlertDialogDescription>{snapshot.confirmation?.description}</AlertDialogDescription></AlertDialogHeader>
         {snapshot.error && <p role="alert">{snapshot.error}</p>}
         {snapshot.uncertain && <p role="status">Acceptance is unknown. Close this dialog and use Check receipt or Retry same request; do not repeat source work.</p>}
         <AlertDialogFooter><AlertDialogCancel disabled={snapshot.busy} onClick={owner.commands.cancelConfirmation}>Cancel</AlertDialogCancel>
-          <Button disabled={snapshot.busy || !!snapshot.uncertain} onClick={() => act(owner, owner.commands.confirmAction)}>Confirm</Button></AlertDialogFooter>
+          <Button variant={confirmation?.variant} aria-busy={snapshot.busy} disabled={snapshot.busy || !!snapshot.uncertain} onClick={() => act(owner, owner.commands.confirmAction)}>{confirmation?.verb}</Button></AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
     {createPortal(<div id="conversationChanges" hidden={!chrome.comparisonOpen}>

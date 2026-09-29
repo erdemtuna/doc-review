@@ -14,7 +14,7 @@ const card = (page) => page.locator(".conversation-thread").first();
 async function begin(page, frame, selector = "#copy") { await selectText(frame, selector); await frame.locator("#commentAction").click(); await expect(draft(page)).toBeVisible(); }
 async function close(page) {
   if (await page.locator(".conversation-panel").isVisible()) {
-    await page.locator(".conversation-panel").getByRole("button", { name: /^(Close|Close comment)$/, exact: true }).click();
+    await page.locator(".conversation-panel").getByRole("button", { name: /^(Close feedback|Close comment)$/, exact: true }).click();
   } else await expect(page.locator(".conversation-panel")).toBeHidden(); // Save closes contextual composition.
 }
 
@@ -55,7 +55,7 @@ test("only confirmed deletion removes a never-submitted thread and returns reach
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   expect((await listed(review, ref, "threads")).items).toHaveLength(1);
   await (await threadAction(page, card(page), "Delete thread")).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete thread" }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(page.locator("#commentsButton")).toBeFocused();
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
@@ -70,8 +70,20 @@ test("Escape cancels only the current draft; closing a host never resolves its t
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(reply).toHaveCount(0); await expect(panel(page)).toBeVisible();
   await (await threadAction(page, card(page), "Focus")).click();
-  await card(page).getByRole("button", { name: "Close conversation" }).press("Escape");
+  const close = card(page).getByRole("button", { name: "Close conversation" });
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.mouse.move(0, 0);
+  await close.scrollIntoViewIfNeeded();
+  await close.focus();
+  await close.press("Tab"); await page.keyboard.press("Shift+Tab");
+  await expect(close).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: "Close conversation", exact: true })).toBeVisible();
+  await close.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(panel(page)).toBeVisible();
+  await close.press("Escape");
   await expect(panel(page)).toBeHidden();
+  await expect(page.locator("#commentsButton")).toBeFocused();
   expect((await listed(review, ref, "threads")).items[0].thread.status).toBe("open");
 });
 
@@ -81,7 +93,7 @@ test("another explicit target cannot steal a nonempty new-message draft, includi
   await close(page);
   await page.getByRole("button", { name: "Keep editing" }).click();
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await selectText(frame, "#other"); await frame.locator("#commentAction").click();
   await feedback(page);
   await expect(draft(page)).toHaveValue("Keep original owner");
@@ -179,10 +191,14 @@ test("multiple same-block conversations preserve authored dark styles and expose
     await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(23, 23, 15)");
     expect(await frame.locator("body").innerHTML()).toBe(authored);
     await badge.focus(); await badge.press("Enter");
-    const chooser = page.getByRole("combobox", { name: "Conversation at this target" });
+    const chooser = page.getByRole("button", { name: /^Conversation at this target:/ });
     await expect(chooser).toBeVisible();
-    const values = await chooser.locator("option").evaluateAll((nodes) => nodes.map((node) => node.value));
-    await chooser.selectOption(values[1]);
+    await expect(chooser).toHaveCSS("height", "28px");
+    await expect(chooser).toHaveCSS("font-size", "13px");
+    await expect(chooser).toHaveAttribute("aria-haspopup", "menu");
+    await expect(chooser).toHaveAttribute("data-size", "sm");
+    await chooser.click();
+    await page.getByRole("menuitemradio").nth(1).click();
     await expect(panel(page)).toContainText("Second block feedback");
     await page.screenshot({ path: testInfo.outputPath(`block-conversations-${theme}.png`), animations: "disabled" });
     await panel(page).getByRole("button", { name: "Close conversation" }).click();

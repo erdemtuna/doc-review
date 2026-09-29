@@ -106,7 +106,7 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
     }
     await page.screenshot({ path: testInfo.outputPath(`toolbar-${width}-${theme}.png`), animations: "disabled" });
     await page.locator("#frame").evaluate((element) => { window.savedFrame = element; });
-    await region.locator(".comparison-expand").first().click();
+    await region.locator(".comparison-context-row").first().click();
     const expanded = region.locator('[data-row-id="row-10"]');
     await expect(expanded).toBeVisible();
     await expanded.evaluate((element) => { window.savedRow = element; });
@@ -157,7 +157,7 @@ for (const [width, height] of [[320, 400], [768, 430], [1440, 400]]) {
   test(`sticky comparison tools leave the selected change reachable at ${width}x${height}`, async ({ page, review }, testInfo) => {
     await page.setViewportSize({ width, height });
     const { region } = await setup(page, review);
-    await region.locator(".comparison-expand").first().click();
+    await region.locator(".comparison-context-row").first().click();
     await region.evaluate(node => { node.scrollTop = 700; });
     const pinnedTitle = await region.locator(".conversation-comparison-title").boundingBox();
     const pinnedTools = await region.locator("header").boundingBox();

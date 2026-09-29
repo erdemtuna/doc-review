@@ -15,6 +15,7 @@ export type FrameEnvelope<Message> = Message & FrameIdentity;
 
 export type ReviewTheme = "light" | "dark";
 export interface ThemePayload { theme: ReviewTheme; themeRevision: number }
+export interface FrameReviewConfiguration extends ReviewConfiguration { canComment: boolean }
 export function isThemePayload(value: unknown): value is ThemePayload {
   return typeof value === "object" && value !== null &&
     "theme" in value && (value.theme === "light" || value.theme === "dark") &&
@@ -53,7 +54,7 @@ export interface TargetGeometry {
 export type ShellToFrameMessage =
   | FrameThreadAnchors | FrameThreadAction
   | ({ type: "eh:setTheme" } & ThemePayload)
-  | ({ type: "eh:configureReview" } & ReviewConfiguration)
+  | ({ type: "eh:configureReview" } & FrameReviewConfiguration)
   | { type: "eh:anchors"; comments: FeedbackComment[] }
   | { type: "eh:activate"; id: string; scroll: boolean }
   | { type: "eh:remove"; id: string }
@@ -80,7 +81,7 @@ export type FrameToShellMessage =
   | FrameThreadAnchorStates | FrameThreadAction
   | ({ type: "eh:themeApplied" } & ThemePayload)
   | { type: "eh:ready"; scrollHeight: number }
-  | ({ type: "eh:configurationApplied" } & ReviewConfiguration)
+  | ({ type: "eh:configurationApplied" } & FrameReviewConfiguration)
   | ({ type: "eh:target" | "eh:openComment" | "eh:targetGeometry" } & TargetGeometry)
   | { type: "eh:commentGeometry"; id: string; rects: FrameRect[]; visible: boolean; viewport: FrameViewport }
   | { type: "eh:revealTargetResult"; targetGeneration: number; success: boolean }

@@ -145,7 +145,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     assert.equal(await page.locator("#frame").getAttribute("src"), firstFrame, "reply-only response creates no fake version");
     evidence.push({ phase: "discussion", reviewId: ref.reviewId, submissionId: first.submissionId, unchanged: true });
 
-    await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
     await mode(page, "Edit");
     await type(page, "#copy", "Exact human wording");
     await expect.poll(() => fs.readFileSync(target, "utf8")).toContain("Exact human wording");
@@ -235,6 +235,9 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     const thread = page.locator(`[data-thread="${first.messages[0].message.threadId}"]`);
     await threadAction(page, thread, "Resolve");
     await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
+    const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
+    await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
+    await resolvedFilter.click();
     await threadAction(page, thread, "Reopen");
     await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeEnabled();
     const lost = new Map();
@@ -257,12 +260,13 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await note.fill("This local draft must not be recovered after restart.");
     await page.locator("#endReview").click();
     await expect(page.getByRole("alertdialog")).toContainText("for every tab");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "End review", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toContainText("Acceptance is unknown");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Check receipt", exact: true }).click();
     for (const tab of [page, second]) await expect(tab.locator(".conversation-lifecycle")).toHaveText("Review ended");
-    await expect(page.getByText("Not sent · read-only", { exact: true })).toBeVisible();
+    await expect(page.getByText("Pending (read-only)", { exact: true })).toBeVisible();
+    await expect(page.getByText("Pending (read-only)", { exact: true })).toHaveAttribute("title", /review has ended and is read-only/);
     await page.unroute("**/api/conversation");
     const oldUrl = page.url();
     await restart();

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button } from "./ui/button";
+import { ControlHint, IconButton } from "./ui/icon-button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./ui/dropdown-menu";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { Icon } from "./icon";
@@ -12,9 +12,9 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
 }
 
 export function ConversationIntent() {
-  return <span className="conversation-intent-icon" role="img" aria-label="Change requested" title="Change requested" tabIndex={0}>
+  return <ControlHint hint="Change requested"><span className="conversation-intent-icon" role="img" aria-label="Change requested" tabIndex={0}>
     <Icon name="filePenLine" size={14} />
-  </span>;
+  </span></ControlHint>;
 }
 
 export function ConversationSource({ target }: { target: ConversationTarget }) {
@@ -41,8 +41,8 @@ export function ConversationMenu({ actions }: { actions: ConversationAction[] })
     setOpen(value);
   }}>
     <DropdownMenuTrigger asChild>
-      <Button ref={trigger} variant="ghost" size="icon-xs" className="conversation-icon" data-thread-actions
-        aria-label="Conversation actions" title="Conversation actions"><Icon name="moreHorizontal" /></Button>
+      <IconButton ref={trigger} className="conversation-icon" data-thread-actions
+        aria-label="Conversation actions"><Icon name="moreHorizontal" /></IconButton>
     </DropdownMenuTrigger>
     <DropdownMenuContent ref={content} align="end" collisionPadding={12}
       onEscapeKeyDown={(event) => { if (current.current) event.stopPropagation(); }}
@@ -54,7 +54,8 @@ export function ConversationMenu({ actions }: { actions: ConversationAction[] })
         event.preventDefault();
         const active = document.activeElement;
         const handedOff = active && active !== document.body && active !== trigger.current && !content.current?.contains(active);
-        if (!current.current && !outside.current && !handedOff) trigger.current?.focus({ preventScroll: true });
+        if (!current.current && !outside.current && !handedOff && trigger.current?.isConnected &&
+          !trigger.current.closest("[hidden], [inert]")) trigger.current.focus({ preventScroll: true });
       }}>
       {actions.map((action) => <DropdownMenuItem key={action.label} disabled={action.disabled}
         variant={action.destructive ? "destructive" : "default"} onSelect={() => {

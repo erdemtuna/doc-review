@@ -35,7 +35,14 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
   const offscreenCard = page.locator(`[data-thread="${offscreen.threadId}"]`);
   const show = offscreenCard.getByRole("button", { name: "Show in document" });
   await expect(show).toBeEnabled();
-  await expect(show).toHaveAttribute("title", "Show the exact passage");
+  await expect(show).not.toHaveAttribute("title");
+  await page.mouse.move(0, 0);
+  await show.scrollIntoViewIfNeeded();
+  await show.focus();
+  await show.press("Tab"); await page.keyboard.press("Shift+Tab");
+  await expect(show).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: "Show the exact passage", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(offscreenCard.locator(".conversation-target-status")).toHaveCount(0);
   await expect(show).not.toHaveAttribute("aria-describedby");
   for (const theme of ["light", "dark"]) {
@@ -71,6 +78,9 @@ test("cross-page Jump to verifies membership before revealing and keeps unavaila
   await sendPending(review, ref); await handled(review, ref);
   await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
   await feedback(page);
+  const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
+  await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
+  await resolvedFilter.click();
   await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeEnabled();
   await card.getByRole("button", { name: "Show in document" }).click();
   await expect(page.locator(".conversation-panel")).toBeVisible();

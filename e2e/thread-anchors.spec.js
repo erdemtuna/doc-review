@@ -1,3 +1,4 @@
+import { selectPeer } from "./choice-helpers.js";
 import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, conversation } from "./helpers.js";
 import { validateFrameAnchorStates, validateFrameThreadAction } from "../lib/contracts/frame.js";
@@ -53,7 +54,7 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await sendPending(review, ref); await handled(review, ref);
   await expect(frame.getByRole("button", { name: "Open 2 conversations", exact: true })).toHaveCount(1);
   await frame.getByRole("button", { name: "Open 2 conversations", exact: true }).click();
-  await page.getByRole("combobox", { name: "Conversation at this target", exact: true }).selectOption(one.threadId);
+  await selectPeer(page, page, one.threadId);
   const first = page.locator(`[data-thread="${one.threadId}"]`);
   await expect(first).toBeVisible();
   await first.getByRole("button", { name: "Resolve", exact: true }).click();

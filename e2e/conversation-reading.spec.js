@@ -84,7 +84,7 @@ test("docking keeps the current passage and document selection while Feedback st
   expect(await frame.locator("body").evaluate(() => getSelection().toString())).toBe("Keep this passage in view.");
   await frame.getByLabel("Document input").fill("Keep typing with Feedback open");
   await expect(page.locator(".conversation-panel")).toBeVisible();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await expect.poll(top).toBeCloseTo(before, 0);
   await expect(frame.getByLabel("Document input")).toHaveValue("Keep typing with Feedback open");
 });

@@ -69,7 +69,7 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
   };
   const view = value?.viewComparison && typeof value.viewComparison === "object" && "message" in value.viewComparison
     ? String(value.viewComparison.message) : "";
-  return <section ref={root} className="conversation-comparison review-ui" aria-label="Saved comparison" hidden={!chrome.comparisonOpen}
+  return <section ref={root} className="conversation-comparison comparison-host review-ui" aria-label="Saved comparison" hidden={!chrome.comparisonOpen}
     onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (menu) setMenu(null); else shell.commands.closeComparison(); } }}>
     <div ref={title} className="conversation-comparison-title">
       <Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>{replyOnly ? "Agent response" : "Changes"}</h2></div>

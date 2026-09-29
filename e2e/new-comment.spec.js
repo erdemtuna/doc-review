@@ -115,7 +115,7 @@ test("dirty cancellation, IME, saving and uncertain acceptance preserve the exac
     await expect(page.getByText("create-thread: acceptance unknown", { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath("save-acceptance-unknown.png") });
     await expect(composer(page).getByRole("button", { name: "Close comment" })).toBeDisabled();
-    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Close feedback", exact: true }).click();
     await feedback(page);
     await expect(editor(page)).toHaveValue("Newer unsaved wording");
     await page.getByRole("button", { name: "Check receipt", exact: true }).click();
@@ -208,7 +208,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   expect(await editor(page).evaluate((node) => [node === window.newEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 7, 14]);
   await expect(composer(page).getByRole("button", { name: "Close comment" })).toBeDisabled();
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await expect(editor(page)).toBeHidden();
   await feedback(page);
   expect(await editor(page).evaluate((node) => node === window.newEditor)).toBe(true);
@@ -302,7 +302,7 @@ test("new-target boundary rejects stale or foreign intent and keeps exact draft 
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("button", { name: "Keep editing" }).click();
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await post(opening); // A rejected newer intent must not invalidate the retained authoritative target.
   await expect(editor(page)).toBeVisible();
   await expect(editor(page)).toBeFocused();
@@ -318,7 +318,7 @@ test("new-target boundary rejects stale or foreign intent and keeps exact draft 
   await post(opening);
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "compose");
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 480 });
   await post({ ...opening, type: "eh:targetGeometry" });
   await expect(editor(page)).toBeHidden(); // Geometry/fallback must never reopen an incidentally closed draft.
@@ -382,7 +382,7 @@ test("nested clipping pins to the effective edge and removed targets or shared E
   await expect(composer(page).getByRole("button", { name: "Beside selection" })).toBeHidden();
   await page.locator("#endReview").click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "End review", exact: true }).click();
   await expect(editor(page)).toHaveAttribute("readonly", "");
   expect(await editor(page).evaluate(node => node === window.newEditor)).toBe(true);
   await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toHaveCount(0);

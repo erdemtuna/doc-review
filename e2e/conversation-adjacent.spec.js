@@ -1,3 +1,4 @@
+import { selectPeer } from "./choice-helpers.js";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
@@ -68,7 +69,7 @@ for (const kind of ["selection", "element"]) for (const grouped of [false, true]
     if (grouped) await expect(trigger).toHaveAttribute("aria-label", "Open 2 conversations");
     await trigger.click();
     await expect(panel(page)).toBeVisible();
-    if (grouped) await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(two);
+    if (grouped) await selectPeer(page, panel(page), two);
     await card(page, two).getByRole("button", { name: "Reply", exact: true }).click();
     const editor = card(page, two).getByRole("textbox", { name: "Reply", exact: true });
     await editor.fill("Keep this unsaved reply");
@@ -76,13 +77,13 @@ for (const kind of ["selection", "element"]) for (const grouped of [false, true]
     await expect(panel(page)).toHaveCount(0);
     await trigger.click();
     await expect(panel(page)).toBeVisible();
-    if (grouped) await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(two);
+    if (grouped) await selectPeer(page, panel(page), two);
     await expect(editor).toHaveValue("Keep this unsaved reply");
     await trigger.press("Enter");
     await expect(panel(page)).toHaveCount(0);
     await trigger.press("Space");
     await expect(panel(page)).toBeVisible();
-    if (grouped) await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(two);
+    if (grouped) await selectPeer(page, panel(page), two);
     await expect(editor).toHaveValue("Keep this unsaved reply");
   });
 }
@@ -115,9 +116,9 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   expect(await editor.evaluate((node) => [node === window.savedEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
   await expect(editor).toHaveValue("Keep this composition and selected text");
   await editor.evaluate((node) => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
-  await card(page, one).getByLabel("Conversation at this target").selectOption(two);
+  await selectPeer(page, card(page, one), two);
   await expect(card(page, one)).toBeHidden();
-  await card(page, two).getByLabel("Conversation at this target").selectOption(one);
+  await selectPeer(page, card(page, two), one);
   expect(await editor.evaluate((node) => node === window.savedEditor)).toBe(true);
   let release, picked;
   const waiting = new Promise((resolve) => { picked = resolve; });
@@ -153,11 +154,16 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   expect(JSON.stringify(projections)).not.toContain(review.token);
   const reports = await page.evaluate(() => window.anchorReports);
   validateFrameAnchorStates(reports.at(-1), projections.at(-1));
+  await card(page, one).getByRole("button", { name: "Close conversation" }).focus();
+  await expect(page.getByRole("tooltip", { name: "Close conversation", exact: true })).toBeVisible();
+  await card(page, one).getByRole("button", { name: "Close conversation" }).press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await card(page, one).getByRole("button", { name: "Close conversation" }).press("Escape");
   await expect(panel(page)).toHaveCount(0);
+  await expect(page.locator("#commentsButton")).toBeFocused();
   await mark(page, one).click();
   await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
-  await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(one);
+  await selectPeer(page, panel(page), one);
   await expect(editor).toHaveValue("Newer text stays in the same editor");
 });
 
@@ -220,7 +226,10 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
     window.anchorReports.at(-1)?.anchors.find(anchor => anchor.threadId === threadId)?.relation, id)).toBe("above");
   await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
   await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeEnabled();
-  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toHaveAttribute("title", "Show the exact passage");
+  const locate = card(page, id).getByRole("button", { name: "Show in document" });
+  await expect(locate).not.toHaveAttribute("title");
+  await locate.focus();
+  await expect(page.getByRole("tooltip", { name: "Show the exact passage" })).toBeVisible();
   await expect(card(page, id).locator(".conversation-target-status")).toHaveCount(0);
   await card(page, id).getByRole("button", { name: "Show in document" }).click();
   await expect(mark(page, id)).toBeInViewport();
@@ -317,7 +326,7 @@ test("stale frame payloads cannot open conversations; resolved and ended hosts r
   const other = await context.newPage();
   await other.goto(page.url()); await waitForSdk(other);
   await other.locator("#commentsButton").click(); await other.locator("#endReview").click();
-  await other.getByRole("button", { name: "Confirm", exact: true }).click();
+  await other.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await call(review, responseFor(submission, { resultNote: "Late result retained." }));
   await expect(card(page, id).getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
@@ -436,7 +445,7 @@ test("full-width block badges remain actionable without the new-comment affordan
   await expect(page.getByText(/not enough room beside, above or below/)).toBeVisible();
   const focused = panel(page).locator(".conversation-thread.focused");
   await focused.getByText("Conversations at this target (2)", { exact: true }).click();
-  await expect(focused.getByLabel("Conversation at this target")).toBeVisible();
-  await focused.getByLabel("Conversation at this target").selectOption(one);
+  await expect(focused.getByRole("button", { name: /^Conversation at this target:/ })).toBeVisible();
+  await selectPeer(page, focused, one);
   await expect(card(page, one)).toBeVisible();
 });

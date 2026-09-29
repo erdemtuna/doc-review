@@ -84,10 +84,11 @@
   .review-ui :where([hidden]) { display: none !important; }
   .review-ui :where(h1, h2, h3, p) { margin: 0; }
   .review-ui :where(a) { color: inherit; text-decoration: inherit; }
+  .review-ui :where(a[href]) { color: var(--primary); text-decoration: underline; text-underline-offset: .15em; }
 }
 
 @layer utilities {
-  .review-ui :where(button, select, input, textarea, [tabindex]):focus-visible {
+  .review-ui :where(button, select, input, textarea, a[href], [tabindex]):focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
     box-shadow: none;

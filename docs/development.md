@@ -78,9 +78,14 @@ Only contextual error recovery adds a full-width row; the normal More menu is re
 Feedback, Focus and adjacent conversations share one mounted conversation tree,
 draft owner and editor. Changes controls and both comparison representations
 also use React; there is no alternate legacy shell entry.
-Legacy styles occupy a lower cascade layer; new tokens and baselines apply only
-inside `.review-ui` surfaces and their portals, with generated legacy aliases
-sharing the same palette. The component gallery stays separate.
+`styles/shell.css` owns shell geometry and shared control layouts,
+`styles/conversation.css` owns the current conversation/recovery hosts, and
+`styles/comparison.css` owns inert comparison presentation. The obsolete
+`src/chrome.css` and retired Changes/Comments/Contextual/Feedback/Recovery React
+implementations are removed; `ComparisonView`, projection helpers and
+`ToolbarControls` remain shared production code. Component baselines apply inside
+`.review-ui` surfaces and portals. Unreferenced legacy color aliases are removed;
+shell and SDK consume canonical palette roles. The component gallery stays separate.
 React, Tailwind, Radix-backed shadcn controls, and browser-only dependencies are
 build-time dependencies; installed packages require no Vite or UI tooling.
 Vite emits bundled dependency licenses in `lib/ui/THIRD_PARTY_NOTICES.md`;
@@ -111,6 +116,33 @@ and clean up without leaving a process. See [the checklist](migration-review.md)
 The component gallery uses simulated state; these shell previews use the real
 durable server. The installed-package browser smoke below exercises the complete
 HTML/Markdown/scripted/URL lifecycle and retained comparisons.
+
+The foundations gallery composes the current brand, all six Button roles,
+ChoiceMenu, single/multiple SegmentedControl, permission Checkbox, informational
+hints, conversation metadata, results, timeline, recovery and rich comparisons.
+The recovery gallery renders `RecoveryNotice`/`ReceiptRecovery` with explicitly
+synthetic states; its native selector chooses fixtures, not review data. Neither
+preview implements a parallel workflow or ships in the package.
+
+### Frontend consolidation regression map
+
+| Contract | Main proof |
+| --- | --- |
+| Rich comparison style ownership, including real tables | `e2e/frontend-consolidation.spec.js`, `test/ui/comparison.test.tsx` |
+| Typed confirmation verbs/intent; async failure stays open | `test/ui/control-contracts.test.tsx`, consolidation and conversation browser suites |
+| Keyboard intent/action hints; layered Escape | control-contracts, consolidation and conversation-adjacent suites |
+| Six shared pickers, peer density, async focus, disabled/typeahead/handoff | choice-menu, toolbar, changes-controls, commenting and conversation-adjacent suites |
+| Intentional deterministic icon vocabulary | `test/icons.test.js` |
+| Visible new/edit draft exclusion at 390x480 and 320x400; exact Send payload | consolidation suite in both themes |
+| Separate comment capability through End/reload/page changes, while waiting permits discussion | consolidation suite and `test/shell-controllers.test.js` |
+| Stable Abandon/Revert danger ink; neutral recovery across hosts | consolidation suite in both themes |
+| Retained editor/caret/IME, first glyph and 36px editor visibility | coherence, responsive-conversation, new-comment and approved-parity suites |
+
+Rendered checks supplement palette contrast tests: normal text targets 4.5:1;
+essential input/focus boundaries target 3:1. Decorative card dividers are quieter.
+Evidence screenshots are diagnostic outputs, not automatically accepted pixel
+baselines. The component gallery is useful for state inspection; acceptance uses
+the real isolated shell and installed runtime.
 
 ## README media
 

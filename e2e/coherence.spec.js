@@ -39,7 +39,7 @@ test("Feedback and History share Review and Changes navigation styling and stay 
             JSON.stringify(style(document.querySelector("#latestVersion")));
         })).toBe(true);
         const bounds = await destination.boundingBox();
-        const close = await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).boundingBox();
+        const close = await page.locator(".conversation-panel-header").getByRole("button", { name: "Close feedback", exact: true }).boundingBox();
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(close.x);
         expect(Math.abs(bounds.y - close.y)).toBeLessThan(1);
         await page.screenshot({ path: info.outputPath(`panel-navigation-${pane.toLowerCase()}-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
@@ -171,7 +171,7 @@ test("History timeline has connected status icons and visible confirmed abandonm
   await expect(abandon).toBeFocused();
   await expect(history.locator("[data-state='queued']")).toHaveCount(1);
   await abandon.click();
-  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await dialog.getByRole("button", { name: "Abandon submission", exact: true }).click();
   await expect(history.locator("[data-state='abandoned']")).toHaveCount(1);
   await history.locator("[data-state='abandoned'] summary").click();
   await sendPending(review, ref, { body: "The next review request.", intent: "discuss" });
@@ -533,7 +533,7 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(card.locator(".conversation-thread-content")).toBeHidden();
     if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
-    await expect(card.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
     expect((await card.boundingBox()).height).toBeLessThan(openHeight);
     const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
     await expect(undo).toBeVisible();

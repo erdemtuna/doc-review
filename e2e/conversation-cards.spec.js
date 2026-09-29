@@ -42,7 +42,7 @@ test("identical pending and handled cards retain readable content and record den
         if (state === "pending") await expect(card.getByText("Pending", { exact: true })).toHaveAttribute("data-slot", "badge");
         await expect(card.locator(".conversation-meta").getByText(/^(Discussion|answered)$/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
-        await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "false");
         await page.screenshot({ path: info.outputPath(`cards-${state}-${theme}-${width}.png`) });
         await message.scrollIntoViewIfNeeded();
         expect(await message.evaluate((element) => {
@@ -74,16 +74,22 @@ test("identical pending and handled cards retain readable content and record den
   fs.writeFileSync(info.outputPath("card-density.json"), JSON.stringify(metrics, null, 2));
 });
 
-test("narrow resolved cards retain reachable secondary controls when new activity is marked", async ({ page, review }) => {
+test("narrow resolved cards retain reachable secondary controls without restoring unread emphasis", async ({ page, review }) => {
   const ref = await openReview(page, review, writeFile(review, "card-activity.html", "<p>A concise target</p>"));
   await waitForSdk(page);
   const { threadId } = await seedThread(review, ref, "An answered discussion.");
-  await sendPending(review, ref); await handled(review, ref);
   await feedback(page);
   const card = page.locator(`[data-thread="${threadId}"]`);
+  await expect(card).toContainText("An answered discussion.");
+  await sendPending(review, ref);
+  await expect(card.getByText("Pending", { exact: true })).toHaveCount(0);
+  await handled(review, ref);
   await expect(card.locator(".conversation-response")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Mark conversation as read" })).toBeVisible();
   await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
-  await expect(card.getByRole("button", { name: "New activity" })).toBeVisible();
+  await page.getByRole("button", { name: "Resolved (1)", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Mark conversation as read" })).toHaveCount(0);
+  await expect(card.locator(".conversation-resolved-status")).toHaveText("Resolved");
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const [width, height] of [[390, 480], [320, 400]]) {
@@ -144,20 +150,23 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
     const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
     await page.mouse.move(2, 2);
     await expect(open).toHaveAttribute("aria-pressed", "true");
+    await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
+    await resolvedFilter.click();
     await expect(resolvedFilter).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => open.evaluate((element) => {
       getComputedStyle(element).backgroundColor;
       return element.getAnimations().some((animation) => animation.playState === "running");
     })).toBe(false);
-    const paint = await open.evaluate((element) => getComputedStyle(element).backgroundColor);
+    const paint = await open.evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
     expect(paint).not.toBe("rgba(0, 0, 0, 0)");
     await open.click(); await page.mouse.move(2, 2); await open.evaluate((element) => element.blur());
     await expect(card).toBeHidden();
-    await expect.poll(() => open.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(paint);
+    await expect.poll(() => open.evaluate((element) => getComputedStyle(element, "::before").backgroundColor)).not.toBe(paint);
     await expect(resolvedFilter).toHaveAttribute("aria-pressed", "true");
     await open.click(); await page.mouse.move(2, 2); await open.evaluate((element) => element.blur());
-    await expect.poll(() => open.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(paint);
+    await expect.poll(() => open.evaluate((element) => getComputedStyle(element, "::before").backgroundColor)).toBe(paint);
     await expect(card.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "true");
+    await resolvedFilter.click();
   }
   await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
   await card.getByRole("button", { name: "Resolve", exact: true }).click();
@@ -180,7 +189,10 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await expect(editor).toHaveCount(0);
   const change = card.getByRole("img", { name: "Change requested", exact: true });
   await expect(change).toBeVisible();
-  await expect(change).toHaveAttribute("title", "Change requested");
+  await expect(change).not.toHaveAttribute("title");
+  await change.focus();
+  await expect(page.getByRole("tooltip", { name: "Change requested", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(change).toHaveText("");
   await change.focus(); await expect(change).toBeFocused();
   await expect(card.getByText("Discussion", { exact: true })).toHaveCount(0);

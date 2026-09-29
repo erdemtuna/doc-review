@@ -36,7 +36,7 @@ export const configuration = reviewConfiguration({ kind: "file", arbitrary: true
 export const defaultMode = normalizeReviewMode();
 export const policy = framePolicy({ kind: "url", extraMetadata: true }, "http://localhost:3000");
 export const message = {
-  type: "eh:configureReview", mode: "view", savePolicy: "feedback-only",
+  type: "eh:configureReview", mode: "view", savePolicy: "feedback-only", canComment: false,
   capability: "secret", generation: 1, pageKey: "page",
 } satisfies FrameEnvelope<ShellToFrameMessage>;
 export const unavailable = {

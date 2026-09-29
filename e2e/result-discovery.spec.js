@@ -181,7 +181,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
     await changes.getByRole("button", { name: "Back to review" }).click();
   }
   fs.writeFileSync(info.outputPath("result-readability.json"), JSON.stringify(measurements, null, 2));
-  await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
   await peek.getByRole("button", { name: "View changes" }).click();
   await expect(changes.locator(".conversation-result-body")).toContainText("Updated the agent target.");
 });
@@ -236,7 +236,7 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
   await expect(peek).toBeVisible();
   const firstCard = page.locator(`[data-thread="${work.messages[0].message.threadId}"]`);
   expect(await firstCard.locator(".conversation-thread-toolbar button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))))
-    .toEqual(["New activity", "Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
+    .toEqual(["Mark conversation as read", "Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
   const inventory = page.locator(".conversation-inventory");
   const tabs = page.getByRole("group", { name: "Feedback destination" });
   let draftCreated = false;
@@ -396,7 +396,7 @@ test("header History preserves mounted reply/note permissions and full results w
   const inventory = page.locator(".conversation-inventory");
   await inventory.evaluate(node => { node.scrollTop = 100; });
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await page.locator("#commentsButton").click();
   await expect(page.getByRole("region", { name: "Submission history" })).toBeVisible();
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
