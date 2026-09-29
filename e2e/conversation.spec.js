@@ -298,8 +298,8 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await expectEditBlocked(second, true);
   await message(second, "Prepare a discussion while blocked");
   await submissionHistory(page);
-  await page.getByText("Advanced actions", { exact: true }).click();
-  await page.getByRole("button", { name: "Abandon submission" }).click();
+  await page.getByRole("button", { name: "Submission actions" }).click();
+  await page.getByRole("menuitem", { name: "Abandon submission" }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Stop the old agent");
   await expect(page.getByRole("alertdialog")).toContainText(ref.reviewId);
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
@@ -311,8 +311,8 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await expect(second.getByRole("status", { name: "Waiting for agent", exact: true }))
     .toHaveAccessibleDescription(/Feedback received; no response yet/);
   await submissionHistory(second);
-  await second.getByText("Advanced actions", { exact: true }).click();
-  await second.getByRole("button", { name: "Abandon submission" }).click();
+  await second.getByRole("button", { name: "Submission actions" }).click();
+  await second.getByRole("menuitem", { name: "Abandon submission" }).click();
   await second.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(second.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
 });

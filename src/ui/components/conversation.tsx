@@ -395,28 +395,24 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
   const owner = shell.owner;
   return <section className="conversation-history" aria-label="Submission history">
     {!snapshot.history.length && <p>No submissions yet. Send saved feedback when you are ready.</p>}
-    <details className="conversation-handoff"><summary>Agent command</summary><code>{shell.getSnapshot().pollCommand}</code></details>
-    {!!snapshot.status?.blockers.length && <details className="conversation-blockers">
-      <summary>Technical details</summary>
-      <p>{snapshot.sendBlocked ? "You can keep commenting. Sending and editing are paused until this batch is handled."
-        : "Another review is waiting for a response. Editing its pages is paused; you can keep commenting."}</p>
-      {[...new Set(snapshot.status.blockers.map(blocker => blocker.reviewId))].filter(id => id !== snapshot.review?.reviewId)
-        .map(id => <p key={id}><a href={`/r/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">Open related review</a></p>)}
-      <pre>{JSON.stringify(snapshot.status.blockers, null, 2)}</pre>
-    </details>}
+    {[...new Set(snapshot.status?.blockers.map(blocker => blocker.reviewId))].filter(id => id !== snapshot.review?.reviewId)
+      .map(id => <p key={id}><a href={`/r/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">Open related review</a></p>)}
     {snapshot.history.map((item) => {
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
       return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
         <summary>{item.result ? (detail ? resultHeading(detail) : "Agent response") : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned batch"} <ConversationTime value={item.createdAt} /></summary>
+        {(item.state === "queued" || item.state === "delivered") && <div className="conversation-submission-actions">
+          <ConversationMenu label="Submission actions" actions={[{
+            label: "Abandon submission", destructive: true, disabled: snapshot.busy || !!snapshot.uncertain,
+            run: () => owner.commands.confirm("abandon", item.submissionId),
+          }]} />
+        </div>}
         {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <ConversationIntent />}</h4>
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
         {detail?.result && <ResultActions detail={detail} shell={shell} />}
         {detail?.result?.editOutcomes.map((outcome) => <p key={outcome.editId}>{editOutcomeSummary(outcome.outcome)} {outcome.reason}</p>)}
         {item.state === "abandoned" && <p role="status">Abandoned. External source work may still have happened; check the source. No undo or cancellation is guaranteed.</p>}
-        {(item.state === "queued" || item.state === "delivered") && <details><summary>Advanced actions</summary>
-          <Button variant="outline" disabled={snapshot.busy || !!snapshot.uncertain}
-            onClick={() => owner.commands.confirm("abandon", item.submissionId)}>Abandon submission</Button></details>}
         {item.result && <p>{resultAvailability(item)}</p>}
         {visible && <CaptureNotices snapshot={snapshot} shell={shell} submissionId={item.submissionId} />}
         {detail?.submission.pageKeys.map((key) => item.result?.effect === "changes-reported" && <section aria-label={pageLabel(snapshot, key)} key={key}>
@@ -428,8 +424,6 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
               title={key !== shell.getSnapshot().pageKey ? "Open this page in Review before capturing current content." : undefined}
               onClick={() => act(owner, () => shell.commands.recapture(item.submissionId, key))}>Capture current content</Button>}
           </div></section>)}
-        <details className="conversation-receipt"><summary>Receipt details</summary><small>{item.submissionId}</small>
-          {detail?.receipt && <pre>{JSON.stringify(detail.receipt, null, 2)}</pre>}</details>
       </details>;
     })}
     {snapshot.historyCursor && <Button variant="outline" onClick={() => act(owner, owner.commands.historyEarlier)}>Load earlier submissions</Button>}

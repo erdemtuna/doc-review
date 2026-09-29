@@ -304,11 +304,11 @@ do not render comparison tools. Summary widths stay readable, while actual diffs
 may expand. Lifecycle status is centered in the desktop toolbar, separate from View/Edit.
 Waiting has one centered toolbar status rather than repeated queued/sent notices.
 Feedback contains no waiting explanation or technical disclosure after Send.
-Restrictions, related-review links and raw review/submission identifiers stay in
-collapsed Technical details within History.
-The header's **History** destination holds the full ledger, agent command, receipt
-diagnostics and advanced abandonment confirmation, rather than repeating them under
-the discussion inventory. History and Feedback retain the same mounted reply/note
+The header's **History** destination holds submission status, notes and results without
+CLI commands, raw identifiers, receipt JSON or technical disclosures.
+Waiting submissions expose abandonment through a compact actions menu with confirmation;
+related-review links remain available for overlapping work.
+History and Feedback retain the same mounted reply/note
 editors and independent reading positions. Capture errors belong to their exact
 result/page; older issues remain discoverable through the History issue count.
 Source-save, disconnected and uncertain-acceptance recovery stays visible.

@@ -337,10 +337,11 @@ loading. The toolbar's **Changes** destination selects change results, not
 discussion-only batches. **History** in the Feedback
 header opens earlier submissions without replacing your reply or overall-note
 editors. Use **Back to Feedback** to return to their retained text, permissions and
-reading position. Completed submissions are collapsed in **Submissions and results**;
-expand one for its note, receipt details, named pages and **Content changes** or
-**Source changes** actions. History also contains the **Agent command** and
-**Advanced actions → Abandon submission**, with the existing confirmation.
+reading position. Completed submissions are collapsed in **History**;
+expand one for its note, result, named pages and **Content changes** or
+**Source changes** actions. Waiting submissions have a compact **Submission actions**
+menu with **Abandon submission**, which still requires confirmation. History does not
+display CLI commands, raw submission identifiers, receipt JSON or technical disclosures.
 
 A temporary connection loss shows one **Reconnect** action. If the same server
 session is still available, reconnecting preserves the live document, native

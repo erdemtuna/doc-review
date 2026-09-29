@@ -30,7 +30,7 @@ export function ConversationSource({ target }: { target: ConversationTarget }) {
   </div>;
 }
 
-export function ConversationMenu({ actions }: { actions: ConversationAction[] }) {
+export function ConversationMenu({ actions, label = "Conversation actions" }: { actions: ConversationAction[]; label?: string }) {
   const [open, setOpen] = useState(false);
   const current = useRef(open), outside = useRef(false);
   current.current = open;
@@ -42,7 +42,7 @@ export function ConversationMenu({ actions }: { actions: ConversationAction[] })
   }}>
     <DropdownMenuTrigger asChild>
       <Button ref={trigger} variant="ghost" size="icon-xs" className="conversation-icon" data-thread-actions
-        aria-label="Conversation actions" title="Conversation actions"><Icon name="moreHorizontal" /></Button>
+        aria-label={label} title={label}><Icon name="moreHorizontal" /></Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent ref={content} align="end" collisionPadding={12}
       onEscapeKeyDown={(event) => { if (current.current) event.stopPropagation(); }}

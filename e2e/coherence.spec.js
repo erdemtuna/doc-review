@@ -70,12 +70,17 @@ test("compact inline editing preserves one editor across hosts and waiting hides
     await page.screenshot({ path: info.outputPath(`compact-waiting-${theme}.png`), animations: "disabled", caret: "initial" });
   }
   await page.getByRole("button", { name: "History", exact: true }).click();
-  await expect(blockers).toBeVisible();
-  await expect(blockers).not.toHaveAttribute("open");
-  await expect(blockers.locator("pre")).toBeHidden();
-  await blockers.getByText("Technical details", { exact: true }).click();
-  await expect(blockers).toContainText("You can keep commenting.");
-  await expect(blockers.locator("pre")).toContainText(ref.reviewId);
+  const history = page.getByRole("region", { name: "Submission history" });
+  await expect(history.locator("pre, code")).toHaveCount(0);
+  expect(await history.textContent()).not.toMatch(/You can keep commenting|Technical details|Agent command|Receipt details|Advanced actions|review_|submission_|doc-review poll/);
+  await expect(history.getByRole("button", { name: "Submission actions" })).toBeVisible();
+  for (const [width, height] of [[1280, 720], [720, 480]]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ["light", "dark"]) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      await page.screenshot({ path: info.outputPath(`clean-history-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+    }
+  }
   await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
   await expect(blockers).toBeHidden();
   expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);

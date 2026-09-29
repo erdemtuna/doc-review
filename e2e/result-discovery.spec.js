@@ -232,7 +232,7 @@ test("invalid comparison modes remain explicit and retry keeps the result summar
   await expect(changes.locator(".conversation-result-body")).toHaveText("Reported change; comparison validation stays independent.");
 });
 
-test("header History preserves mounted reply/note permissions and exposes full results, receipts and agent handoff", async ({ page, review }) => {
+test("header History preserves mounted reply/note permissions and full results without technical clutter", async ({ page, review }) => {
   const file = writeFile(review, "history-disclosure.html", "<p id='copy'>A preserved source</p>");
   const ref = await openReview(page, review, file);
   await waitForSdk(page);
@@ -262,10 +262,8 @@ test("header History preserves mounted reply/note permissions and exposes full r
   expect(await note.evaluate(node => node === window.historyNote)).toBe(true);
   await page.locator(".conversation-submission > summary").click();
   await expect(page.locator(".conversation-submission")).toContainText("The complete reply-only result");
-  await page.getByText("Receipt details", { exact: true }).click();
-  await expect(page.locator(".conversation-submission small")).toBeVisible();
-  await page.getByText("Agent command", { exact: true }).click();
-  await expect(page.locator(".conversation-handoff code")).toContainText(ref.reviewId);
+  expect(await page.getByRole("region", { name: "Submission history" }).textContent())
+    .not.toMatch(/Receipt details|Agent command|Technical details|review_|submission_|doc-review poll/);
   await page.setViewportSize({ width: 720, height: 480 });
   const inventory = page.locator(".conversation-inventory");
   await inventory.evaluate(node => { node.scrollTop = 100; });

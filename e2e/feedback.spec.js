@@ -54,7 +54,7 @@ for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [
   }
 }
 
-test("uncertain Send preserves newer typing and retries exactly one identity with an exact-review handoff", async ({ page, review }) => {
+test("uncertain Send preserves newer typing and retries exactly one identity without exposing handoff internals", async ({ page, review }) => {
   const { ref } = await setup(page, review);
   const bodies = [];
   let release;
@@ -75,10 +75,9 @@ test("uncertain Send preserves newer typing and retries exactly one identity wit
   expect(bodies).toHaveLength(2); expect(bodies[1]).toEqual(bodies[0]);
   await expect(note).toHaveValue("Newer note");
   await submissionHistory(page);
-  await page.getByText("Agent command", { exact: true }).click();
-  await expect(page.locator(".conversation-handoff code")).toContainText(ref.reviewId);
-  await expect(page.locator(".conversation-handoff code")).toContainText(ref.entryKey);
-  await expect(page.locator(".conversation-handoff code")).not.toContainText("--ack");
+  const history = page.getByRole("region", { name: "Submission history" });
+  await expect(history).toContainText("First note");
+  expect(await history.textContent()).not.toMatch(/Agent command|doc-review poll|review_|submission_/);
 });
 
 test("optional capture failure is independent of delivery and never introduces a Send override", async ({ page, review }) => {
