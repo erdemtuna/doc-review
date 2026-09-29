@@ -319,14 +319,26 @@ for it, rather than treating partial content as a complete replacement.
 ## Submission history and Changes
 
 Feedback shows the latest agent result before the discussion inventory. **View
-result** opens its full result note and retained comparison. The note is available
-even when a capture is pending, unavailable, or failed. **History** in the Feedback
+replies** opens the exact answered conversations, including older or resolved
+exchanges. **View changes** opens reported changes and their retained comparison;
+mixed batches offer both. Note-only or edit-only discussions use **View response**
+for the full summary without empty comparison controls. The note remains available
+when a capture is pending, unavailable, or failed. **Back to review** restores the
+originating workspace locally, even if a comparison request fails or is still
+loading. The toolbar's **Changes** destination selects change results, not
+discussion-only batches. **History** in the Feedback
 header opens earlier submissions without replacing your reply or overall-note
 editors. Use **Back to Feedback** to return to their retained text, permissions and
 reading position. Completed submissions are collapsed in **Submissions and results**;
 expand one for its note, receipt details, named pages and **Content changes** or
 **Source changes** actions. History also contains the **Agent command** and
 **Advanced actions → Abandon submission**, with the existing confirmation.
+
+A temporary connection loss shows one **Reconnect** action. If the same server
+session is still available, reconnecting preserves the live document, native
+inputs, and comment drafts instead of reloading. Changed source is flagged for
+inspection before reload; a restarted server still uses guarded reattachment.
+Server connectivity does not mean an agent is actively listening.
 
 Content-capture problems appear with the affected result/page, not as an unrelated
 source-save warning. Automatic and explicit captures share one exact in-flight

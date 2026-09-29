@@ -111,9 +111,13 @@ test("comparison leaves interactive document, new-message draft and selection mo
   await page.getByRole("button", { name: "New message", exact: true }).click();
   const input = page.getByRole("textbox", { name: "New message", exact: true });
   await input.fill("Unsent draft"); await input.evaluate((element) => { window.historyDraft = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
-  const region = await openComparison(page);
-  await expect(region).toContainText("No new source changes reported");
-  await region.getByRole("button", { name: "Close comparison" }).click();
+  await submissionHistory(page);
+  await page.locator(".conversation-submission").first().locator(":scope > summary").click();
+  await page.getByRole("button", { name: "View response", exact: true }).click();
+  const region = page.getByRole("region", { name: "Saved comparison" });
+  await expect(region).toContainText("Agent response");
+  await expect(region.getByRole("group", { name: "Comparison tools" })).toHaveCount(0);
+  await region.getByRole("button", { name: "Back to review" }).click();
   await feedback(page);
   expect(await input.evaluate((element) => element === window.historyDraft)).toBe(true);
   expect(await input.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([2, 7]);
@@ -209,7 +213,7 @@ test("result capture failure does not undo handling; explicit recovery stays non
   const source = await compare(review, ref, work.submissionId, "source");
   await page.waitForTimeout(200); expect(attempts).toBe(1);
   fail = false;
-  await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View result" }).click();
+  await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View changes" }).click();
   await page.getByRole("button", { name: "Capture current content" }).click();
   await expect.poll(async () => (await compare(review, ref, work.submissionId)).available).toBe(true);
   expect((await compare(review, ref, work.submissionId, "source")).sourceHash).toBe(source.sourceHash);

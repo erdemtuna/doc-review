@@ -265,11 +265,21 @@ separate milestones, including in background tabs.
 
 ## Retained comparison presentation
 
-`conversation-comparison.tsx` owns submission/page/Content-or-Source controls,
+`conversation-comparison.tsx` owns submission/page/Document-or-Source controls,
 independent loading/error/unavailable states, retry, counts and change navigation.
 `conversation-results.tsx` composes existing inventory, Badge, and timestamp
 primitives for a capture-independent submission note and exact human edit evidence.
-The latest-result preview precedes thread cards in Feedback with **View result**.
+The latest-result preview precedes thread cards in Feedback. Shared `ResultActions`
+and `resultHeading` own the same outcome vocabulary and routes in Feedback and
+History: **View replies**, **View changes**, or summary-only **View response**.
+Response navigation uses the persisted reviewer/agent association, loads older
+context when needed, and preserves resolved/filter state. It never substitutes
+the latest message for a requested historical reply.
+The result surface has a persistent **Back to review**, retained draft nodes and
+local focus restoration. Closing invalidates in-flight comparison reads; failures
+cannot strand the reviewer or reopen an obsolete result. Discussion-only results
+do not render comparison tools. Summary widths stay readable, while actual diffs
+may expand. Lifecycle status is grouped beside View/Edit in the shared toolbar.
 The header's **History** destination holds the full ledger, agent command, receipt
 diagnostics and advanced abandonment confirmation, rather than repeating them under
 the discussion inventory. History and Feedback retain the same mounted reply/note

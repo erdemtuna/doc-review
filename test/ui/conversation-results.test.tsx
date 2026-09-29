@@ -33,9 +33,9 @@ it("result discovery distinguishes reply-only from every capture state without t
       sequence: 1, reviewId: "review", submissionId: "submission", createdAt: 1, state: "handled", comparisonStatus, comparisonCount: 1,
       result: { resultId: "result", body: "Result remains readable", title: "Agent response", effect: "reply-only", createdAt: 2 },
     });
-    expect(resultAvailability(item)).toBe("No new source changes reported.");
+    expect(resultAvailability(item)).toBe("Discussion only; no new changes reported.");
     const changed = { ...item, result: { ...item.result!, effect: "changes-reported" as const } };
-    expect(resultAvailability(changed)).not.toBe("No new source changes reported.");
+    expect(resultAvailability(changed)).not.toBe("Discussion only; no new changes reported.");
     if (comparisonStatus === "failed" || comparisonStatus === "unavailable") expect(resultAvailability(changed)).toContain("agent response is still available");
   }
 });

@@ -33,7 +33,7 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     const target = snapshot.pages.find((item) => item.page.pageKey === key)?.page.target;
     return { value: key, label: target?.kind === "file" ? target.path.split(/[\\/]/).at(-1)! : target?.url ?? "Review page" };
   }) ?? [];
-  const submissions = snapshot.history.filter((item) => item.result).map((item) => ({
+  const submissions = snapshot.history.filter((item) => item.result?.effect === "changes-reported").map((item) => ({
     value: item.submissionId, label: new Date(item.createdAt).toLocaleString(),
   }));
   useLayoutEffect(() => { setMenu(null); }, [context, chrome.comparisonOpen]);
@@ -47,6 +47,7 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     onOpenChange: (open: boolean) => setMenu(open ? name : null),
   });
   const value = current.value;
+  const replyOnly = detail?.result?.effect === "reply-only";
   const recapture = async () => {
     setCapturing(true);
     try {
@@ -58,13 +59,13 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     ? String(value.viewComparison.message) : "";
   return <section ref={root} className="conversation-comparison review-ui" aria-label="Saved comparison" hidden={!chrome.comparisonOpen}
     onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (menu) setMenu(null); else shell.commands.closeComparison(); } }}>
-    <div className="conversation-comparison-title"><h2>Submission result</h2>
-      <Button variant="ghost" size="sm" onClick={shell.commands.closeComparison}>Close comparison</Button></div>
+    <div className="conversation-comparison-title">
+      <Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>{replyOnly ? "Agent response" : "Changes"}</h2></div>
     {detail?.result && <SubmissionResultNote detail={detail} />}
-    {history && <p className="conversation-comparison-summary">{resultAvailability(history)}</p>}
-    {chrome.captureFailures.filter(({ scope }) => scope.submissionId === current.submissionId && scope.pageKey === current.pageKey)
+    {history && !replyOnly && <p className="conversation-comparison-summary">{resultAvailability(history)}</p>}
+    {chrome.captureFailures.filter(({ scope, message }) => scope.submissionId === current.submissionId && scope.pageKey === current.pageKey && message !== current.error)
       .map(({ scope, message }) => <p className="conversation-capture-warning" key={scope.submissionId} role="alert">Content capture unavailable: {message}</p>)}
-    <header ref={header} className="conversation-comparison-tools">
+    {!replyOnly && <header ref={header} className="conversation-comparison-tools">
       <div className="changes-toolbar" role="group" aria-label="Comparison tools">
         <div className="changes-context">
           <ChoiceMenu id="submissionPicker" label="Submission" value={current.submissionId} options={submissions}
@@ -88,7 +89,7 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
         <div className="changes-view-tools">
           <SegmentedControl aria-label="Comparison format">
             {(["content", "source"] as const).map((mode) => <SegmentedControlItem key={mode} selected={current.mode === mode}
-              onClick={() => choose(current.submissionId, current.pageKey, mode)}>{mode === "content" ? "Content" : "Source"}</SegmentedControlItem>)}
+              onClick={() => choose(current.submissionId, current.pageKey, mode)}>{mode === "content" ? "Document" : "Source"}</SegmentedControlItem>)}
           </SegmentedControl>
           {value?.available === true && <div className="changes-counts">
             {(["added", "modified", "removed"] as const).map((kind) => <Badge key={kind} variant="outline" className={`changes-${kind}`}
@@ -98,9 +99,9 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
           </div>}
         </div>
       </div>
-    </header>
+    </header>}
     {current.loading && <p className="changes-controls" role="status">Loading saved comparison...</p>}
-    {current.error && <div className="changes-controls" role="alert"><p>{current.error}</p>
+    {current.error && <div className="changes-controls" role="alert"><p>Couldn't load the change preview.</p><details><summary>Technical details</summary>{current.error}</details>
       {value && <p>Showing the previously loaded snapshot; the refresh failed.</p>}
       <Button variant="outline" size="sm" onClick={() => choose()}>Retry comparison</Button></div>}
     {!current.loading && value?.available === false && <section className="changes-controls" aria-label="Comparison availability">
@@ -118,8 +119,8 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     {value?.available === true && <div className={`comparison-surface comparison-${current.mode}`}>
       <ComparisonView comparison={value} mode={current.mode} comparisonKey={`${current.submissionId}:${current.pageKey}`} selectedIndex={index} />
     </div>}
-    <p className="conversation-comparison-summary">The comparison starts at Send. Your earlier edits are recorded above, not counted as new agent work. Captured differences do not prove who authored them.</p>
-    {value && <details className="changes-diagnostics"><summary>Comparison details</summary>
+    {!replyOnly && value && <details className="changes-diagnostics"><summary>About this comparison</summary>
+      <p>The comparison starts at Send. Your earlier edits are recorded above, not counted as new agent work. Captured differences do not prove who authored them.</p>
       <p>Submission: {current.submissionId} · Page: {current.pageKey}</p>
       {value.available === false && <p>{String(value.reason ?? "No compatible capture.")}</p>}
       <p className="changes-legend">{(["added", "modified", "removed"] as const).map((kind) =>

@@ -2,9 +2,10 @@
   .durable-review { --conversation-top: calc(var(--toolbar-h) + 8px); }
   .durable-review[data-conversation-docked="true"] .stage { margin-right: 380px; }
   .durable-review[data-conversation-docked="true"] .conversation-panel { box-shadow: none; }
-  .durable-review .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "destinations status tools"; }
-  .durable-review .shell-status { grid-area: status; justify-self: center; display: flex; align-items: center; }
+  .durable-review .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "destinations tools"; }
+  .durable-review .shell-status { display: flex; align-items: center; }
   .durable-review .shell-tools { grid-area: tools; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .shell-mode-status { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .durable-review .shell-mode { justify-self: end; }
   .durable-review #reviewPage { max-width: min(14rem, 100%); }
   .conversation-global-status { grid-column: 1 / -1; min-width: 0; padding: 3px 0; max-height: min(25dvh, 10rem); overflow: auto; overflow-wrap: anywhere; color: var(--foreground); font-size: 12px; }
@@ -143,6 +144,8 @@
   .conversation-result-peek-heading time { font-size: 11px; color: var(--muted-foreground); }
   .conversation-panel .conversation-result-preview { margin: 2px 0 8px; font-size: 13px; line-height: 20px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .conversation-result-peek .conversation-actions span { font-size: 12px; color: var(--muted-foreground); }
+  .conversation-result-replies { list-style: none; margin: 8px 0 0; padding: 0; }
+  .conversation-result-replies button { white-space: normal; height: auto; text-align: left; justify-content: flex-start; max-width: 100%; }
   .conversation-edit-list > li { display: block; padding: 8px 0; }
   .conversation-edit-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .conversation-edit-heading label { display: flex; align-items: center; gap: 6px; }
@@ -155,20 +158,19 @@
   .conversation-result-note h2 { margin: 6px 0; font-size: 17px; }
   .conversation-result-note h3 { font-size: 14px; }
   .conversation-result-body { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .conversation-comparison { position: fixed; inset: var(--toolbar-h) 0 0; z-index: 50; overflow: auto; padding: 12px; background: var(--background); color: var(--foreground); }
-  .conversation-comparison-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .conversation-comparison { position: fixed; inset: var(--toolbar-h) 0 0; z-index: 50; overflow: auto; padding: 12px; background: var(--background); color: var(--foreground); font: 14px/1.55 var(--review-font-sans); }
+  .conversation-comparison-title { position: sticky; top: -12px; z-index: 2; background: var(--background); display: flex; align-items: center; gap: 16px; padding-block: 8px; margin-bottom: 12px; }
   .conversation-comparison-title h2 { margin: 0; font-size: 17px; }
+  .conversation-comparison > .conversation-result-note { max-width: 72ch; margin-inline: auto; }
+  .conversation-comparison:not(:has(.comparison-surface)) > :not(.conversation-comparison-title) { max-width: 72ch; margin-inline: auto; }
+  .conversation-result-note :is(h2, h3, p) { margin-block: 8px; }
   .conversation-comparison-summary { font-size: 13px; overflow-wrap: anywhere; }
-  .conversation-comparison > header { position: sticky; top: -12px; background: var(--background); z-index: 1; }
+  .conversation-comparison > header { background: var(--background); }
   .conversation-comparison[hidden] { display: none; }
   .conversation-comparison .changes-toolbar { width: 100%; }
   @media (max-width: 760px) {
-    .durable-review .shell-tools { display: contents; }
-    .durable-review .shell-toolbar, .durable-review.comparing .shell-toolbar { grid-template-areas: "destinations destinations actions" ". status mode"; }
-  }
-  @media (max-width: 480px) {
-    .durable-review .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "destinations actions" "status status" "mode mode"; }
-    .durable-review.comparing .shell-toolbar { grid-template-areas: "destinations actions" "status status"; }
+    .durable-review .shell-toolbar, .durable-review.comparing .shell-toolbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "destinations" "tools"; }
+    .durable-review .shell-tools { justify-content: space-between; flex-wrap: wrap; }
   }
   .durable-review[data-conversation-short="true"] .conversation-panel-header { padding: 4px 6px; }
   .durable-review[data-conversation-short="true"] .conversation-thread { padding: 8px; }
@@ -188,9 +190,6 @@
   .durable-review[data-conversation-short="true"] .conversation-error,
   .durable-review[data-conversation-short="true"] .conversation-blockers { max-height: 60px; }
   @media (max-width: 480px) and (max-height: 550px) {
-    .durable-review:not(.comparing) .shell-toolbar { grid-template-areas: "destinations actions" ". mode"; }
-    .durable-review:not(.comparing) .shell-status { grid-area: 2 / 1 / 3 / -1; }
-    .durable-review:not(.comparing) .shell-mode { grid-area: 2 / 1 / 3 / -1; justify-self: end; }
     .durable-review #modeButton { padding-inline: 8px; gap: 4px; }
     .durable-review #modeButton > svg:first-child { display: none; }
     .conversation-panel:not(.has-focus):not(.is-composing) > .conversation-panel-header {

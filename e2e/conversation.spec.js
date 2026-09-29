@@ -628,7 +628,7 @@ test("source results expose real comparisons and reply-only results never replac
   await page.getByRole("button", { name: "Source changes", exact: true }).click();
   await expect(page.getByRole("region", { name: "Saved comparison" })).toContainText("Before source wording");
   await expect(page.getByRole("region", { name: "Saved comparison" })).toContainText("After exact source wording");
-  await page.getByRole("button", { name: "Close comparison" }).click();
+  await page.getByRole("button", { name: "Back to review" }).click();
   const before = await page.locator("#frame").getAttribute("src");
   await feedback(page);
   await page.locator(".conversation-thread").getByRole("button", { name: "Reply", exact: true }).click();

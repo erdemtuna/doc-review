@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, writeFile, feedback, reviewSelection, enterEditMode, selectText, selectReviewMode,
-  listed, conversation, handled, seedThread, reviewApi, mutate } from "./helpers.js";
+  listed, conversation, handled, seedThread, reviewApi, mutate, sendPending } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 const visibleTextHeight = (locator) => locator.evaluate(node => {
@@ -51,7 +51,7 @@ for (const external of [false, true]) test(`automatic/manual capture ${external 
     await waitForSdk(page);
     const { work } = await handled(review, ref, { overallOutcome: "applied", resultNote: "Deterministic fixture response; not live-agent reasoning." });
     await expect.poll(() => captures.length).toBe(1);
-    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View result" }).click();
+    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View changes" }).click();
     const changes = page.getByRole("region", { name: "Saved comparison" });
     const partial = {};
     for (const mode of ["source", "content"]) {
@@ -131,7 +131,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await expect(peek).toBeVisible();
   expect(await page.locator(".conversation-submission").evaluate(node => node.open)).toBe(false);
-  await peek.getByRole("button", { name: "View result" }).click();
+  await peek.getByRole("button", { name: "View changes" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes.getByRole("region", { name: "Full submission result note" })).toContainText("Updated the agent target.");
   await expect(changes).toContainText("Saved by you before Send; no additional agent edit reported.");
@@ -139,16 +139,16 @@ test("actual saved human edits and captured agent result are discoverable, disti
   if (await changes.getByRole("button", { name: "Refresh comparison" }).count()) await changes.getByRole("button", { name: "Refresh comparison" }).click();
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
   expect(await changes.locator(".comparison-current").textContent()).not.toContain("Exact human wording");
-  await changes.getByRole("button", { name: "Close comparison" }).click();
+  await changes.getByRole("button", { name: "Back to review" }).click();
   await page.getByRole("button", { name: "New message", exact: true }).click();
   const draft = page.locator("#draft-new");
   await draft.fill("Keep exact IME draft");
   await draft.evaluate(node => { window.resultDraft = node; node.setSelectionRange(3, 8); node.dispatchEvent(new Event("select", { bubbles: true }));
     node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); });
-  await peek.getByRole("button", { name: "View result" }).click();
+  await peek.getByRole("button", { name: "View changes" }).click();
   await changes.getByRole("button", { name: "Source", exact: true }).click();
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
-  await changes.getByRole("button", { name: "Close comparison" }).click();
+  await changes.getByRole("button", { name: "Back to review" }).click();
   expect(await draft.evaluate(node => [node === window.resultDraft, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 8]);
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   await draft.evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
@@ -166,7 +166,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
     await expect.poll(() => visibleTextHeight(preview)).toBeGreaterThanOrEqual(requiredPreview);
     const previewHeight = await visibleTextHeight(preview);
     await page.screenshot({ path: info.outputPath(`result-peek-${theme}-${width}x${height}.png`) });
-    const button = peek.getByRole("button", { name: "View result" });
+    const button = peek.getByRole("button", { name: "View changes" });
     await button.click();
     const body = changes.locator(".conversation-result-body");
     const requiredBody = await readableTextHeight(body);
@@ -174,35 +174,53 @@ test("actual saved human edits and captured agent result are discoverable, disti
     await expect.poll(() => visibleTextHeight(body)).toBeGreaterThanOrEqual(requiredBody);
     measurements.push({ width, height, theme, preview: previewHeight, requiredPreview, requiredBody, body: await visibleTextHeight(body), panel: await changes.boundingBox() });
     await page.screenshot({ path: info.outputPath(`result-${theme}-${width}x${height}.png`) });
-    await changes.getByRole("button", { name: "Close comparison" }).click();
+    await changes.getByRole("button", { name: "Back to review" }).click();
   }
   fs.writeFileSync(info.outputPath("result-readability.json"), JSON.stringify(measurements, null, 2));
   await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await peek.getByRole("button", { name: "View result" }).click();
+  await peek.getByRole("button", { name: "View changes" }).click();
   await expect(changes.locator(".conversation-result-body")).toContainText("Updated the agent target.");
 });
 
-test("reply-only results keep their notes without fabricated captures and invalid response modes stay explicit", async ({ page, review }) => {
+test("reply-only results lead to the exact conversation without fetching an empty comparison", async ({ page, review }) => {
   const ref = await openReview(page, review, writeFile(review, "reply-result.html", "<p>Unchanged source</p>"));
-  await waitForSdk(page); await seedThread(review, ref, "Please explain");
+  await waitForSdk(page); const thread = await seedThread(review, ref, "Please explain");
   await feedback(page); await expect(page.locator("#send")).toBeEnabled(); await page.locator("#send").click();
   await expect(page.getByText("Queued; not received")).toBeVisible();
   await handled(review, ref, { resultNote: "Explanation only; no edits were made." });
   const peek = page.getByRole("region", { name: "Latest submission result" });
-  await peek.getByRole("button", { name: "View result" }).click();
-  const changes = page.getByRole("region", { name: "Saved comparison" });
-  await expect(changes.locator(".conversation-result-body")).toHaveText("Explanation only; no edits were made.");
-  await expect(changes.getByRole("region", { name: "Comparison availability" })).toContainText("No new source changes reported");
-  await expect(changes.locator(".comparison-surface")).toHaveCount(0);
+  let comparisons = 0;
+  page.on("request", request => { if (request.url().endsWith("/api/conversation/comparison")) comparisons++; });
+  await expect(peek).toContainText("Explanation only; no edits were made.");
+  await peek.getByRole("button", { name: "View reply" }).click();
+  const card = page.locator(`[data-thread="${thread.threadId}"]`);
+  await expect(card).toHaveClass(/focused/);
+  await expect(card.locator(".conversation-response")).toBeVisible();
+  await expect(card.locator(".conversation-exchange")).toBeFocused();
+  await page.locator("#seeChanges").click();
+  await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No document changes reported.");
+  await page.getByRole("button", { name: "Back to review", exact: true }).click();
+  await expect(card).toBeVisible();
+  expect(comparisons).toBe(0);
   const history = (await listed(review, ref, "history")).items[0];
   const references = (await listed(review, ref, "comparisons", { submissionId: history.submissionId })).items;
   expect(references.every(item => item.resultRevisionId === null)).toBe(true);
+});
+
+test("invalid comparison modes remain explicit and retry keeps the result summary", async ({ page, review }) => {
+  const ref = await openReview(page, review, writeFile(review, "invalid-result-mode.html", "<p>Comparison target</p>"));
+  await waitForSdk(page);
+  await sendPending(review, ref, { body: "Update the paragraph", intent: "request-change" });
+  await handled(review, ref, { overallOutcome: "applied", resultNote: "Reported change; comparison validation stays independent." });
+  await feedback(page);
+  await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View changes" }).click();
+  const changes = page.getByRole("region", { name: "Saved comparison" });
   await page.route("**/api/conversation/comparison", route => route.fulfill({ json: {
     available: false, mode: "content", reason: "Wrong mode", changes: [], limitations: [],
   } }));
   await changes.getByRole("button", { name: "Source", exact: true }).click();
   await expect(changes.getByRole("alert")).toContainText("Invalid comparison response");
-  await expect(changes.locator(".conversation-result-body")).toHaveText("Explanation only; no edits were made.");
+  await expect(changes.locator(".conversation-result-body")).toHaveText("Reported change; comparison validation stays independent.");
   await page.unroute("**/api/conversation/comparison");
   await changes.getByRole("button", { name: "Retry comparison" }).click();
   await expect(changes.getByRole("alert")).toHaveCount(0);
@@ -216,7 +234,7 @@ test("header History preserves mounted reply/note permissions and exposes full r
   await feedback(page);
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
-  await handled(review, ref, { resultNote: "The complete reply-only result stays available from History and View result. ".repeat(12) });
+  await handled(review, ref, { resultNote: "The complete reply-only result stays available from History and View changes. ".repeat(12) });
   const card = page.locator(`[data-thread="${threadId}"]`);
   await expect(card.locator(".conversation-response")).toBeVisible();
   await card.getByRole("button", { name: "Reply", exact: true }).click();
@@ -285,18 +303,19 @@ test("deferred source-pending edits retain complete evidence and selected Send i
   const { work } = await handled(review, ref, { resultNote: "Deferred the recorded paragraph pending clarification." });
   expect(work.edits).toHaveLength(1); expect(work.edits[0].source.state).toBe("pending");
   const peek = page.getByRole("region", { name: "Latest submission result" });
-  await peek.getByRole("button", { name: "View result" }).click();
+  await peek.getByRole("button", { name: "View response" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes).toContainText("Source pending at Send");
   await expect(changes).toContainText("Deferred; no application reported for this edit.");
   await expect(changes.locator(".conversation-result-body")).toHaveText("Deferred the recorded paragraph pending clarification.");
   await expect(changes.locator(".comparison-surface")).toHaveCount(0);
+  await expect(changes.getByRole("group", { name: "Comparison tools" })).toHaveCount(0);
   expect(fs.readFileSync(file, "utf8")).toBe(before);
   const refs = (await listed(review, ref, "comparisons", { submissionId: work.submissionId })).items;
   expect(refs.every(item => item.resultRevisionId === null)).toBe(true);
 });
 
-for (const destination of ["Source", "Close comparison"]) test(`late explicit capture preserves ${destination} rather than restoring its old comparison`, async ({ page, review }) => {
+for (const destination of ["Source", "Back to review"]) test(`late explicit capture preserves ${destination} rather than restoring its old comparison`, async ({ page, review }) => {
   const file = writeFile(review, `capture-selection-${destination.replaceAll(" ", "-")}.html`, "<p id='copy'>Before agent work</p>");
   const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
@@ -317,7 +336,7 @@ for (const destination of ["Source", "Close comparison"]) test(`late explicit ca
     await expect(frame.locator("#copy")).toHaveText("Actual agent work"); await waitForSdk(page);
     const { work } = await handled(review, ref, { overallOutcome: "applied", resultNote: "Updated the paragraph; capture is independent." });
     await expect(page.getByRole("region", { name: "Latest submission result" })).toContainText("Capture deliberately unavailable");
-    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View result" }).click();
+    await page.getByRole("region", { name: "Latest submission result" }).getByRole("button", { name: "View changes" }).click();
     const changes = page.getByRole("region", { name: "Saved comparison" });
     await expect(changes.locator(".conversation-result-body")).toHaveText("Updated the paragraph; capture is independent.");
     await expect(changes.getByRole("alert")).toContainText("Capture deliberately unavailable");

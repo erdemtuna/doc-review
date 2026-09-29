@@ -256,7 +256,7 @@ it("Feedback counts saved pending items separately from attention and note-only 
   act(() => owner.commands.connected(false));
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("…");
   expect(send).toBeDisabled();
-  expect(send).toHaveAccessibleDescription(/unavailable/i);
+  expect(send).toHaveAccessibleDescription(/Connection lost/i);
   shell.dispose();
 });
 

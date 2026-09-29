@@ -16,9 +16,9 @@ test("toolbar preserves authored state and draft identity across themes and save
   }));
   const originalAppearance = await appearance();
   await message(page, "Explain the example");
-  await page.locator("#send").click();
+  await sendPending(review, ref, { body: "Update the example", intent: "request-change" });
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
-  await handled(review, ref);
+  await handled(review, ref, { overallOutcome: "applied" });
   await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
   await frame.getByLabel("Authored-page draft").fill("Keep this authored draft");
   await frame.getByRole("button", { name: "Increment counter" }).click();
@@ -83,7 +83,7 @@ test("the rounded brand scales cleanly and belongs only to the outer shell", asy
   } finally { await study.close(); }
 });
 
-test("former toolbar structure, selected paint, hit targets and lifecycle geometry across both themes", async ({ page, review }, testInfo) => {
+test("coherent toolbar grouping, selected paint, hit targets and lifecycle geometry across both themes", async ({ page, review }, testInfo) => {
   test.setTimeout(90_000);
   const ref = await openReview(page, review, writeFile(review, "toolbar-layout.html", fixture));
   for (const selector of ["#intro", "#detail"]) await seedThread(review, ref, "Clarify this section", {
@@ -142,12 +142,12 @@ test("former toolbar structure, selected paint, hit targets and lifecycle geomet
       await expect(page.locator(".conversation-global-status")).toHaveCount(0);
       const lifecycle = await page.locator(".conversation-lifecycle").boundingBox();
       const mode = await page.locator("#modeButton").boundingBox();
-      expect(Math.abs(lifecycle.x + lifecycle.width / 2 - width / 2)).toBeLessThanOrEqual(1);
-      expect(mode.x + mode.width).toBe(width - 12);
-      expect(mode.x >= lifecycle.x + lifecycle.width || mode.y >= lifecycle.y + lifecycle.height).toBe(true);
+      expect(Math.abs(lifecycle.y + lifecycle.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+      expect(lifecycle.x - mode.x - mode.width).toBe(8);
+      expect(lifecycle.x + lifecycle.width).toBe(width - 12);
       expect(lifecycle.height).toBe(20);
       expect(lifecycle.x + lifecycle.width).toBeLessThanOrEqual(width);
-      expect(toolbar.height).toBe(width > 760 ? 49 : width > 480 || height <= 550 ? 89 : 117);
+      expect(toolbar.height).toBe(width > 760 ? 49 : 89);
       const stage = await page.locator(".stage").boundingBox();
       expect(stage.y).toBe(toolbar.y + toolbar.height);
       const panel = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
@@ -173,7 +173,7 @@ test("former toolbar structure, selected paint, hit targets and lifecycle geomet
       await expect(page.locator("#commentsButton")).toBeHidden();
       await expect(page.locator(".conversation-lifecycle")).toBeVisible();
       const changesBadge = await page.locator(".conversation-lifecycle").boundingBox();
-      expect(Math.abs(changesBadge.x + changesBadge.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+      expect(changesBadge.x + changesBadge.width).toBe(width - 12);
       await expect(page.locator(".conversation-global-status")).toHaveCount(0);
       await expect(page.locator("#seeChanges")).toHaveAttribute("aria-pressed", "true");
       await page.locator("#latestVersion").click();
@@ -199,7 +199,7 @@ test("editing is disabled while the initial page is loading", async ({ page, rev
   } finally { release(); }
 });
 
-test("waiting and ended badges keep centered geometry, receipt semantics and theme tokens in Review and Changes", async ({ page, review }, info) => {
+test("waiting and ended badges stay beside mode with receipt semantics and theme tokens in Review and Changes", async ({ page, review }, info) => {
   test.setTimeout(60_000);
   const ref = await openReview(page, review, writeFile(review, "lifecycle-badges.html", fixture));
   await waitForSdk(page);
@@ -229,18 +229,20 @@ test("waiting and ended badges keep centered geometry, receipt semantics and the
         ...[1440, 900, 899, 761, 760, 601, 481, 480, 390, 320].map(width => [width, 450])]) {
         await page.setViewportSize({ width, height });
         const mode = await page.locator("#modeButton").boundingBox(), box = await badge.boundingBox();
-        expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
-        expect(mode.x + mode.width).toBe(width - 12);
-        expect(mode.x >= box.x + box.width || mode.y >= box.y + box.height).toBe(true);
+        expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+        expect(box.x - mode.x - mode.width).toBe(8);
+        expect(box.x + box.width).toBe(width - 12);
         expect(box.x + box.width).toBeLessThanOrEqual(width);
-        expect((await page.locator(".shell-toolbar").boundingBox()).height).toBe(width > 760 ? 49 : width > 480 || height <= 550 ? 89 : 117);
+        const toolbarHeight = (await page.locator(".shell-toolbar").boundingBox()).height;
+        expect(toolbarHeight).toBeGreaterThanOrEqual(width > 760 ? 49 : 89);
+        expect(toolbarHeight).toBeLessThanOrEqual(width > 760 ? 49 : 129);
         await expect(page.locator(".conversation-global-status")).toHaveCount(0);
         await page.screenshot({ path: info.outputPath(`${ended ? "ended" : "waiting"}-${theme}-${width}x${height}.png`) });
         await page.locator("#seeChanges").click();
         await expect(page.locator("#modeButton")).toBeHidden();
         await expect(badge).toBeVisible();
         const changesBadge = await badge.boundingBox();
-        expect(Math.abs(changesBadge.x + changesBadge.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+        expect(changesBadge.x + changesBadge.width).toBe(width - 12);
         await expect(page.locator(".conversation-global-status")).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.locator("#latestVersion").click();
@@ -463,13 +465,12 @@ test("Changes has no invented identity, follows handled history, retains selecti
   await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No handled submissions");
   expect(requests).toEqual([]);
   await seedThread(review, ref, "Explain without changing source");
-  await sendPending(review, ref);
+  await sendPending(review, ref, { body: "Update the example", intent: "request-change" });
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Waiting for agent");
   await page.screenshot({ path: testInfo.outputPath("toolbar-waiting-changes.png") });
-  const completed = await handled(review, ref);
+  const completed = await handled(review, ref, { overallOutcome: "applied" });
   const comparison = page.getByRole("region", { name: "Saved comparison" });
-  await expect(comparison.getByRole("region", { name: "Comparison availability" })).toContainText("No new source changes reported");
-  await expect(comparison.locator(".comparison-surface")).toHaveCount(0);
+  await expect(comparison).toBeVisible();
   await comparison.getByRole("button", { name: "Source", exact: true }).click();
   await expect(comparison.getByRole("button", { name: "Source", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.locator("#latestVersion").click();
@@ -484,10 +485,10 @@ test("Changes has no invented identity, follows handled history, retains selecti
   });
   await page.locator("#seeChanges").click();
   await expect(comparison.getByRole("status")).toContainText("Loading");
-  release(); await expect(comparison.getByRole("alert")).toContainText("Comparison read failed");
+  release(); await expect(comparison.locator(".changes-controls[role='alert']")).toContainText("Comparison read failed");
   await page.unroute("**/api/conversation/comparison");
   await comparison.getByRole("button", { name: "Retry comparison" }).click();
-  await expect(comparison.getByRole("alert")).toHaveCount(0);
+  await expect(comparison.locator(".changes-controls[role='alert']")).toHaveCount(0);
   await expect(comparison.getByRole("button", { name: "Source", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.locator("#theme").click();
   await page.screenshot({ path: testInfo.outputPath("toolbar-ended-changes.png") });

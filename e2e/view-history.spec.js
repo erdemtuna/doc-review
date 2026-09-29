@@ -65,7 +65,7 @@ test("returning to the captured live tab retries without reloading or auto-click
     await submissionHistory(page);
     await page.locator(".conversation-submission").first().locator(":scope > summary").click();
     await page.getByRole("button", { name: "Content changes" }).click();
-    await page.getByText("Comparison details", { exact: true }).click();
+    await page.getByText("About this comparison", { exact: true }).click();
     await expect(page.getByRole("region", { name: "Saved comparison" })).toContainText("Matching visible view: Screens");
   } finally {
     await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));

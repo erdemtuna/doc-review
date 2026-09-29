@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/t
 import { Checkbox } from "./ui/checkbox";
 import { Icon } from "./icon";
 import { ConversationAuthor, ConversationMenu, ConversationTime } from "./conversation-controls";
-import { EditEvidence, resultAvailability } from "./conversation-results";
+import { EditEvidence, ResultActions, resultAvailability, resultHeading } from "./conversation-results";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
@@ -269,6 +269,15 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
     const message = anchor && [...element.querySelectorAll<HTMLElement>("[data-message]")].find((item) => item.dataset.message === anchor.messageId);
     if (container && message && anchor) container.scrollTop += message.getBoundingClientRect().top - container.getBoundingClientRect().top - anchor.offset;
   }, [focus, snapshot.host, chrome.adjacent?.width, chrome.adjacent?.height]);
+  useLayoutEffect(() => {
+    if (snapshot.revealedMessage?.threadId !== id || !focus) return;
+    const element = transcript.current;
+    const message = element && [...element.querySelectorAll<HTMLElement>("[data-message]")].find(node => node.dataset.message === snapshot.revealedMessage?.messageId);
+    if (message && element) {
+      element.scrollTop += message.getBoundingClientRect().top - element.getBoundingClientRect().top;
+      message.focus({ preventScroll: true });
+    }
+  }, [snapshot.revealedMessage]);
   const quote = item.thread.target.kind === "selection" ? item.thread.target.anchor.quote : item.thread.target.anchor.label || item.thread.target.anchor.selector;
   const trailingTargetNotice = !!item.draft && !focus && chrome.viewport.width <= 480 && chrome.viewport.height <= 550;
   const replyControl = !item.draft && !disabled && item.thread.status === "open" &&
@@ -343,7 +352,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
           });
         }}>{item.contextLoading ? "Loading earlier replies..." : "Show earlier replies"}</Button>}
         {item.contextError && <p className="conversation-context-error" role="alert">{item.contextError}</p>}
-        {item.exchanges.map(({ reviewer, response }, index) => <section className="conversation-exchange" key={reviewer.messageId} data-message={reviewer.messageId}>
+        {item.exchanges.map(({ reviewer, response }, index) => <section className="conversation-exchange" key={reviewer.messageId} data-message={reviewer.messageId} tabIndex={-1}>
           <div className="conversation-meta inventory-meta"><ConversationAuthor role="You" /><ConversationTime value={reviewer.createdAt} />
             {reviewer.intent === "request-change" && <Badge variant="outline">{intentBadge(reviewer.intent)}</Badge>}
             {reviewer.submissionId === null && <span className="conversation-pending">{snapshot.review?.state === "ended" ? "Saved unsent · read-only" : "Pending"}</span>}
@@ -386,12 +395,13 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
     {snapshot.history.map((item) => {
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
       return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
-        <summary>{time(item.createdAt)} · {item.state}</summary>
+        <summary>{item.result ? (detail ? resultHeading(detail) : "Agent response") : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned batch"} <ConversationTime value={item.createdAt} /></summary>
         <details><summary>Receipt details</summary><small>{item.submissionId}</small>
           {detail?.receipt && <pre>{JSON.stringify(detail.receipt, null, 2)}</pre>}</details>
         {detail?.submission.overallNote && <section><h4>Submitted overall note {detail.submission.overallNote.intent === "request-change" && <Badge variant="outline">{intentBadge(detail.submission.overallNote.intent)}</Badge>}</h4>
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
+        {detail?.result && <ResultActions detail={detail} shell={shell} />}
         {detail?.result?.editOutcomes.map((outcome) => <p key={outcome.editId}>{outcome.outcome}: {outcome.reason}</p>)}
         {item.state === "abandoned" && <p role="status">Abandoned. External source work may still have happened; check the source. No undo or cancellation is guaranteed.</p>}
         {(item.state === "queued" || item.state === "delivered") && <details><summary>Advanced actions</summary>
@@ -399,7 +409,7 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
             onClick={() => owner.commands.confirm("abandon", item.submissionId)}>Abandon submission</Button></details>}
         {item.result && <p>{resultAvailability(item)}</p>}
         {visible && <CaptureNotices snapshot={snapshot} shell={shell} submissionId={item.submissionId} />}
-        {detail?.submission.pageKeys.map((key) => item.result && <section aria-label={pageLabel(snapshot, key)} key={key}>
+        {detail?.submission.pageKeys.map((key) => item.result?.effect === "changes-reported" && <section aria-label={pageLabel(snapshot, key)} key={key}>
           <h4>{pageLabel(snapshot, key)}</h4><div className="conversation-actions">
           <Button variant="ghost" size="sm" onClick={() => act(owner, () => shell.commands.comparison(item.submissionId, key, "content"))}>Content changes</Button>
           <Button variant="ghost" size="sm" onClick={() => act(owner, () => shell.commands.comparison(item.submissionId, key, "source"))}>Source changes</Button>
@@ -417,17 +427,11 @@ function LatestResult({ snapshot, shell, visible }: { snapshot: Snapshot; shell:
   const latest = snapshot.history.find((item) => item.result);
   if (!latest?.result) return null;
   const detail = snapshot.submissions.find((item) => item.id === latest.submissionId)?.value;
-  const key = detail?.submission.pageKeys.includes(shell.getSnapshot().pageKey ?? "")
-    ? shell.getSnapshot().pageKey : detail?.submission.pageKeys[0];
   return <section className="conversation-result-peek inventory-card" aria-label="Latest submission result">
-    <div className="conversation-result-peek-heading"><h3>{latest.result.title}</h3>
-      <span className="inventory-meta">Latest · Agent</span><ConversationTime value={latest.result.createdAt} /></div>
+    <div className="conversation-result-peek-heading"><h3>{detail ? resultHeading(detail) : "Agent response"}</h3>
+      <ConversationTime value={latest.result.createdAt} /></div>
     <p className="conversation-result-preview">{latest.result.body}</p>
-    <div className="conversation-actions">
-      <Button size="sm" disabled={!detail?.result || !key} onClick={() => act(shell.owner,
-        () => shell.commands.comparison(latest.submissionId, key!, "content"))}>View result</Button>
-      {detail?.result && <span>{detail.result.responses.length} thread replies</span>}
-    </div>
+    {detail?.result && <ResultActions detail={detail} shell={shell} />}
     {visible && <CaptureNotices snapshot={snapshot} shell={shell} submissionId={latest.submissionId} />}
     {!detail && <Button size="sm" variant="ghost" onClick={() => act(shell.owner, shell.owner.commands.refresh)}>Refresh result details</Button>}
   </section>;
@@ -459,7 +463,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const composerBounds = chrome.composer && {
     left: chrome.composer.left, top: chrome.composer.top, width: chrome.composer.width, height: chrome.composer.height,
   };
-  const sidebarVisible = snapshot.open && !chrome.comparisonOpen && snapshot.host !== "adjacent" && !contextual;
+  const sidebarVisible = snapshot.open && snapshot.host !== "adjacent" && !contextual;
   const docked = sidebarVisible && chrome.viewport.width >= 1020;
   useLayoutEffect(() => {
     document.body.dataset.conversationDocked = String(docked);
@@ -499,6 +503,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   }, [chrome.loading, chrome.comparisonOpen, snapshot.review?.state]);
   useLayoutEffect(() => {
     document.body.classList.toggle("comparing", chrome.comparisonOpen);
+    if (chrome.comparisonOpen) document.querySelector<HTMLButtonElement>("#conversationChanges .conversation-comparison-title button")?.focus({ preventScroll: true });
     return () => document.body.classList.remove("comparing");
   }, [chrome.comparisonOpen]);
   useLayoutEffect(() => {
@@ -554,7 +559,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const selection = snapshot.selection;
   const selectionDescription = selection
     ? `${selection.messages} saved messages · ${selection.edits} pending edits${selection.note ? " · 1 overall note" : ""} selected`
-    : snapshot.loading ? "Checking pending feedback…" : "Pending selection unavailable. Refresh the review.";
+    : !snapshot.connected ? "" : snapshot.loading ? "Checking pending feedback…" : "Couldn't check what's ready to send. Refresh the review.";
   // Keep a focused editor mounted and focusable while waiting for current-frame geometry.
   const measuring = { ...fallbackBounds, width: Math.min(contextual ? 340 : 360, chrome.viewport.width - 24), height: "auto", opacity: 0, pointerEvents: "none" as const };
   const panel = <aside aria-label={contextual ? "Add comment" : "Feedback"} data-host={snapshot.host}
@@ -580,11 +585,10 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       hidden={!work && !readonly && snapshot.connected && (!snapshot.notice || snapshot.host === "adjacent")}>
       {work && <span>{workDetails}</span>}
       {readonly && <span>{snapshot.status?.pendingMessageCount ?? 0} saved-unsent messages and {snapshot.status?.pendingEditCount ?? 0} edits remain read-only here.</span>}
-      {!snapshot.connected && <span>Disconnected; displayed state may be stale.</span>}
       {snapshot.notice && <span>{snapshot.notice}</span>}
     </div>
-    {(snapshot.error || chrome.sourceError || chrome.connectionError) && <div className="conversation-error" role="alert">
-      {snapshot.error && <p>{snapshot.error}</p>}{chrome.sourceError && <p>Source: {chrome.sourceError}</p>}{chrome.connectionError && <p>{chrome.connectionError}</p>}
+    {((snapshot.connected && (snapshot.error || chrome.connectionError)) || chrome.sourceError) && <div className="conversation-error" role="alert">
+      {snapshot.connected && snapshot.error && <p>{snapshot.error}</p>}{chrome.sourceError && <p>Source: {chrome.sourceError}</p>}{snapshot.connected && chrome.connectionError && <p>{chrome.connectionError}</p>}
       <Button size="sm" variant="outline" onClick={() => act(owner, owner.commands.refresh)}>Refresh review</Button>
     </div>}
     {snapshot.uncertain && <div className="conversation-error"><strong>{snapshot.uncertain.operation}: acceptance unknown</strong><p>{snapshot.uncertain.message}</p>
@@ -672,7 +676,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       </div>
       <div className="feedback-actions">
         <Button id="endReview" variant="ghost" className="feedback-end" disabled={disabled || chrome.loading} onClick={() => owner.commands.confirm("end")}>End review</Button>
-        <Button id="send" className="feedback-send" aria-label="Send" aria-describedby="sendSelectionDescription" aria-busy={snapshot.busy}
+        <Button id="send" className="feedback-send" aria-label="Send" aria-describedby={snapshot.connected ? "sendSelectionDescription" : "conversationConnectionStatus"} aria-busy={snapshot.busy}
           disabled={disabled || chrome.loading || snapshot.sendBlocked || !selection?.total || snapshot.note.composing}
           onClick={() => act(owner, owner.commands.send)}>{selection ? `Send to agent (${selection.total})` : "Send to agent"}</Button>
       </div>
@@ -711,9 +715,12 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
           <Button size="sm" disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(true))}>Retry same request</Button>
         </div>
       </div>}
-      {!snapshot.connected && <span>Disconnected; displayed state may be stale</span>}
-      {globalErrors.length > 0 && <div role="alert">{globalErrors.map((error, index) => <p key={index}>{error}</p>)}</div>}
-      {(globalErrors.length > 0 || !snapshot.connected) && <Button size="sm" variant="outline" onClick={() => act(owner, owner.commands.refresh)}>Refresh review</Button>}
+      {!snapshot.connected && <span id="conversationConnectionStatus">Connection lost. Showing previously loaded information.</span>}
+      {snapshot.connected && globalErrors.length > 0 && <div role="alert">{globalErrors.map((error, index) => <p key={index}>{error}</p>)}</div>}
+      {!snapshot.connected && (snapshot.error || chrome.connectionError) && <details><summary>Connection details</summary>{snapshot.error}<br />{chrome.connectionError}</details>}
+      {!snapshot.connected && outsideFeedback && chrome.sourceError && <p role="alert">Source: {chrome.sourceError}</p>}
+      {(globalErrors.length > 0 || !snapshot.connected) && <Button size="sm" variant="outline"
+        onClick={() => act(owner, snapshot.connected ? owner.commands.refresh : shell.commands.reconnect)}>{snapshot.connected ? "Refresh review" : "Reconnect"}</Button>}
       {chrome.themeSync.status === "failed" && <span role="alert">{chrome.themeSync.message}
         <Button size="sm" variant="outline" onClick={() => act(owner, shell.commands.retryTheme)}>Retry theme</Button></span>}
       {needsSourceRecovery && <Button size="sm" variant="outline" onClick={() => act(owner, shell.commands.reload)}>Reload source (discard local page edits)</Button>}
@@ -737,8 +744,12 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     </AlertDialog>
     {createPortal(<div id="conversationChanges" hidden={!chrome.comparisonOpen}>
       {chrome.comparison ? <ConversationComparison shell={shell} chrome={chrome} snapshot={snapshot} /> :
-        <section className="conversation-comparison review-ui" aria-label="Changes">
-          <h2>Changes</h2><p>{!snapshot.review || snapshot.loading ? "Loading review history..." : snapshot.history.some((item) => item.state === "abandoned")
+        <section className="conversation-comparison review-ui" aria-label="Changes"
+          onKeyDown={event => { if (event.key === "Escape") shell.commands.closeComparison(); }}>
+          <div className="conversation-comparison-title"><Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>Changes</h2></div>
+          <p>{!snapshot.review || snapshot.loading ? "Loading review history..." : snapshot.history.some((item) => item.result)
+            ? "No document changes reported. Read the agent replies in Feedback or the batch summaries in History."
+            : snapshot.history.some((item) => item.state === "abandoned")
             ? "No handled submission is selected. Abandoned work does not have an accepted result."
             : "No handled submissions yet. Send feedback to receive a response and its available comparisons."}</p>
         </section>}

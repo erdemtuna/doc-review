@@ -1,19 +1,61 @@
 import type { ConversationController } from "../../conversation-controller";
 import { Badge } from "./ui/badge";
 import { ConversationTime } from "./conversation-controls";
+import { useState } from "react";
+import type { ConversationShell } from "../../conversation-shell";
+import { Button } from "./ui/button";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 export type ResultDetail = Snapshot["submissions"][number]["value"];
 type HistoryItem = Snapshot["history"][number];
 
+export function ResultActions({ detail, shell }: { detail: ResultDetail; shell: ConversationShell }) {
+  const [expanded, setExpanded] = useState(false);
+  const responses = detail.result?.responses ?? [];
+  const replies = responses;
+  const changes = detail.result?.effect === "changes-reported";
+  const [busy, setBusy] = useState(false);
+  const reveal = async (threadId: string, messageId: string) => {
+    setBusy(true);
+    try { await shell.owner.commands.revealMessage(threadId, messageId); }
+    catch (cause) { shell.owner.report(cause); }
+    finally { setBusy(false); }
+  };
+  return <div className="conversation-result-actions">
+    <div className="conversation-actions">
+      {(changes || !replies.length) && <Button size="sm" onClick={() => {
+        const key = detail.submission.pageKeys.includes(shell.getSnapshot().pageKey ?? "")
+          ? shell.getSnapshot().pageKey! : detail.submission.pageKeys[0];
+        void shell.commands.comparison(detail.submission.submissionId, key, "content").catch(shell.owner.report);
+      }}>{changes ? "View changes" : "View response"}</Button>}
+      {!!replies.length && <Button size="sm" variant={changes ? "ghost" : "outline"} disabled={busy}
+        aria-expanded={replies.length > 1 ? expanded : undefined}
+        onClick={() => replies.length === 1 ? void reveal(replies[0].threadId, replies[0].replyToMessageId) : setExpanded(value => !value)}>
+        {replies.length === 1 ? "View reply" : "View replies"}
+      </Button>}
+    </div>
+    {expanded && <ul className="conversation-result-replies">{replies.map(reply => {
+      const message = detail.submission.messages.find(item => item.message.messageId === reply.replyToMessageId)?.message.body;
+      return <li key={reply.messageId}><Button size="sm" variant="ghost" disabled={busy}
+        onClick={() => { void reveal(reply.threadId, reply.replyToMessageId); }}>{message ?? "Open conversation"}</Button></li>;
+    })}</ul>}
+  </div>;
+}
+
+export function resultHeading(detail: ResultDetail) {
+  const count = new Set(detail.result?.responses.map(item => item.threadId)).size;
+  return detail.result?.effect === "changes-reported" ? "Agent reported changes"
+    : count ? `Agent replied to ${count === 1 ? "1 conversation" : `${count} conversations`}` : "Agent response";
+}
+
 export function resultAvailability(item: HistoryItem) {
-  if (item.result?.effect === "reply-only") return "No new source changes reported.";
+  if (item.result?.effect === "reply-only") return "Discussion only; no new changes reported.";
   return {
     "not-requested": "No result capture requested.",
-    pending: "Result capture pending.",
+    pending: "Preparing the change preview.",
     ready: "Saved comparisons available.",
-    partial: "Some comparisons are available; capture is incomplete.",
-    failed: "Result capture failed. The agent response is still available.",
+    partial: "Some change previews are not ready yet.",
+    failed: "The change preview couldn't be saved. The agent response is still available.",
     unavailable: "Comparison unavailable. The agent response is still available.",
   }[item.comparisonStatus];
 }
@@ -43,10 +85,12 @@ export function SubmissionResultNote({ detail }: { detail: ResultDetail }) {
     <div className="inventory-meta"><strong>Agent-reported result</strong><ConversationTime value={result.createdAt} /></div>
     <h2>{result.title}</h2>
     <p className="conversation-result-body">{result.body}</p>
-    {result.overallOutcome && <p>Overall note: <Badge variant="outline">{result.overallOutcome}</Badge></p>}
+    {result.overallOutcome && <p>Note to the agent: <Badge variant="outline">{{
+      applied: "Change reported", answered: "Answered", "clarification-needed": "Needs clarification", deferred: "Deferred",
+    }[result.overallOutcome]}</Badge></p>}
     {detail.submission.edits.length > 0 && <section aria-label="Your submitted edits">
       <h3>Your submitted edits</h3>
-      <p>These are your recorded edits. Saved differences alone do not establish who changed the source.</p>
+      <p>Edits you included in this batch, separate from new agent-reported work.</p>
       <ul className="feedback-edit-list conversation-edit-list">{detail.submission.edits.map((edit) => {
         const outcome = result.editOutcomes.find((item) => item.editId === edit.editId && item.editVersion === edit.version);
         return <li key={edit.editId}>

@@ -23,8 +23,8 @@ async function setup(page, review, { count = 2, rounds = 2, pages = false } = {}
   for (let i = 0; i < rounds; i++) {
     await seedThread(review, ref, `Submission ${i}`);
     if (other) await seedThread(review, { ...ref, key: other.value.pageKey }, `Other page ${i}`);
-    await sendPending(review, ref);
-    await handled(review, ref);
+    await sendPending(review, ref, { body: "Update this document", intent: "request-change" });
+    await handled(review, ref, { overallOutcome: "applied" });
   }
   await page.route("**/api/conversation/comparison", (route) => route.fulfill({ json: comparison(route.request().postDataJSON().mode, count) }));
   await feedback(page);
@@ -33,8 +33,8 @@ async function setup(page, review, { count = 2, rounds = 2, pages = false } = {}
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
   await page.locator(".conversation-submission").first().getByRole("button", { name: "Content changes" }).first().click();
   const region = page.getByRole("region", { name: "Saved comparison" });
-  await expect(region.getByRole("heading", { name: "Submission result", exact: true })).toBeVisible();
-  await expect(region.getByRole("button", { name: "Content", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(region.getByRole("heading", { name: "Changes", exact: true })).toBeVisible();
+  await expect(region.getByRole("button", { name: "Document", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(region.getByRole("status")).toHaveCount(0);
   return { ref, region };
 }
@@ -57,7 +57,7 @@ async function setup(page, review, { count = 2, rounds = 2, pages = false } = {}
   for (const theme of ["light", "dark"]) test(`comparison count and legend semantic inks remain readable in ${theme}`, async ({ page, review }) => {
     await page.addInitScript((value) => localStorage.setItem("doc-review:theme", value), theme);
     const { region } = await setup(page, review, { rounds: 1 });
-    await region.getByText("Comparison details", { exact: true }).click();
+    await region.getByText("About this comparison", { exact: true }).click();
     for (const kind of ["added", "modified", "removed"]) {
       const color = REVIEW_PALETTE[theme][`review-count-${kind}`];
       const rgb = `rgb(${color.slice(1).match(/../g).map((part) => parseInt(part, 16)).join(", ")})`;
@@ -98,7 +98,7 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
     await expect(region).toContainText("Historical image");
     expect(await region.locator("script,img,iframe,a,[src]").count()).toBe(0);
     await page.locator("#theme").click(); await page.locator("#theme").click();
-    await region.getByRole("button", { name: "Close comparison" }).click();
+    await region.getByRole("button", { name: "Back to review" }).click();
     await expect(page.frameLocator("#frame").getByLabel("Live draft")).toHaveValue("Preserved");
     await page.locator(".conversation-submission").first().getByRole("button", { name: "Content changes" }).click();
     await expect(region.getByRole("status")).toHaveCount(0);
@@ -151,11 +151,11 @@ for (const count of [0, 1]) test(`${count} changes preserve format controls with
 
 test("comparison menu Escape leaves a hidden conversation draft intact and menus have one owner", async ({ page, review }) => {
   const { region } = await setup(page, review);
-  await region.getByRole("button", { name: "Close comparison" }).click();
+  await region.getByRole("button", { name: "Back to review" }).click();
   await feedback(page);
   await page.getByRole("button", { name: "New message", exact: true }).click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Preserve hidden draft");
-  await page.getByRole("button", { name: "View result", exact: true }).click();
+  await page.getByRole("button", { name: "View changes", exact: true }).click();
   await page.locator("#submissionPicker").click();
   await expect(page.getByRole("menu")).toHaveCount(1);
   await page.keyboard.press("Escape"); await expect(page.locator("#submissionPicker")).toBeFocused();
@@ -193,9 +193,9 @@ test("loading, malformed response, unavailable capture and retry remain independ
   await region.getByRole("button", { name: "Source", exact: true }).click();
   await expect(region.getByRole("alert")).toContainText("Invalid comparison response");
   await region.getByRole("button", { name: "Retry comparison" }).click();
-  await region.getByText("Comparison details", { exact: true }).click();
+  await region.getByText("About this comparison", { exact: true }).click();
   await expect(region).toContainText("Content exceeded processing limits");
-  await region.getByRole("button", { name: "Content", exact: true }).click();
+  await region.getByRole("button", { name: "Document", exact: true }).click();
   await expect(region.getByRole("img", { name: "2 modified changes" })).toBeVisible();
   expect(await page.locator("#frame").evaluate((element) => element === window.savedFrame)).toBe(true);
 });
@@ -210,16 +210,16 @@ test("slow stale comparison cannot overwrite newer selection or reopen a closed 
   });
   await region.getByRole("button", { name: "Source", exact: true }).click();
   await expect(region.getByRole("status")).toContainText("Loading");
-  await region.getByRole("button", { name: "Content", exact: true }).click();
+  await region.getByRole("button", { name: "Document", exact: true }).click();
   await expect(region.getByRole("status")).toHaveCount(0);
   release(); await page.waitForTimeout(150);
-  await expect(region.getByRole("button", { name: "Content", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(region.getByRole("button", { name: "Document", exact: true })).toHaveAttribute("aria-pressed", "true");
   let closeRelease;
   const closed = new Promise((resolve) => { closeRelease = resolve; });
   await page.route("**/api/conversation/comparison", async (route) => { await closed; await route.fulfill({ json: comparison("source") }); });
   await region.getByRole("button", { name: "Source", exact: true }).click();
   await expect(region.getByRole("status")).toBeVisible();
-  await region.getByRole("button", { name: "Close comparison" }).click();
+  await region.getByRole("button", { name: "Back to review" }).click();
   closeRelease(); await page.waitForTimeout(150); await expect(region).toBeHidden();
 });
 

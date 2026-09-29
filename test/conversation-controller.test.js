@@ -599,6 +599,41 @@ test("Resolve pending guards and stale mutations retain the thread and local dra
   assert.equal(c.owner.getSnapshot().threads[0].draft.text, "Keep me");
 });
 
+test("historical response navigation pages to the exact exchange without changing resolved filters", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "First question");
+  const firstId = c.owner.getSnapshot().threads[0].latestExchange.reviewer.messageId;
+  for (let index = 0; index < 55; index++) await c.f.mutate(c.ref, "reply", { threadId: id, body: `Follow-up ${index}`, intent: "discuss" });
+  await c.owner.refresh();
+  await c.owner.commands.send();
+  const work = (await c.f.read(c.ref, "poll")).submission;
+  await c.f.ok(responseFor(work));
+  await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "resolved" });
+  // A fresh reader has only the newest context page, not the sender's pending history.
+  const reader = createConversationController({
+    ...c.ref, request: async (route, options) => {
+      const response = await fetch(`http://127.0.0.1:${c.f.server.port}${route}`, {
+        ...options, headers: { "content-type": "application/json", "x-doc-review-token": c.f.server.token },
+      });
+      return response.json();
+    }, barrier: async () => {}, baseline: async () => {}, navigate: async () => {}, jump() {}, revert: async () => {},
+  });
+  t.after(() => reader.dispose());
+  await reader.refresh();
+  reader.commands.filter("resolved");
+  reader.commands.collapse(id);
+  assert.equal(reader.getSnapshot().threads[0].exchanges.length, 2);
+  await reader.commands.revealMessage(id, firstId);
+  assert.equal(reader.getSnapshot().focusId, id);
+  assert.equal(reader.getSnapshot().host, "focus");
+  assert.equal(reader.getSnapshot().threads[0].expanded, true);
+  assert.equal(reader.getSnapshot().threads[0].exchanges.length, 56);
+  assert.equal(reader.getSnapshot().threads[0].exchanges[0].response.replyToMessageId, firstId);
+  assert.deepEqual(reader.readingAnchor(id), { messageId: firstId, offset: 0 });
+  assert.equal(reader.getSnapshot().filters.resolved, false);
+  await assert.rejects(reader.commands.revealMessage(id, "nonexistent"), /requested reply is unavailable/);
+});
+
 test("earlier context keeps actual associations and all unsent followups are selected", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "First question");

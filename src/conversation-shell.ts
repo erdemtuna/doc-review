@@ -25,6 +25,11 @@ export function createConversationShell() {
   let loading = true, sourceError = "", captureError = "", reloadPending = false, connectionError = "";
   let comparison: { value: Record<string, unknown> | null; submissionId: string; pageKey: string; mode: "source" | "content"; loading: boolean; error: string } | null = null;
   let comparisonOpen = false, comparisonRequest = 0;
+  let comparisonTrigger: HTMLElement | null = null;
+  const beginComparison = () => {
+    if (!comparisonOpen) comparisonTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    comparisonOpen = true;
+  };
   let disposed = false, eventSource: EventSource | null = null, reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnecting: Promise<void> | null = null, scroll = { x: 0, y: 0 };
   let pendingTarget: number | null = null, hadNewMessage = false;
@@ -177,7 +182,7 @@ export function createConversationShell() {
     priorEdits = current.edits;
     syncAnchors(); updatePlacement();
     const latest = owner.getSnapshot();
-    if (comparisonOpen && !comparison && latest.history.some((item) => item.result)) void showChanges().catch(owner.report);
+    if (comparisonOpen && !comparison && latest.history.some((item) => item.result?.effect === "changes-reported")) void showChanges().catch(owner.report);
     const wanted = latest.open && latest.host === "adjacent" ? latest.focusId : null;
     if (wanted !== activeMark) {
       if (activeMark && geometry.projection?.anchors.some((item) => item.threadId === activeMark)) sendThreadAction("dismiss", activeMark);
@@ -427,7 +432,27 @@ export function createConversationShell() {
   }
   async function reconnect() {
     if (reconnecting) return reconnecting;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     reconnecting = (async () => {
+      const existing = await fetch(`/api/session/${sessionId}/page`, {
+        headers: { "x-doc-review-token": document.body.dataset.token! }, cache: "no-store", signal: lifetime.signal,
+      });
+      if (existing.ok) {
+        const bootstrap = record(await existing.json());
+        const attached = reviewSchema.parse(bootstrap.review);
+        if (attached.reviewId !== reference.reviewId || attached.entryKey !== reference.entryKey || bootstrap.key !== frame.state.key) {
+          throw new Error("The active session no longer matches this review page.");
+        }
+        await owner.refresh();
+        const current = owner.pages.find(item => item.page.pageKey === frame.state.key)?.page;
+        if (current?.sourceHash && current.sourceHash !== frame.state.sourceHash) {
+          sourceError = "Source changed while disconnected. Local document state is preserved; inspect it before reloading.";
+          reloadPending = true; save.hold(); publish();
+        }
+        connect();
+        return;
+      }
+      if (![401, 404].includes(existing.status)) throw new Error(`Connection recovery failed (${existing.status}).`);
       const response = await fetch(`/r/${encodeURIComponent(reference.reviewId)}`, { cache: "no-store", signal: lifetime.signal });
       if (!response.ok) throw new Error(`Review reattachment failed (${response.status}).`);
       const body = new DOMParser().parseFromString(await response.text(), "text/html").body;
@@ -608,7 +633,11 @@ export function createConversationShell() {
     }
     const request = ++comparisonRequest;
     const previous = comparison?.submissionId === submissionId && comparison.pageKey === pageKey && comparison.mode === mode ? comparison.value : null;
-    comparisonOpen = true;
+    beginComparison();
+    if (detail.result.effect === "reply-only") {
+      comparison = { value: null, submissionId, pageKey, mode, loading: false, error: "" }; publish();
+      return;
+    }
     comparison = { value: previous, submissionId, pageKey, mode, loading: true, error: "" }; publish();
     try {
       const value = decodeComparison(await api.request("/api/conversation/comparison", { method: "POST", body: JSON.stringify({ ...reference, submissionId, pageKey, mode }) }), mode);
@@ -624,18 +653,18 @@ export function createConversationShell() {
   async function showChanges() {
     const snapshot = owner.getSnapshot();
     const previous = comparison && snapshot.submissions.find((item) => item.id === comparison?.submissionId)?.value;
-    if (comparison && previous?.result && previous.submission.pageKeys.includes(comparison.pageKey)) {
+    if (comparison && previous?.result?.effect === "changes-reported" && previous.submission.pageKeys.includes(comparison.pageKey)) {
       if (comparisonOpen) return;
       await selectComparison(comparison.submissionId, comparison.pageKey, comparison.mode);
       return;
     }
-    const latest = snapshot.history.find((item) => item.result &&
+    const latest = snapshot.history.find((item) => item.result?.effect === "changes-reported" &&
       snapshot.submissions.some((detail) => detail.id === item.submissionId && detail.value.result));
     const detail = snapshot.submissions.find((item) => item.id === latest?.submissionId)?.value;
     if (latest && detail?.submission.pageKeys[0]) {
       const key = detail.submission.pageKeys.includes(frame.state.key ?? "") ? frame.state.key! : detail.submission.pageKeys[0];
       await selectComparison(latest.submissionId, key, "content");
-    } else { comparison = null; comparisonOpen = true; publish(); }
+    } else { comparison = null; beginComparison(); publish(); }
   }
   async function start() {
     try { theme = localStorage.getItem("doc-review:theme") === "dark" ? "dark" : "light"; }
@@ -707,7 +736,15 @@ export function createConversationShell() {
             comparison.pageKey === pageKey && comparison.mode === "content") await selectComparison(submissionId, pageKey, "content");
         } catch { /* The correlated result warning remains available without stealing the current view. */ }
       },
-      closeComparison() { comparisonRequest++; comparisonOpen = false; if (comparison) comparison = { ...comparison, loading: false }; publish(); },
+      closeComparison() {
+        comparisonRequest++; comparisonOpen = false;
+        if (comparison) comparison = { ...comparison, loading: false };
+        publish();
+        const trigger = comparisonTrigger; comparisonTrigger = null;
+        requestAnimationFrame(() => {
+          (trigger?.isConnected && !trigger.hasAttribute("disabled") ? trigger : document.getElementById("latestVersion"))?.focus({ preventScroll: true });
+        });
+      },
     },
     dispose,
   };

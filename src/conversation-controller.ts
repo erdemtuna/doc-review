@@ -54,6 +54,8 @@ export function createConversationController(options: Options) {
   const lastRecorded = new Map<string, string>();
   const readingPositions = new Map<string, { feedback: number; focus: number }>();
   const readingAnchors = new Map<string, { messageId: string; offset: number }>();
+  let revealedMessage: { threadId: string; messageId: string } | null = null;
+  let revealRequest = 0;
   let note = conversationDraft();
   let newMessage: { pageKey: string; target: ConversationTarget; draft: ConversationDraft } | null = null;
   let filters = { open: true, resolved: true };
@@ -114,7 +116,7 @@ export function createConversationController(options: Options) {
       contextLoading: contextLoads.has(thread.thread.threadId), contextError: contextErrors.get(thread.thread.threadId) ?? "",
     })),
     submissions: [...submissions.entries()].map(([id, value]) => ({ id, value })),
-    excluded: [...excluded], note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected,
+    excluded: [...excluded], note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected, revealedMessage,
     confirmation, draftCancellation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
     busy: busy || confirming || dispatching, loading, savingDraftIds: [...savingDrafts], sendBlocked: sendBlocked(), draftCount: draftCount(), attentionCount: attention.size,
     selection: selectionSummary(),
@@ -144,11 +146,12 @@ export function createConversationController(options: Options) {
     } while (cursor);
     return items;
   }
-  async function readContext(id: string, minimum = 1, pending = 0): Promise<Context> {
+  async function readContext(id: string, minimum = 1, pending = 0, messageId?: string): Promise<Context> {
     const latest = await page("context", contextPageSchema, {}, id);
     let result = latest;
     let items = [...latest.items];
-    while (result.nextCursor && (items.length < minimum || items.filter((item) => item.reviewer.submissionId === null).length < pending)) {
+    while (result.nextCursor && (items.length < minimum || items.filter((item) => item.reviewer.submissionId === null).length < pending ||
+      (messageId && !items.some(item => item.reviewer.messageId === messageId)))) {
       result = await page("context", contextPageSchema, { cursor: result.nextCursor }, id);
       items = [...result.items, ...items];
     }
@@ -379,15 +382,34 @@ export function createConversationController(options: Options) {
     get draftsPresent() { return draftCount() > 0; },
     report: fail,
     commands: {
-      open(value = true) { open = value; publish(); },
+      open(value = true) { revealRequest++; open = value; publish(); },
       connected(value: boolean) { connected = value; publish(); },
       filter(kind: "open" | "resolved") { filters = { ...filters, [kind]: !filters[kind] }; publish(); },
       collapse(id: string) { if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id); publish(); },
       focus(id: string | null) {
+        revealRequest++;
         if (!id) revealFocusedThread();
         focusId = id; host = id ? "focus" : "feedback"; open = true; publish();
       },
+      async revealMessage(threadId: string, messageId: string) {
+        const request = ++revealRequest;
+        if (!threads.some(item => item.thread.threadId === threadId)) throw new Error("This conversation is no longer available in this review.");
+        let context = contexts.get(threadId);
+        if (!context?.items.some(item => item.reviewer.messageId === messageId)) {
+          const previous = context;
+          context = await readContext(threadId, 1, 0, messageId);
+          if (disposed || request !== revealRequest) return;
+          if (contexts.get(threadId) !== previous) throw new Error("Conversation changed while loading the reply. Try again.");
+          contexts.set(threadId, context);
+        }
+        if (!context.items.some(item => item.reviewer.messageId === messageId)) throw new Error("The requested reply is unavailable.");
+        historyOpened.add(threadId); collapsed.delete(threadId);
+        readingAnchors.set(threadId, { messageId, offset: 0 });
+        revealedMessage = { threadId, messageId };
+        focusId = threadId; host = "focus"; open = true; attention.delete(threadId); publish();
+      },
       adjacent(id: string) {
+        revealRequest++;
         if (!threads.some((item) => item.thread.threadId === id)) throw new Error("Conversation is not in this review.");
         focusId = id; host = "adjacent"; open = true; collapsed.delete(id); publish();
       },
@@ -398,8 +420,9 @@ export function createConversationController(options: Options) {
       },
       markRead(id: string) { attention.delete(id); publish(); },
       select(id: string, selected: boolean) { if (selected) excluded.delete(id); else excluded.add(id); publish(); },
-      compose() { if (newMessage) { open = true; focusId = null; host = "compose"; publish(); } },
+      compose() { revealRequest++; if (newMessage) { open = true; focusId = null; host = "compose"; publish(); } },
       begin(pageKey: string, target: ConversationTarget, contextual = false) {
+        revealRequest++;
         if (!writable()) return false;
         if (newMessage && (dirtyDraft("new", newMessage.draft) || newMessage.draft.composing || savingDrafts.has("new") || draftCancellation === "new")) {
           throw new Error("Save or cancel the existing new-message draft first.");

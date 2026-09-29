@@ -107,17 +107,17 @@ test("Review and Changes keep the same iframe and authored runtime state", async
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
   await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
-  await expect(page.getByRole("button", { name: "Source changes", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "View reply", exact: true })).toBeVisible();
   await page.locator("#commentsButton").click();
   await frame.getByRole("button", { name: "Increment" }).click();
   await frame.getByLabel("Draft").fill("Keep this input");
   await page.locator("#frame").evaluate((element) => { window.reviewFrameBeforeSwitch = element; });
   await page.locator("#commentsButton").click();
   for (let round = 0; round < 3; round++) {
-    await page.getByRole("button", { name: "Source changes", exact: true }).click();
-    await expect(page.getByRole("region", { name: "Saved comparison", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Close comparison", exact: true }).click();
-    await expect(page.getByRole("region", { name: "Saved comparison", exact: true })).toBeHidden();
+    await page.locator("#seeChanges").click();
+    await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No document changes reported");
+    await page.getByRole("button", { name: "Back to review", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Changes", exact: true })).toBeHidden();
   }
   expect(await page.locator("#frame").evaluate((element) => element === window.reviewFrameBeforeSwitch)).toBe(true);
   await expect(frame.getByLabel("Draft")).toHaveValue("Keep this input");
