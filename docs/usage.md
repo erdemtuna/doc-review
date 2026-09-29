@@ -115,10 +115,13 @@ check-circle **Resolved** badge. Expand it anytime to read the discussion withou
 reopening it. Reopen and Undo expand the conversation again. Resolution in another
 tab never hides your local reply draft.
 Resolving from the popup beside the document dismisses it automatically. Open
-Feedback to find the resolved conversation or use Undo resolve.
+Feedback to use Undo resolve, or enable the Resolved filter to find the conversation.
 Resolved threads no longer highlight the document or contribute to its conversation
 badges. Open threads at the same passage keep their highlights. Reopen or Undo
 restores the highlight; Show in document still locates resolved discussions.
+Click a document highlight or conversation badge to open its discussion; click
+the same target again to dismiss it. Unsaved replies survive dismissal. Enter and
+Space also toggle the discussion, including targets shared by several threads.
 
 While adding or updating a comment, typing and selection remain available but another submission of that draft
 and editor cancellation are locked through acceptance or reconciliation. Newer typing is retained.
@@ -138,7 +141,8 @@ Pasted images are saved beside file reviews or staged for the agent in localhost
 reviews. Command clicking links lets you review multiple pages in one session.
 
 Open **Feedback** for conversations, pending edits, submission history and the
-overall note. Open and Resolved filters both start enabled; open cards start expanded
+overall note. Only the Open filter starts enabled; select Resolved to include
+resolved conversations. Resolving a conversation preserves your filters. Open cards start expanded
 with their latest exchange and saved pending follow-ups, while resolved cards
 start collapsed. Selected filters remain
 visibly selected after you move away. Separate bordered discussion cards contain

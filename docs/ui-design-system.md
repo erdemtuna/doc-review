@@ -12,7 +12,7 @@ positions, pending selection, mutation locks and uncertain acceptance.
 capture and comparison requests. React renders these owners rather than creating
 parallel state. Drafts are never saved to storage or synced across tabs.
 
-Both Open and Resolved filters start enabled. Open threads start expanded;
+Only the Open filter starts enabled; Resolved is opt-in. Open threads start expanded;
 resolved threads start collapsed with a quiet check-circle **Resolved** badge.
 Accepted resolution collapses the card without leaving a stretched empty Focus
 surface. Muted surfaces and the badge distinguish resolution without bright success
@@ -20,11 +20,15 @@ colors, unread dots, or reduced text/control opacity. Explicit expansion survive
 refreshes; reopening or Undo expands the conversation again. A remote resolution
 never hides an existing local draft.
 An adjacent popup closes on confirmed resolution and returns keyboard focus to
-Feedback. Opening Feedback reveals the collapsed resolved card and version-safe
-Undo; resolution does not close the regular Feedback or Focus sidebar.
+Feedback without changing the selected filters. Opening Feedback offers version-safe
+Undo; enable Resolved to see the collapsed card. Resolution does not close the regular Feedback or Focus sidebar.
 Resolved threads retain target geometry for navigation but do not paint document
 highlights or count toward document badges. Reopen/Undo restores annotations;
 resolving one of several threads at a shared target leaves its open peers marked.
+Document highlights and badges toggle their conversation surface on repeated
+activation, including shared targets, without discarding reply drafts.
+The element hover outline is a single dashed boundary, without an outer shadow
+or solid halo.
 Their shared segmented controls retain selected paint without hover or focus.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages

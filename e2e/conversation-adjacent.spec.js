@@ -53,6 +53,40 @@ async function activate(page, id) {
   expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
 }
 
+for (const kind of ["selection", "element"]) for (const grouped of [false, true]) {
+  test(`${kind} highlight toggles its ${grouped ? "shared" : "single"} conversation without discarding a reply`, async ({ page, review }) => {
+    const { ref } = await start(page, review);
+    const target = kind === "selection"
+      ? { kind, anchor: { quote: "A uniquely anchored passage" } }
+      : { kind, anchor: { selector: "#copy", label: "Passage" } };
+    const one = await seed(review, ref, "First discussion", target);
+    const two = grouped ? await seed(review, ref, "Second discussion", target) : one;
+    const trigger = kind === "selection"
+      ? page.frameLocator("#frame").locator('mark[role="button"]')
+      : page.frameLocator("#frame").locator(".block-badge");
+    await expect(trigger).toHaveCount(1);
+    if (grouped) await expect(trigger).toHaveAttribute("aria-label", "Open 2 conversations");
+    await trigger.click();
+    await expect(panel(page)).toBeVisible();
+    if (grouped) await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(two);
+    await card(page, two).getByRole("button", { name: "Reply", exact: true }).click();
+    const editor = card(page, two).getByRole("textbox", { name: "Reply", exact: true });
+    await editor.fill("Keep this unsaved reply");
+    await trigger.click();
+    await expect(panel(page)).toHaveCount(0);
+    await trigger.click();
+    await expect(panel(page)).toBeVisible();
+    if (grouped) await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(two);
+    await expect(editor).toHaveValue("Keep this unsaved reply");
+    await trigger.press("Enter");
+    await expect(panel(page)).toHaveCount(0);
+    await trigger.press("Space");
+    await expect(panel(page)).toBeVisible();
+    if (grouped) await panel(page).getByRole("combobox", { name: "Conversation at this target" }).selectOption(two);
+    await expect(editor).toHaveValue("Keep this unsaved reply");
+  });
+}
+
 test("one explicit adjacent host preserves editor, caret, IME, Save lock and same-target chooser across all hosts", async ({ page, review }, testInfo) => {
   test.setTimeout(60_000);
   const { ref } = await start(page, review);
@@ -355,6 +389,8 @@ test("loaded exchanges and reading anchor survive host transfers; resolved conve
   await mutate(review, ref, "set-thread-status", { threadId: id, status: "resolved" });
   await expect(page.locator(".conversation-panel")).toBeHidden();
   await page.locator("#commentsButton").click();
+  await expect(card(page, id)).toBeHidden();
+  await page.getByRole("button", { name: "Resolved (1)", exact: true }).click();
   await expect(await threadAction(page, card(page, id), "Reopen")).toBeEnabled();
   await expect(card(page, id).getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");

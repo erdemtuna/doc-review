@@ -291,8 +291,13 @@ test("History timeline has connected status icons and visible confirmed abandonm
     await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
     await feedback(page);
     const card = page.locator(`[data-thread="${threadId}"]`);
+    const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
+    await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
+    await expect(card).toBeHidden();
+    await resolvedFilter.click();
+    await expect(card).toBeVisible();
     await expect(card).not.toContainText("Original question");
-    await page.getByRole("button", { name: "Resolved (1)", exact: true }).click();
+    await resolvedFilter.click();
     await expect(card).toBeHidden();
     await page.getByRole("button", { name: "History", exact: true }).click();
     const oldest = page.locator(".conversation-submission").last();
@@ -514,6 +519,14 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
       await feedback(page);
       await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
     }
+    if (await page.locator(".conversation-panel").getAttribute("data-host") === "feedback") {
+      const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
+      if (await resolvedFilter.getAttribute("aria-pressed") === "false") {
+        await expect(card).toBeHidden();
+        await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
+        await resolvedFilter.click();
+      }
+    }
     await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
     await expect(card).toHaveAttribute("data-status", "resolved");
     await expect(card.locator(".conversation-resolved-status")).toHaveText("Resolved");
@@ -557,6 +570,8 @@ test("resolved headers stay compact and readable on reload and narrow screens", 
   await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
   await page.reload(); await waitForSdk(page); await feedback(page);
   const card = page.locator(`[data-thread="${threadId}"]`);
+  await expect(card).toBeHidden();
+  await page.getByRole("button", { name: "Resolved (1)", exact: true }).click();
   for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height: 600 });
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();

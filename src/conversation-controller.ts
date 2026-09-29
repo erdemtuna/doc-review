@@ -60,7 +60,7 @@ export function createConversationController(options: Options) {
   let resolutionUndo: { threadId: string; reviewVersion: number } | null = null;
   let note = conversationDraft();
   let newMessage: { pageKey: string; target: ConversationTarget; draft: ConversationDraft } | null = null;
-  let filters = { open: true, resolved: true };
+  let filters = { open: true, resolved: false };
   let focusId: string | null = null, open = false, error = "", notice = "", captureNotice = "", connected = true;
   let host: "feedback" | "focus" | "adjacent" | "compose" = "feedback";
   let confirmation: Confirmation | null = null, uncertain: Pending | null = null;
@@ -214,7 +214,6 @@ export function createConversationController(options: Options) {
           collapsed.add(id);
           if (host === "adjacent" && focusId === id) {
             revealRequest++; open = false; focusId = null; host = "feedback";
-            filters = { ...filters, resolved: true };
           }
         }
         attention.delete(id);

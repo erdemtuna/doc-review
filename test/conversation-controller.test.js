@@ -691,22 +691,23 @@ test("Resolve dismisses only the adjacent popup and retains Feedback access and 
   await c.owner.commands.send();
   await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
   await c.owner.refresh();
-  for (const host of ["feedback", "focus", "adjacent"]) {
-    if (host === "adjacent") {
-      c.owner.commands.filter("resolved");
-      c.owner.commands.adjacent(id);
-    } else c.owner.commands.focus(host === "focus" ? id : null);
+  assert.deepEqual(c.owner.getSnapshot().filters, { open: true, resolved: false });
+  for (const host of ["feedback", "focus", "adjacent", "adjacent"]) {
+    const selectedFilters = { ...c.owner.getSnapshot().filters };
+    if (host === "adjacent") c.owner.commands.adjacent(id);
+    else c.owner.commands.focus(host === "focus" ? id : null);
     await c.owner.commands.resolve(id);
     const state = c.owner.getSnapshot();
     assert.equal(state.open, host !== "adjacent");
     assert.equal(state.host, host === "adjacent" ? "feedback" : host);
     assert.equal(state.focusId, host === "focus" ? id : null);
     assert.equal(state.threads[0].expanded, false);
-    assert.equal(state.filters.resolved, true);
+    assert.deepEqual(state.filters, selectedFilters);
     assert.equal(state.resolutionUndo.threadId, id);
     c.owner.commands.open();
     await c.owner.commands.undoResolve();
     assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
+    if (host === "adjacent") c.owner.commands.filter("resolved");
   }
 });
 
@@ -808,7 +809,7 @@ test("historical response navigation pages to the exact exchange without changin
   });
   t.after(() => reader.dispose());
   await reader.refresh();
-  reader.commands.filter("resolved");
+  assert.deepEqual(reader.getSnapshot().filters, { open: true, resolved: false });
   assert.equal(reader.getSnapshot().threads[0].expanded, false);
   assert.equal(reader.getSnapshot().threads[0].exchanges.length, 2);
   await reader.commands.revealMessage(id, firstId);

@@ -543,7 +543,13 @@ export function createConversationShell() {
         case "eh:threadAction": {
           const action = geometry.incoming(message);
           if (!action) break;
-          if (action.action === "activate") showAdjacent(action.threadId);
+          if (action.action === "activate") {
+            const current = owner.getSnapshot();
+            if (current.open && (current.host === "adjacent" || current.host === "focus") &&
+                current.focusId && geometry.peers(action.threadId).includes(current.focusId)) {
+              owner.commands.open(false);
+            } else showAdjacent(action.threadId);
+          }
           else if (owner.getSnapshot().focusId === action.threadId) owner.commands.open(false);
           break;
         }

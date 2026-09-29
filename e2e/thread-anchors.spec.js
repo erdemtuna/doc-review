@@ -60,6 +60,8 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await expect(first).toHaveAttribute("data-status", "resolved");
   await expect(page.locator(".conversation-panel")).toBeHidden();
   await feedback(page);
+  await expect(first).toBeHidden();
+  await page.getByRole("button", { name: "Resolved (1)", exact: true }).click();
   await expect(frame.getByRole("button", { name: "Open 2 conversations", exact: true })).toHaveCount(0);
   await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
   if (kind === "selection") {
@@ -74,6 +76,7 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await mutate(review, ref, "set-thread-status", { threadId: two.threadId, status: "resolved" });
   await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
   await page.reload(); frame = await waitForSdk(page); await feedback(page);
+  await page.getByRole("button", { name: "Resolved (2)", exact: true }).click();
   await expect(page.locator(`[data-thread="${two.threadId}"]`)).toHaveAttribute("data-status", "resolved");
   await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`resolved-${kind}-no-highlights.png`), animations: "disabled", caret: "initial" });

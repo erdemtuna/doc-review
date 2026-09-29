@@ -254,7 +254,7 @@ shadow.innerHTML = `
     button:focus-visible, input:focus-visible, .mover:focus-visible, .grip:focus-visible {
       outline: 3px solid var(--review-ring); outline-offset: 2px;
     }
-    .box, .chip, .grip, .hint, .linkbox, .mover, .dropline, .comment-action {
+    .chip, .grip, .hint, .linkbox, .mover, .dropline, .comment-action {
       box-shadow: 0 0 0 1px var(--review-halo-light), 0 0 0 2px var(--review-halo-dark), 0 3px 10px var(--review-review-shadow-color);
     }
     .block-marker { box-shadow: 0 0 0 1px var(--review-halo-light); }

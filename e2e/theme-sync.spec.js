@@ -153,7 +153,7 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
       for (const selector of [".chip:not(.danger)", ".chip.danger", ".linkbox", ".linkbox input", ".grip", ".hint", ".mover",
         ".dropline", ".comment-action", ".block-badge", ".block-marker", ".outline", ".active", ".selection-cue"]) {
         const css = getComputedStyle(shadow.querySelector(selector));
-        styles[selector] = { color: css.color, background: css.backgroundColor, border: css.borderTopColor, shadow: css.boxShadow, opacity: css.opacity };
+        styles[selector] = { color: css.color, background: css.backgroundColor, border: css.borderTopColor, borderStyle: css.borderTopStyle, shadow: css.boxShadow, opacity: css.opacity };
       }
       styles.mark = { background: getComputedStyle(document.querySelector("mark")).backgroundColor };
       styles.selection = { background: getComputedStyle(document.querySelector("#target"), "::selection").backgroundColor };
@@ -165,6 +165,8 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
       const palette = REVIEW_PALETTE[selected];
       await expect.poll(async () => (await measure())[".mover"].background).toBe(rgb(palette.card));
       const styles = await measure();
+      expect(styles[".outline"].borderStyle).toBe("dashed");
+      expect(styles[".outline"].shadow).toBe("none");
       for (const selector of [".chip:not(.danger)", ".linkbox", ".grip", ".hint", ".mover"]) {
         expect(styles[selector].background, selector).toBe(rgb(palette.card));
         expect(styles[selector].shadow, selector).not.toBe("none");
