@@ -307,8 +307,11 @@ and `resultHeading` own the same outcome vocabulary and routes in Feedback and
 History: **Replies (N)**, **View changes**, or summary-only **View response**.
 Overflowing latest-result notes offer **Read more / Show less** in place; short
 notes need no expansion control. Heading, summary and actions retain that order
-at every height. Reply disclosures label each destination with its source section
-and a comment excerpt, followed by a navigation chevron.
+at every height. Read more/Show less is left-aligned on the same action row as the
+right-aligned Replies disclosure. Reply destinations use full-width, auto-height,
+left-aligned two-line buttons: source section, then comment excerpt, with a trailing
+navigation chevron. Button sizing/alignment overrides belong in utility classes
+so shared fixed-height Button utilities cannot clip the labels.
 Reply readers retain Feedback/History and a pinned **Back to replies** plus
 Previous/Next and batch position. Back restores the source destination, expanded
 list, exact inventory scroll and initiating keyboard focus. Transcript scrolling

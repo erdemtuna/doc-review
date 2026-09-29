@@ -462,8 +462,8 @@ function LatestResult({ snapshot, shell, visible, onReveal }: { snapshot: Snapsh
   return <section className="conversation-result-peek inventory-card" aria-label="Latest submission result">
     <div className="conversation-result-peek-heading"><h3>{detail ? resultHeading(detail) : "Agent response"}</h3>
       <ConversationTime value={latest.result.createdAt} /></div>
-    <ResultPreview key={latest.submissionId} body={latest.result.body} />
-    {detail?.result && <ResultActions key={latest.submissionId} detail={detail} shell={shell} onReveal={onReveal} />}
+    <ResultPreview key={latest.submissionId} body={latest.result.body} actions={expandControl =>
+      detail?.result ? <ResultActions detail={detail} shell={shell} onReveal={onReveal} leadingAction={expandControl} /> : expandControl} />
     {visible && <CaptureNotices snapshot={snapshot} shell={shell} submissionId={latest.submissionId} />}
     {!detail && <Button size="sm" variant="ghost" onClick={() => act(shell.owner, shell.owner.commands.refresh)}>Refresh result details</Button>}
   </section>;

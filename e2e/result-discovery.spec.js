@@ -252,6 +252,13 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
     expect(await summary.evaluate(node => node.clientHeight >= node.scrollHeight)).toBe(true);
     await page.screenshot({ path: info.outputPath(`full-summary-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
     await peek.getByRole("button", { name: "Show less", exact: true }).click();
+    const moreBounds = await peek.getByRole("button", { name: "Read more", exact: true }).boundingBox();
+    const repliesBounds = await peek.getByRole("button", { name: "Replies (2)", exact: true }).boundingBox();
+    expect(Math.abs(moreBounds.y - repliesBounds.y)).toBeLessThanOrEqual(1);
+    expect(moreBounds.x + moreBounds.width).toBeLessThan(repliesBounds.x);
+    const actionBounds = await peek.locator(".conversation-actions").boundingBox();
+    expect(Math.abs(moreBounds.x - actionBounds.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(repliesBounds.x + repliesBounds.width - actionBounds.x - actionBounds.width)).toBeLessThanOrEqual(1);
     for (const origin of ["Feedback", "History"]) {
       await tabs.getByRole("button", { name: origin, exact: true }).click();
       const result = origin === "Feedback" ? peek : page.locator(".conversation-submission").first();
@@ -260,6 +267,28 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
       if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
       const row = result.locator(".conversation-result-replies button").first();
       await expect(row.locator(".conversation-source")).not.toBeEmpty();
+      const rows = await result.locator(".conversation-result-replies button").evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect();
+        const source = node.querySelector(".conversation-source").getBoundingClientRect();
+        const excerpt = node.querySelector(".conversation-result-reply-excerpt").getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom, left: box.left, right: box.right,
+          sourceTop: source.top, sourceBottom: source.bottom, sourceLeft: source.left,
+          excerptTop: excerpt.top, excerptBottom: excerpt.bottom, excerptLeft: excerpt.left,
+          align: getComputedStyle(node).textAlign };
+      }));
+      for (const item of rows) {
+        expect(item.align).toBe("left");
+        expect(item.sourceTop).toBeGreaterThanOrEqual(item.top + 4);
+        expect(item.sourceBottom).toBeLessThanOrEqual(item.excerptTop);
+        expect(item.excerptBottom).toBeLessThanOrEqual(item.bottom - 4);
+        expect(item.sourceLeft - item.left).toBeLessThanOrEqual(12);
+        expect(item.excerptLeft).toBe(item.sourceLeft);
+      }
+      expect(rows[0].bottom).toBeLessThan(rows[1].top);
+      if (origin === "Feedback") {
+        await row.focus();
+        await page.screenshot({ path: info.outputPath(`reply-picker-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+      }
       await row.scrollIntoViewIfNeeded();
       const originTop = await inventory.evaluate(node => node.scrollTop);
       await row.click();

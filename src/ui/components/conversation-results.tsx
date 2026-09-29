@@ -1,7 +1,7 @@
 import type { ConversationController } from "../../conversation-controller";
 import { Badge } from "./ui/badge";
 import { ConversationSource, ConversationTime } from "./conversation-controls";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ConversationShell } from "../../conversation-shell";
 import { Button } from "./ui/button";
 import { Icon } from "./icon";
@@ -21,7 +21,7 @@ export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>[
     : outcome === "deferred" ? "Deferred; no application reported for this edit." : "Edit outcome unavailable.";
 }
 
-export function ResultPreview({ body }: { body: string }) {
+export function ResultPreview({ body, actions }: { body: string; actions: (expandControl: ReactNode) => ReactNode }) {
   const id = useId(), preview = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false), [overflow, setOverflow] = useState(false);
   useLayoutEffect(() => {
@@ -37,12 +37,14 @@ export function ResultPreview({ body }: { body: string }) {
   }, [body]);
   return <>
     <p ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}>{body}</p>
-    {overflow && <Button className="conversation-result-expand" size="xs" variant="ghost" aria-expanded={expanded}
-      aria-controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</Button>}
+    {actions(overflow && <Button size="sm" variant="ghost" aria-expanded={expanded}
+      aria-controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</Button>)}
   </>;
 }
 
-export function ResultActions({ detail, shell, onReveal }: { detail: ResultDetail; shell: ConversationShell; onReveal: RevealReply }) {
+export function ResultActions({ detail, shell, onReveal, leadingAction }: {
+  detail: ResultDetail; shell: ConversationShell; onReveal: RevealReply; leadingAction?: ReactNode;
+}) {
   const repliesId = useId();
   const [expanded, setExpanded] = useState(false);
   const responses = detail.result?.responses ?? [];
@@ -57,12 +59,13 @@ export function ResultActions({ detail, shell, onReveal }: { detail: ResultDetai
   };
   return <div className="conversation-result-actions">
     <div className="conversation-actions">
+      {leadingAction}
       {(changes || !replies.length) && <Button size="sm" onClick={() => {
         const key = detail.submission.pageKeys.includes(shell.getSnapshot().pageKey ?? "")
           ? shell.getSnapshot().pageKey! : detail.submission.pageKeys[0];
         void shell.commands.comparison(detail.submission.submissionId, key, "content").catch(shell.owner.report);
       }}>{changes ? "View changes" : "View response"}</Button>}
-      {!!replies.length && <Button size="sm" variant={changes ? "ghost" : "outline"} disabled={busy}
+      {!!replies.length && <Button className="ml-auto" size="sm" variant={changes ? "ghost" : "outline"} disabled={busy}
         aria-expanded={expanded} aria-controls={repliesId} onClick={() => setExpanded(value => !value)}>
         <Icon name={expanded ? "chevronDown" : "chevronRight"} size={14} />Replies ({replies.length})
       </Button>}
@@ -70,6 +73,7 @@ export function ResultActions({ detail, shell, onReveal }: { detail: ResultDetai
     <ul id={repliesId} hidden={!expanded} className="conversation-result-replies">{replies.map((reply, index) => {
       const submitted = detail.submission.messages.find(item => item.message.messageId === reply.replyToMessageId);
       return <li key={reply.messageId}><Button size="sm" variant="ghost" disabled={busy}
+        className="h-auto w-full min-w-0 justify-between whitespace-normal py-2 text-left"
         onClick={(event) => { void reveal(index, event.currentTarget); }}>
         <span className="conversation-result-reply-label">
           {submitted && <ConversationSource target={submitted.target} />}
