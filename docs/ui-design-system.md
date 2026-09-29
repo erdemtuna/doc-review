@@ -302,8 +302,10 @@ local focus restoration. Closing invalidates in-flight comparison reads; failure
 cannot strand the reviewer or reopen an obsolete result. Discussion-only results
 do not render comparison tools. Summary widths stay readable, while actual diffs
 may expand. Lifecycle status is centered in the desktop toolbar, separate from View/Edit.
-Waiting has one headline rather than repeated queued/sent notices. Restrictions use
-plain language, and raw review/submission identifiers stay in collapsed Technical details.
+Waiting has one centered toolbar status rather than repeated queued/sent notices.
+Feedback contains no waiting explanation or technical disclosure after Send.
+Restrictions, related-review links and raw review/submission identifiers stay in
+collapsed Technical details within History.
 The header's **History** destination holds the full ledger, agent command, receipt
 diagnostics and advanced abandonment confirmation, rather than repeating them under
 the discussion inventory. History and Feedback retain the same mounted reply/note

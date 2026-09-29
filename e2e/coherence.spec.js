@@ -62,17 +62,28 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   await expect(lifecycle).toHaveAccessibleDescription(/Waiting to be picked up/);
   await expect(page.locator(".conversation-status")).toBeHidden();
   const blockers = page.locator(".conversation-blockers");
+  await expect(blockers).toBeHidden();
+  await expect(page.locator("#send")).toBeDisabled();
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);
+    await page.screenshot({ path: info.outputPath(`compact-waiting-${theme}.png`), animations: "disabled", caret: "initial" });
+  }
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(blockers).toBeVisible();
+  await expect(blockers).not.toHaveAttribute("open");
+  await expect(blockers.locator("pre")).toBeHidden();
+  await blockers.getByText("Technical details", { exact: true }).click();
   await expect(blockers).toContainText("You can keep commenting.");
-  expect(await blockers.innerText()).not.toMatch(/review_|submission_|Queued|Feedback sent/);
-  await expect(blockers.locator("details")).not.toHaveAttribute("open");
-  await page.screenshot({ path: info.outputPath("compact-waiting.png"), caret: "initial" });
-  await blockers.getByText("Technical details", { exact: true }).click();
   await expect(blockers.locator("pre")).toContainText(ref.reviewId);
-  await blockers.getByText("Technical details", { exact: true }).click();
+  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await expect(blockers).toBeHidden();
+  expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);
   const work = (await conversation(review, ref, "poll")).submission;
   expect(work.messages[0].message.body).toBe("An inline correction, not a duplicate comment.");
   await expect(lifecycle).toHaveAccessibleDescription(/Feedback received; no response yet/);
   await expect(lifecycle).toHaveAccessibleDescription(/does not confirm an agent is currently working/);
+  await expect(blockers).toBeHidden();
 });
 
   for (const host of ["feedback", "history", "focus", "adjacent"]) test(`Back restores ${host} locally across failed and late comparison reads`, async ({ page, review }, info) => {

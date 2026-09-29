@@ -396,6 +396,14 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
   return <section className="conversation-history" aria-label="Submission history">
     {!snapshot.history.length && <p>No submissions yet. Send saved feedback when you are ready.</p>}
     <details className="conversation-handoff"><summary>Agent command</summary><code>{shell.getSnapshot().pollCommand}</code></details>
+    {!!snapshot.status?.blockers.length && <details className="conversation-blockers">
+      <summary>Technical details</summary>
+      <p>{snapshot.sendBlocked ? "You can keep commenting. Sending and editing are paused until this batch is handled."
+        : "Another review is waiting for a response. Editing its pages is paused; you can keep commenting."}</p>
+      {[...new Set(snapshot.status.blockers.map(blocker => blocker.reviewId))].filter(id => id !== snapshot.review?.reviewId)
+        .map(id => <p key={id}><a href={`/r/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">Open related review</a></p>)}
+      <pre>{JSON.stringify(snapshot.status.blockers, null, 2)}</pre>
+    </details>}
     {snapshot.history.map((item) => {
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
       return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
@@ -606,13 +614,6 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         <Button disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(false))}>Check receipt</Button>
         <Button disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(true))}>Retry same request</Button>
       </div></div>}
-    {!!snapshot.status?.blockers.length && <div className="conversation-blockers">
-      <p>{snapshot.sendBlocked ? "You can keep commenting. Sending and editing are paused until this batch is handled."
-        : "Another review is waiting for a response. Editing its pages is paused; you can keep commenting."}</p>
-      {[...new Set(snapshot.status.blockers.map(blocker => blocker.reviewId))].filter(id => id !== snapshot.review?.reviewId)
-        .map(id => <p key={id}><a href={`/r/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">Open related review</a></p>)}
-      <details><summary>Technical details</summary><pre>{JSON.stringify(snapshot.status.blockers, null, 2)}</pre></details>
-    </div>}
     <div className="conversation-filters" hidden={!!snapshot.focusId || historyVisible}>
       <SegmentedControl aria-label="Conversation filters" hidden={!snapshot.threads.length}>{(["open", "resolved"] as const).map((kind) => <SegmentedControlItem key={kind} size="sm" selected={snapshot.filters[kind]}
         onClick={() => owner.commands.filter(kind)}>{kind === "open" ? "Open" : "Resolved"} ({snapshot.threads.filter((item) => item.thread.status === kind).length})</SegmentedControlItem>)}</SegmentedControl>
