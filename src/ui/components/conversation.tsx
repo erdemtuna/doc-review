@@ -275,6 +275,25 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
   const trailingTargetNotice = !!item.draft && !focus && chrome.viewport.width <= 480 && chrome.viewport.height <= 550;
   const replyControl = !item.draft && !disabled && item.thread.status === "open" &&
     <Button variant="ghost" size="sm" data-reply onClick={() => owner.commands.reply(id)}>Reply</Button>;
+  const resolutionControl = !item.draft && snapshot.review?.state === "open" &&
+    <Button variant="ghost" size="sm" disabled={disabled}
+      aria-label={item.thread.status === "resolved" ? "Reopen conversation" : "Resolve conversation"}
+      onClick={event => {
+        const trigger = event.currentTarget;
+        act(owner, async () => {
+          await owner.commands.resolve(id);
+          if (owner.getSnapshot().threads.find(thread => thread.thread.threadId === id)?.expanded === false) {
+            requestAnimationFrame(() => {
+              if (document.activeElement === trigger || document.activeElement === document.body) {
+                article.current?.querySelector<HTMLButtonElement>(".conversation-thread-title")?.focus({ preventScroll: true });
+              }
+            });
+          }
+        });
+      }}>
+      <Icon name={item.thread.status === "resolved" ? "rotateCcw" : "circleCheck"} />
+      {item.thread.status === "resolved" ? "Reopen" : "Resolve"}
+    </Button>;
   const draftView = item.draft && <Draft owner={owner} id={id} draft={item.draft} disabled={snapshot.review?.state !== "open"}
     saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes(id)} />;
   const messageControls = (reviewer: Thread["exchanges"][number]["reviewer"]) => <>
@@ -378,6 +397,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
           {item.draft?.messageId === reviewer.messageId ? draftView : <>
           <p className="conversation-body">{reviewer.body}</p>
           {reviewer.submissionId === null && !disabled && !(pinnedMessageControls && index === item.exchanges.length - 1) && <div className="conversation-actions">
+            {index === item.exchanges.length - 1 && !focus && resolutionControl}
             {messageControls(reviewer)}
             {index === item.exchanges.length - 1 && !focus && replyControl}
           </div>}
@@ -385,13 +405,13 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, navigatingReplies }:
           {response && <div className="conversation-response"><div className="conversation-meta inventory-meta"><ConversationAuthor role="Agent" /><ConversationTime value={response.createdAt} />
             {response.outcome !== "answered" && <Badge variant="outline">{responseOutcomeLabels[response.outcome]}</Badge>}</div><p className="conversation-body">{response.body}</p></div>}
         </section>)}
-        {item.exchanges.at(-1)?.reviewer.submissionId !== null && !focus && replyControl &&
-          <div className="conversation-reply conversation-actions">{replyControl}</div>}
+        {item.exchanges.at(-1)?.reviewer.submissionId !== null && !focus && resolutionControl &&
+          <div className="conversation-reply conversation-actions">{resolutionControl}{replyControl}</div>}
         {target.reason && !trailingTargetNotice && <p id={`target-status-${id}`} className="conversation-target-status">{target.reason}</p>}
         {!adjacent && peersControl && <details className="conversation-target-details"><summary>Conversations at this target ({peers.length})</summary>{peersControl}</details>}
       </div>
-      {focus && replyControl && <div className="conversation-reply conversation-actions">
-        {pinnedMessageControls && messageControls(lastPending!)}{replyControl}</div>}
+      {focus && resolutionControl && <div className="conversation-reply conversation-actions">
+        {resolutionControl}{pinnedMessageControls && messageControls(lastPending!)}{replyControl}</div>}
       {!item.draft?.messageId && draftView}
       {target.reason && trailingTargetNotice && <p id={`target-status-${id}`} className="conversation-target-status">{target.reason}</p>}
     </div>

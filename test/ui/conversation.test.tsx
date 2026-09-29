@@ -133,6 +133,29 @@ it("short reply composition groups the same independent overall note without los
   expect(toggle).toHaveAttribute("aria-expanded", "true");
   shell.dispose();
 });
+it("bottom Resolve shares the guarded command across hosts and makes room for the reply draft", async () => {
+  const { owner, shell } = await fixture();
+  const resolve = vi.spyOn(owner.commands, "resolve").mockResolvedValue(undefined);
+  for (const host of ["feedback", "focus", "adjacent"] as const) {
+    act(() => {
+      if (host === "adjacent") owner.commands.adjacent("thread");
+      else owner.commands.focus(host === "focus" ? "thread" : null);
+    });
+    const footer = within(document.querySelector(".conversation-reply")! as HTMLElement);
+    const button = footer.getByRole("button", { name: "Resolve conversation" });
+    expect(button).toHaveTextContent("Resolve");
+    expect(button.querySelector("svg")).not.toBeNull();
+    expect([...document.querySelectorAll(".conversation-reply button")].map(node => node.textContent)).toEqual(["Resolve", "Reply"]);
+    fireEvent.click(button);
+    expect(resolve).toHaveBeenLastCalledWith("thread");
+  }
+  act(() => owner.commands.focus("thread"));
+  fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+  expect(screen.queryByRole("button", { name: "Resolve conversation" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Resolve" })).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBeVisible();
+  shell.dispose();
+});
 it("new composition uses one editor and unchecked permission across contextual/Feedback hosts without opening the overlay", async () => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const { owner, shell, updateChrome } = await fixture();

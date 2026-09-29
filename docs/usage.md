@@ -107,6 +107,8 @@ beside an icon-only **Show in document** control; tooltips retain the full sourc
 every conversation header, not hidden in the menu. Finish or close a local draft
 first; unsent messages and outstanding agent work prevent
 Resolve. An accepted resolution offers **Undo resolve** until the review changes.
+You can also **Resolve** from the bottom-left of the conversation, opposite
+**Reply** on the right, without scrolling back to the header.
 Undo never overrides newer changes from another tab or an ended review.
 Resolving automatically collapses the conversation into a subdued card with a
 check-circle **Resolved** badge. Expand it anytime to read the discussion without

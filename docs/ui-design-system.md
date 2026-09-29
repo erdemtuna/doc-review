@@ -46,6 +46,10 @@ Header order is source title with unread dot, Locate, Resolve/Reopen, More,
 then Collapse/Expand. Resolve uses a check-circle and Reopen a return arrow;
 both retain accessible action names and explanatory tooltips.
 Reply is a quiet visible action, sharing the last pending message's action row.
+The bottom action row also offers icon-and-text Resolve on the left, opposite
+Reply on the right, so finishing a long discussion does not require returning to
+the header. Expanded resolved threads offer Reopen there. These actions share
+the header's guards and Undo behavior; a local draft replaces the bottom row.
 Draft permissions use the shared Checkbox primitive. There are no batch-selection
 or exclusion controls; Send includes all saved pending messages and edits.
 Each exchange associates its original reviewer message with the actual reply.

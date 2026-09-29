@@ -459,7 +459,8 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await page.setViewportSize({ width: 1024, height: 768 });
   const ref = await openReview(page, review, writeFile(review, `resolution-${host}.html`, '<p id="copy" tabindex="0">A reviewed passage.</p>'));
   await waitForSdk(page);
-  const { threadId } = await seedThread(review, ref, "Explain this passage.", {
+  const { threadId } = await seedThread(review, ref, "Explain this passage.\n\n" +
+    "Filter before paging, keep the cursor tied to the same filters, and preserve authorization checks.\n\n".repeat(20), {
     kind: "element", anchor: { selector: "#copy", label: "Purpose · p 2" },
   });
   await sendPending(review, ref); await handled(review, ref);
@@ -480,27 +481,46 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await card.getByRole("button", { name: "Keep reviewing" }).click();
   await card.getByRole("button", { name: "Close reply" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard", exact: true }).click();
-  for (const theme of ["light", "dark"]) {
+  for (const [width, height] of [[1024, 768], [320, 400]]) for (const theme of ["light", "dark"]) {
+    await page.setViewportSize({ width, height });
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    const bottomResolve = card.getByRole("button", { name: "Resolve conversation", exact: true });
+    const reply = card.getByRole("button", { name: "Reply", exact: true });
+    await bottomResolve.scrollIntoViewIfNeeded();
+    const left = await bottomResolve.boundingBox(), right = await reply.boundingBox();
+    const row = await card.locator(".conversation-reply").boundingBox();
+    expect(Math.abs(left.y - right.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(left.x - row.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(right.x + right.width - row.x - row.width)).toBeLessThanOrEqual(1);
+    expect(left.y).toBeGreaterThanOrEqual(0);
+    expect(left.y + left.height).toBeLessThanOrEqual(height);
+    await page.screenshot({ path: info.outputPath(`bottom-actions-${host}-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
     const openHeight = (await card.boundingBox()).height;
-    await card.getByRole("button", { name: "Resolve", exact: true }).click();
+    if (theme === "light") await card.getByRole("button", { name: "Resolve", exact: true }).click();
+    else {
+      await bottomResolve.focus();
+      await bottomResolve.press("Enter");
+    }
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
     await expect(card).toHaveAttribute("data-status", "resolved");
     await expect(card.locator(".conversation-resolved-status")).toHaveText("Resolved");
     await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(card.locator(".conversation-thread-content")).toBeHidden();
+    if (theme === "dark") await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
     await expect(card.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
     expect((await card.boundingBox()).height).toBeLessThan(openHeight);
     const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
     await expect(undo).toBeVisible();
     await undo.scrollIntoViewIfNeeded();
     await expect(undo).toBeInViewport();
-    await page.screenshot({ path: info.outputPath(`resolved-${host}-${theme}.png`), caret: "initial" });
+    await page.screenshot({ path: info.outputPath(`resolved-${host}-${theme}-${width}.png`), caret: "initial" });
     await card.getByRole("button", { name: "Expand conversation", exact: true }).click();
     await expect(card.locator(".conversation-response")).toBeVisible();
     await expect(card.locator(".conversation-resolved-status")).toBeVisible();
-    await undo.click();
+    await expect(card.getByRole("button", { name: "Reopen conversation", exact: true })).toBeVisible();
+    if (theme === "light") await undo.click();
+    else await card.getByRole("button", { name: "Reopen conversation", exact: true }).click();
     await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
     await expect(card.locator(".conversation-resolved-status")).toHaveCount(0);
     await expect(card.locator(".conversation-response")).toBeVisible();
@@ -512,6 +532,7 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toHaveCount(0);
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeDisabled();
+  await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toHaveCount(0);
 });
 
 test("resolved headers stay compact and readable on reload and narrow screens", async ({ page, review }, info) => {
