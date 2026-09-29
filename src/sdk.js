@@ -1658,7 +1658,8 @@ threadAnchors = createThreadAnchorController({
   channel: frameMessage("scope"),
   resolve: resolveThreadAnchor,
   reconcile(projection, states) {
-    const found = new Set(states.anchors.filter((anchor) => anchor.state === "found").map((anchor) => anchor.threadId));
+    const open = new Set(projection.anchors.filter(anchor => !anchor.resolved).map(anchor => anchor.threadId));
+    const found = new Set(states.anchors.filter((anchor) => anchor.state === "found" && open.has(anchor.threadId)).map((anchor) => anchor.threadId));
     for (const threadId of found) {
       const target = threadTargets.get(threadId);
       if (target.kind === "element") blockTargets.set(threadId, target.element);
@@ -1674,7 +1675,7 @@ threadAnchors = createThreadAnchorController({
     })));
     for (const threadId of found) {
       const state = states.anchors.find((item) => item.threadId === threadId);
-      const peers = states.anchors.filter((item) => sameThreadTarget(item, state)).map((item) => item.threadId);
+      const peers = states.anchors.filter((item) => found.has(item.threadId) && sameThreadTarget(item, state)).map((item) => item.threadId);
       const marks = marksFor(threadId);
       for (const [index, mark] of marks.entries()) {
         const nestedPeer = [...mark.querySelectorAll(`mark[${MARK_ATTR}]`)].some((nested) => peers.includes(nested.getAttribute(MARK_ATTR)));
@@ -2854,7 +2855,8 @@ function boot() {
           if (action.action === "dismiss") deactivateComment();
           else {
             if (action.action === "reveal") targetElement(threadTargets.get(action.threadId))?.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-            activate(action.threadId, false);
+            if (threadAnchors.projection.anchors.find(anchor => anchor.threadId === action.threadId)?.resolved) deactivateComment();
+            else activate(action.threadId, false);
             threadAnchors.refresh();
           }
         } catch (error) { diagnostic("thread-boundary-rejected", { message: error.message }); }

@@ -3,7 +3,7 @@ import type { CapturedView, SemanticSnapshot } from "./history.js";
 import type { ReviewConfiguration } from "./page.js";
 import { conversationTargetSchema } from "./feedback.js";
 import {
-  array, enumeration, id, integer, literal, object, refine, reject, schema, union, unique, type Infer,
+  array, booleanValue, enumeration, id, integer, literal, object, optional, refine, reject, schema, union, unique, type Infer,
 } from "./validation.js";
 
 export interface FrameIdentity {
@@ -114,7 +114,7 @@ export const conversationRectSchema = refine(object({
 });
 const renderScopeFields = { capability: id, reviewId: id, pageKey: id, renderId: id, generation: integer(1) };
 const projectionScopeFields = { ...renderScopeFields, projectionRevision: integer(1) };
-export const anchorProjectionSchema = object({ threadId: id, target: conversationTargetSchema });
+export const anchorProjectionSchema = object({ threadId: id, target: conversationTargetSchema, resolved: optional(booleanValue) });
 export const frameAnchorsSchema = refine(object({
   type: literal("eh:threadAnchors"), ...projectionScopeFields, anchors: array(anchorProjectionSchema),
 }), ({ anchors }) => unique(anchors.map((anchor) => anchor.threadId)));
@@ -166,7 +166,8 @@ export function sameFrameAnchorProjection(
 ) {
   return (Object.keys(renderScopeFields) as (keyof typeof renderScopeFields)[]).every((key) => left[key] === right[key]) &&
     left.anchors.length === right.anchors.length && left.anchors.every((anchor) => right.anchors.some((other) =>
-      anchor.threadId === other.threadId && JSON.stringify(anchor.target) === JSON.stringify(other.target)));
+      anchor.threadId === other.threadId && !!anchor.resolved === !!other.resolved &&
+      JSON.stringify(anchor.target) === JSON.stringify(other.target)));
 }
 export function validateFrameThreadAction(input: unknown, projectionInput: unknown): FrameThreadAction {
   const action = frameThreadActionSchema.parse(input);

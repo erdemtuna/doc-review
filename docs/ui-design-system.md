@@ -19,6 +19,9 @@ surface. Muted surfaces and the badge distinguish resolution without bright succ
 colors, unread dots, or reduced text/control opacity. Explicit expansion survives
 refreshes; reopening or Undo expands the conversation again. A remote resolution
 never hides an existing local draft.
+Resolved threads retain target geometry for navigation but do not paint document
+highlights or count toward document badges. Reopen/Undo restores annotations;
+resolving one of several threads at a shared target leaves its open peers marked.
 Their shared segmented controls retain selected paint without hover or focus.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages

@@ -1,4 +1,5 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread } from "./helpers.js";
+import fs from "node:fs";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, conversation } from "./helpers.js";
 import { validateFrameAnchorStates, validateFrameThreadAction } from "../lib/contracts/frame.js";
 
 test.beforeEach(async ({ page }) => {
@@ -40,6 +41,50 @@ async function states(page, projection) {
 const id = (projection, name) => [...logicalIds.get(projection)].find(([, logical]) => logical === name)[0];
 const selection = (threadId, quote, context = {}) => ({ threadId, target: { kind: "selection", anchor: { quote, ...context } } });
 const element = (threadId, selector) => ({ threadId, target: { kind: "element", anchor: { selector } } });
+
+for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights disappear without hiding open peers or breaking navigation`, async ({ page, review }, info) => {
+  const source = "<p id='copy' tabindex='0'>Unique <strong>marked</strong> passage.</p>";
+  const file = writeFile(review, `resolved-${kind}.html`, source);
+  const ref = await openReview(page, review, file);
+  let frame = await waitForSdk(page);
+  const target = kind === "selection" ? selection("unused", "Unique marked passage.").target : element("unused", "#copy").target;
+  const one = await seedThread(review, ref, "First discussion", target);
+  const two = await seedThread(review, ref, "Second discussion", target);
+  await sendPending(review, ref); await handled(review, ref);
+  await expect(frame.getByRole("button", { name: "Open 2 conversations", exact: true })).toHaveCount(1);
+  await frame.getByRole("button", { name: "Open 2 conversations", exact: true }).click();
+  await page.getByRole("combobox", { name: "Conversation at this target", exact: true }).selectOption(one.threadId);
+  const first = page.locator(`[data-thread="${one.threadId}"]`);
+  await expect(first).toBeVisible();
+  await first.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(first).toHaveAttribute("data-status", "resolved");
+  await expect(frame.getByRole("button", { name: "Open 2 conversations", exact: true })).toHaveCount(0);
+  await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
+  if (kind === "selection") {
+    await expect(frame.locator(`mark[data-eh-mark="${one.threadId}"]`)).toHaveCount(0);
+    await expect(frame.locator(`mark[data-eh-mark="${two.threadId}"]`)).not.toHaveCount(0);
+  }
+  await expect(frame.locator("#activeBox")).toBeHidden();
+  await first.getByRole("button", { name: "Show in document", exact: true }).click();
+  await expect(frame.locator("#copy")).toBeInViewport();
+  await expect(frame.locator("#activeBox")).toBeHidden();
+  await expect(frame.locator("mark.eh-active, .block-marker[data-active='true']")).toHaveCount(0);
+  await mutate(review, ref, "set-thread-status", { threadId: two.threadId, status: "resolved" });
+  await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
+  await page.reload(); frame = await waitForSdk(page); await feedback(page);
+  await expect(page.locator(`[data-thread="${two.threadId}"]`)).toHaveAttribute("data-status", "resolved");
+  await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath(`resolved-${kind}-no-highlights.png`), animations: "disabled", caret: "initial" });
+  await first.getByRole("button", { name: "Reopen", exact: true }).click();
+  await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
+  await first.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo resolve", exact: true }).click();
+  await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
+  await expect(frame.locator("#copy")).toHaveText("Unique marked passage.");
+  expect(fs.readFileSync(file, "utf8")).toBe(source);
+  expect((await conversation(review, ref, "status")).pendingEditCount).toBe(0);
+});
 
 test("real SDK reports exact, normalized, repeated, hidden, unmeasurable and offscreen targets", async ({ page, review }, testInfo) => {
   const ref = await openReview(page, review, writeFile(review, "thread-states.html", `<!doctype html>

@@ -41,7 +41,7 @@ export function createConversationAnchorController() {
       const sameRender = projection && ["capability", "reviewId", "pageKey", "renderId", "generation"].every((key) =>
         projection![key as keyof FrameThreadAnchors] === next[key as keyof FrameThreadAnchors]);
       states = sameRender ? states.filter((state) => next.anchors.some((anchor) => anchor.threadId === state.threadId &&
-        JSON.stringify(anchor) === JSON.stringify(projection!.anchors.find((previous) => previous.threadId === state.threadId)))) : [];
+        JSON.stringify(anchor.target) === JSON.stringify(projection!.anchors.find((previous) => previous.threadId === state.threadId)?.target))) : [];
       projection = next;
       revision = next.projectionRevision;
       return true;

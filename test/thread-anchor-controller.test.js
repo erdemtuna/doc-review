@@ -100,6 +100,24 @@ test("equal geometry still reconciles DOM ownership without repeating state repo
   assert.equal(reconciliations, 2);
   assert.equal(reports, 1);
 });
+test("resolved metadata updates annotation ownership while retaining target measurement and reveal", () => {
+  const reconciled = [];
+  const producer = createThreadAnchorController({
+    channel: scope, resolve: ({ threadId }) => ({ threadId, ...found }),
+    reconcile(current) { reconciled.push(current.anchors.map(anchor => !!anchor.resolved)); }, changed() {},
+  });
+  producer.project(projection);
+  const resolved = { ...projection, anchors: projection.anchors.map(anchor => ({ ...anchor, resolved: true })) };
+  rejects(() => producer.project(resolved), "SCOPE_MISMATCH");
+  const states = producer.project({ ...resolved, projectionRevision: 2 });
+  assert.equal(states.anchors[0].state, "found");
+  assert.equal(producer.action({ ...action, action: "reveal", projectionRevision: 2 }).action, "reveal");
+  assert.deepEqual(reconciled.at(-1), [true, true]);
+  producer.project({ ...projection, projectionRevision: 3 });
+  assert.deepEqual(reconciled.at(-1), [false, false]);
+  rejects(() => producer.project({ ...resolved, projectionRevision: 4,
+    anchors: [{ ...projection.anchors[0], resolved: "yes" }] }), "INVALID_INPUT");
+});
 test("SDK echoes revisions, accepts exact duplicate projections and rejects reuse, rollback and stale actions", () => {
   let resolutions = 0;
   const reports = [];

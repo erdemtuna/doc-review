@@ -183,7 +183,8 @@ export function createConversationShell() {
     syncAnchors(); updatePlacement();
     const latest = owner.getSnapshot();
     if (comparisonOpen && !comparison && latest.history.some((item) => item.result?.effect === "changes-reported")) void showChanges().catch(owner.report);
-    const wanted = latest.open && latest.host === "adjacent" ? latest.focusId : null;
+    const wanted = latest.open && latest.host === "adjacent" &&
+      latest.threads.some(({ thread }) => thread.threadId === latest.focusId && thread.status === "open") ? latest.focusId : null;
     if (wanted !== activeMark) {
       if (activeMark && geometry.projection?.anchors.some((item) => item.threadId === activeMark)) sendThreadAction("dismiss", activeMark);
       activeMark = null;
@@ -220,7 +221,7 @@ export function createConversationShell() {
       type: "eh:threadAnchors" as const, capability: frame.state.capability, ...reference,
       pageKey: frame.state.key, renderId: frame.state.renderId, generation: frame.state.generation,
       anchors: owner.getSnapshot().threads.filter((item) => item.thread.pageKey === frame.state.key)
-        .map(({ thread }) => ({ threadId: thread.threadId, target: thread.target })),
+        .map(({ thread }) => ({ threadId: thread.threadId, target: thread.target, resolved: thread.status === "resolved" })),
     };
     const { entryKey: _entryKey, ...payload } = projection;
     if (geometry.project(payload)) frame.send(geometry.projection!);

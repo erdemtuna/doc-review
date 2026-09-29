@@ -37,6 +37,20 @@ test("new members retain verified unchanged targets; replacement renders cannot 
   assert.throws(() => controller.outgoing("activate", "one"), { code: "INVALID_INPUT" });
   assert.equal(controller.outgoing("dismiss", "one").action, "dismiss");
 });
+test("resolution changes annotation revision without losing verified navigation geometry", () => {
+  const controller = createConversationAnchorController();
+  controller.project(projection); controller.receive(report);
+  const resolved = { ...projection, anchors: projection.anchors.map(anchor => ({ ...anchor, resolved: true })) };
+  assert.equal(controller.project(resolved), true);
+  assert.equal(controller.projection.projectionRevision, 2);
+  assert.deepEqual(controller.states, report.anchors);
+  assert.equal(controller.outgoing("reveal", "one").projectionRevision, 2);
+  assert.equal(controller.project(resolved), false);
+  assert.equal(controller.receive(report), false);
+  assert.equal(controller.project(projection), true);
+  assert.equal(controller.projection.projectionRevision, 3);
+  assert.deepEqual(controller.states, report.anchors);
+});
 test("projection revisions belong to the shell, deduplicate targets and do not alias after reset", () => {
   const controller = createConversationAnchorController();
   assert.equal(controller.project(projection), true);
