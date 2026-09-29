@@ -203,6 +203,9 @@ Use `--input`, not quieter `--border`, for essential input boundaries. Compariso
 backgrounds are not text inks. Labels/symbols accompany color. Teal indicates
 actions/focus, not successful saves. `--radius-md` aliases `--radius` on the same
 surface scope so compact controls remain rounded.
+Comment-card and composer-container outlines use the same `--border` color as the
+sidebar dividers in Feedback, Focus, adjacent and edge-pinned presentations.
+Editable field boundaries and keyboard focus rings remain distinct.
 
 Tailwind theme/utilities are imported without global Preflight. Baselines and
 tokens are scoped to `.review-ui`, including portals. Never inject shell styles

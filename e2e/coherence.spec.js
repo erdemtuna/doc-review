@@ -434,6 +434,13 @@ test("shared composer styles and exact draft survive every desktop host in both 
         });
         if (!expectedStyles) expectedStyles = styles;
         else expect(styles).toEqual(expectedStyles);
+        expect(await card.evaluate(node => {
+          const panel = node.closest(".conversation-panel");
+          const outer = getComputedStyle(panel.classList.contains("is-adjacent") ? panel : node);
+          const divider = getComputedStyle(panel.querySelector(".conversation-panel-header")).borderBottomColor;
+          return ["Top", "Right", "Bottom", "Left"].every(side =>
+            outer[`border${side}Color`] === divider && outer[`border${side}Width`] === "1px");
+        })).toBe(true);
         expect(await editor.evaluate(node => [node === window.parityEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 9]);
         await expect(card.getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
         if (host === "feedback") {

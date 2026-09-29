@@ -134,7 +134,6 @@
     margin: calc(2 * var(--review-space)) 1px 0;
     color: var(--muted-foreground); flex-wrap: wrap;
   }
-  .contextual-compose.review-ui.edge-top, .contextual-compose.review-ui.edge-bottom { border-color: var(--ring); }
   .contextual-direction { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; color: var(--muted-foreground); font-size: 12px; }
   .aligned-card.review-ui { padding: 0; border: 0; background: transparent; max-height: calc(100dvh - var(--toolbar-h) - 24px); overflow: auto; }
   .aligned-card.review-ui .inventory-card { margin: 0; }

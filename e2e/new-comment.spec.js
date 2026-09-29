@@ -348,9 +348,25 @@ test("nested clipping pins to the effective edge and removed targets or shared E
   await select(page, frame);
   await editor(page).fill("Retain when the target disappears");
   await editor(page).evaluate(node => { window.newEditor = node; });
+  const checkOutline = async (placement) => {
+    for (const theme of ["light", "dark"]) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      expect(await page.locator(".conversation-panel").evaluate(node => {
+        const outer = getComputedStyle(node);
+        const divider = getComputedStyle(node.querySelector(".conversation-panel-header")).borderBottomColor;
+        return ["Top", "Right", "Bottom", "Left"].every(side =>
+          outer[`border${side}Color`] === divider && outer[`border${side}Width`] === "1px");
+      })).toBe(true);
+      await editor(page).focus();
+      expect(await editor(page).evaluate(node => node.matches(":focus-visible") && getComputedStyle(node).outlineWidth === "2px")).toBe(true);
+      await page.screenshot({ path: info.outputPath(`comment-outline-${placement}-${theme}.png`), animations: "disabled", caret: "initial" });
+    }
+  };
+  await checkOutline("attached");
   await frame.locator("#clip").evaluate(node => { node.scrollTop = 700; });
   await expect(composer(page).getByText("Selection is above", { exact: true })).toBeVisible();
   await expect(page.locator(".conversation-panel")).toHaveClass(/edge-top/);
+  await checkOutline("pinned");
   const clip = await frame.locator("#clip").boundingBox(), box = await composer(page).boundingBox();
   expect(box.y).toBeGreaterThanOrEqual(clip.y);
   expect(box.y + box.height).toBeLessThanOrEqual(clip.y + clip.height);
