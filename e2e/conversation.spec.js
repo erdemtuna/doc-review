@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, reviewSelection, submissionHistory } from "./helpers.js";
+import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 async function call(review, body, route = "/api/conversation") {
@@ -25,7 +25,7 @@ async function mutate(review, ref, operation, fields = {}) {
   return call(review, { ...ref, operation, requestId: randomUUID(), expectedVersion: state.version, ...fields });
 }
 async function message(page, text, checked = false) {
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   await page.getByRole("textbox", { name: "New message", exact: true }).fill(text);
   if (checked) await page.locator('[data-composer="new"]').getByLabel("Request a change").check();
   await page.locator('[data-composer="new"]').getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
@@ -53,7 +53,7 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await expect(page.getByText("Discussion", { exact: true })).toHaveCount(0);
   await expect(page.locator(".conversation-exchange").getByText("Not sent yet", { exact: true })).toBeVisible();
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const picked = await call(review, { ...ref, operation: "poll" });
   expect(picked.submission.messages[0].message.intent).toBe("discuss");
   await call(review, responseFor(picked.submission, { resultNote: "No source changes were needed." }));
@@ -88,12 +88,13 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
 test("composer keyboard modes and double-click reply Save preserve one request and newer typing", async ({ page, review }) => {
   const ref = await open(page, review, writeFile(review, "conversation-keyboard.html", "<p>Keyboard target</p>"));
   await page.locator("#commentsButton").click();
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   const newMessage = page.getByRole("textbox", { name: "New message", exact: true });
   await newMessage.fill("First line"); await newMessage.press("Shift+Enter"); await newMessage.press("End");
   await page.keyboard.insertText("Second line"); await newMessage.press("Enter");
   const thread = page.locator(".conversation-thread");
   await expect(thread.getByText("First line\nSecond line", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-status")).toBeHidden();
   await thread.getByRole("button", { name: "Edit message", exact: true }).click();
   const edit = page.getByRole("textbox", { name: "Edit message", exact: true });
   await edit.fill("Cancelled correction"); await edit.press("Escape");
@@ -104,6 +105,7 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await edit.fill("Saved correction"); await edit.press("Enter");
   await expect(edit).toHaveCount(0);
   await expect(thread.getByText("Saved correction", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-status")).toBeHidden();
 
   let release;
   const hold = new Promise((resolve) => { release = resolve; }), replies = [];
@@ -137,7 +139,7 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await expect(thread.getByText("Keyboard saved reply", { exact: true })).toBeVisible();
   expect(replies).toHaveLength(2);
 
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   await newMessage.fill("IME draft");
   await newMessage.evaluate((element) => element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })));
   await newMessage.press("Enter"); await newMessage.press("Escape");
@@ -146,7 +148,7 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await newMessage.press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(newMessage).toHaveCount(0);
-  await reviewSelection(page);
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   const note = page.getByRole("textbox", { name: "Note to agent", exact: true });
   await note.fill("Overall"); await note.press("Enter"); await page.keyboard.insertText("More");
@@ -180,7 +182,7 @@ test("accepted source save with disconnected verification is not reported saved 
   failReads = false;
   await page.getByRole("button", { name: "Reload source (discard local page edits)" }).click();
   await expect(page.frameLocator("#frame").locator("#copy")).toHaveText("Accepted exactly once");
-  await reviewSelection(page);
+  await feedback(page);
   await expect(page.getByText("Already saved", { exact: true })).toBeVisible();
   expect(writes).toBe(1);
 });
@@ -238,10 +240,10 @@ test("real cumulative and repeated human HTML saves remain exact at Send", async
     await expect.poll(() => fs.readFileSync(file, "utf8")).toContain(text);
   }
   await page.locator("#commentsButton").click();
-  await reviewSelection(page);
+  await feedback(page);
   await expect(page.getByText("Already saved", { exact: true })).toHaveCount(2);
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.edits).toHaveLength(2);
   expect(work.edits.every((edit) => edit.source.state === "saved")).toBe(true);
@@ -268,7 +270,7 @@ test("checked intent editing and ended late results retain read-only observer", 
   await page.locator(".conversation-thread").getByLabel("Request a change").uncheck();
   await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await page.locator("#endReview").click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
@@ -276,7 +278,8 @@ test("checked intent editing and ended late results retain read-only observer", 
   expect(work.messages[0].message.intent).toBe("discuss");
   await call(review, responseFor(work, { resultNote: "Late response after shared End." }));
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Late response after shared End.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "New message", exact: true })).toBeDisabled();
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
+  await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
   await page.reload(); await waitForSdk(page); await page.locator("#commentsButton").click();
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Late response after shared End.", { exact: true })).toBeVisible();
 });
@@ -285,7 +288,7 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   const file = writeFile(review, "conversation-blocked.html", "<p>Shared target</p>");
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click(); await message(page, "First work");
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
   const second = await context.newPage();
   const fresh = await open(second, review, file); expect(fresh.reviewId).not.toBe(ref.reviewId);
@@ -302,9 +305,10 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await expect(page.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
   await expect(second.locator("#send")).toBeEnabled();
   await expectEditBlocked(second, false);
-  await second.locator("#send").click(); await expect(second.getByText("Queued; not received")).toBeVisible();
+  await second.locator("#send").click(); await expect(second.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await call(review, { ...fresh, operation: "poll" });
-  await expect(second.getByText("Received; delivery is not evidence of an active agent")).toBeVisible();
+  await expect(second.getByRole("status", { name: "Waiting for agent", exact: true }))
+    .toHaveAccessibleDescription(/Feedback received; no response yet/);
   await submissionHistory(second);
   await second.getByText("Advanced actions", { exact: true }).click();
   await second.getByRole("button", { name: "Abandon submission" }).click();
@@ -317,7 +321,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   const file = writeFile(review, "conversation-layout.html", "<p>Layout target</p>");
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click(); await message(page, "Long discussion ".repeat(25));
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(work));
   const thread = page.locator(".conversation-thread");
@@ -408,7 +412,7 @@ test("response transport loss reconciles Send without duplicating immutable work
 test("unknown End stays visible in its dialog and replays the same request without discarding drafts", async ({ page, review }) => {
   await open(page, review, writeFile(review, "conversation-end-unknown.html", "<p>End uncertainty</p>"));
   await page.locator("#commentsButton").click(); await message(page, "Retained unsent message");
-  await reviewSelection(page);
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Local unsaved note");
   const attempts = [];
@@ -442,7 +446,7 @@ test("navigation joins the shared review and sends saved work from unvisited pag
   await page.locator("#commentsButton").click(); await message(page, "Other page discussion");
   const other = await context.newPage(); await other.goto(page.url()); await waitForSdk(other); await other.locator("#commentsButton").click();
   await expect(other.locator(".conversation-thread").getByText("Other page discussion", { exact: true })).toBeVisible();
-  await other.locator("#send").click(); await expect(other.getByText("Queued; not received")).toBeVisible();
+  await other.locator("#send").click(); await expect(other.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.messages[0].pageKey).not.toBe(ref.entryKey);
   expect(fs.readFileSync(linked, "utf8")).toBe("<p>Linked page</p>");
@@ -459,9 +463,9 @@ test("Markdown and scripted pages retain exact source-pending edits", async ({ p
     await paragraph.evaluate((element) => { const range = document.createRange(); range.selectNodeContents(element); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
     await page.keyboard.type("Exact pending wording");
     await page.locator("#commentsButton").click();
-    await reviewSelection(page);
+    await feedback(page);
     await expect(page.getByText("Source pending", { exact: true })).toBeVisible();
-    await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+    await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
     const work = (await call(review, { ...ref, operation: "poll" })).submission;
     expect(work.edits[0].content.after).toBe("Exact pending wording");
     expect(work.edits[0].source.state).toBe("pending");
@@ -519,7 +523,7 @@ test("browser formatting, block moves and deletions produce exact saved outcomes
   await frame.locator("#chipDelete").click();
   await expect.poll(() => fs.readFileSync(file, "utf8")).not.toContain("Beta");
   await page.locator("#commentsButton").click(); await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(new Set(work.edits.map((edit) => edit.content.kind))).toEqual(new Set(["edited", "moved", "deleted"]));
   expect(work.edits.find((edit) => edit.content.kind === "deleted").content.before_html).toContain("<em>Beta</em>");
@@ -539,7 +543,7 @@ test("known-page overlap blocks that page, not an independently selected entry",
   await selectChoice(page, "reviewPage", joined.receipt.value.pageKey);
   await expectEditBlocked(page, true);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toHaveCount(0);
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
 });
 
 test("stale source save refusal preserves current bytes and exposes explicit recovery", async ({ page, review }) => {
@@ -563,7 +567,7 @@ test("stale source save refusal preserves current bytes and exposes explicit rec
   await expect(page.locator(".conversation-lifecycle")).not.toHaveAccessibleDescription(/Source saved/);
   await page.getByRole("button", { name: "Reload source (discard local page edits)" }).click();
   await expect(page.frameLocator("#frame").locator("#copy")).toHaveText("Concurrent source writer");
-  await reviewSelection(page);
+  await feedback(page);
   await expect(page.getByText("Source pending", { exact: true })).toBeVisible();
 });
 
@@ -571,7 +575,7 @@ test("bounded earlier history preserves reviewer/reply associations and new acti
   test.setTimeout(60_000);
   const ref = await open(page, review, writeFile(review, "conversation-paging.html", "<p>Paging target</p>"));
   await page.locator("#commentsButton").click(); await message(page, "The answered original");
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(work));
   const id = work.messages[0].message.threadId;
@@ -599,9 +603,9 @@ test("oversized browser edits remain explicitly truncated source-pending feedbac
   await paragraph.evaluate((element) => { const range = document.createRange(); range.selectNodeContents(element); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
   await page.keyboard.insertText("x".repeat(200_005));
   await page.locator("#commentsButton").click();
-  await reviewSelection(page);
+  await feedback(page);
   await expect(page.getByText("Incomplete capture.", { exact: false })).toBeVisible();
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.edits[0].content.truncated).toBe(true);
   expect(work.edits[0].content.truncated_fields).toEqual(expect.arrayContaining(["after", "after_html"]));
@@ -613,7 +617,7 @@ test("source results expose real comparisons and reply-only results never replac
   const file = writeFile(review, "conversation-comparison.html", "<p>Before source wording</p>");
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click(); await message(page, "Please change the wording", true);
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   fs.writeFileSync(file, "<p>After exact source wording</p>");
   await call(review, responseFor(work, {
@@ -634,7 +638,7 @@ test("source results expose real comparisons and reply-only results never replac
   await page.locator(".conversation-thread").getByRole("button", { name: "Reply", exact: true }).click();
   await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Explain without more changes");
   await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const discussion = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(discussion, { resultNote: "Explanation only, no new version." }));
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Explanation only, no new version.", { exact: true })).toBeVisible();
@@ -681,13 +685,13 @@ test("review-local revert preserves conversations and exact pending edits", asyn
   await page.keyboard.type("A human source edit");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("A human source edit");
   await page.locator("#commentsButton").click();
-  await reviewSelection(page);
+  await feedback(page);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Revert", exact: true }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect.poll(() => fs.readFileSync(file, "utf8")).toBe(original);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toBeDisabled();
-  await reviewSelection(page);
+  await feedback(page);
   await expect(page.getByText("Source pending", { exact: true })).toBeVisible();
 });
 
@@ -695,9 +699,9 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     test.setTimeout(60_000);
     const ref = await open(page, review, writeFile(review, "conversation-restart.html", "<p>Restart source</p>"));
     await page.locator("#commentsButton").click(); await message(page, "Queued before restart");
-    await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+    await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
     await message(page, "Saved but never sent");
-    await reviewSelection(page);
+    await feedback(page);
     await page.getByRole("button", { name: /Note to agent/ }).click();
     await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Local draft survives reattachment only");
     await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
@@ -742,9 +746,9 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
       await expect(paragraph.locator("img")).toHaveCount(1);
       await expect.poll(() => paragraph.locator("img").evaluate((image) => image.naturalWidth)).toBe(1);
       await page.locator("#commentsButton").click();
-      await reviewSelection(page);
+      await feedback(page);
       await expect(page.getByText("Source pending", { exact: true })).toBeVisible();
-      await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+      await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
       const work = (await call(review, { ...ref, operation: "poll" })).submission;
       expect(work.edits[0].content.after).toBe("URL exact new wording");
       expect(work.edits[0].source.state).toBe("pending");

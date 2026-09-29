@@ -132,7 +132,7 @@ test("confirmed deletion is single-flight and leaves a reachable keyboard target
   await (await threadAction(page, page.locator(".conversation-thread"), "Delete thread")).click();
   await button(page.getByRole("alertdialog"), "Confirm").click();
   await expect(page.locator(".conversation-thread")).toHaveCount(0);
-  await expect(page.getByText(/No conversations yet/)).toBeVisible();
+  await expect(page.getByText("Select text or a passage in the document to add a comment.", { exact: true })).toBeVisible();
   await expect(page.locator("#commentsButton")).toBeFocused();
   expect(deletes).toBe(2);
 });
@@ -153,7 +153,7 @@ test("shared inventory includes unvisited member pages and Jump to navigates the
   await expect(page.locator(".conversation-thread-title").first()).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".conversation-thread")).toHaveCount(3);
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
 });
 
 test("message editing validates text, respects composition and coalesces Save while allowing typing", async ({ page, review }) => {

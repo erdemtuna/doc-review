@@ -1,6 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, feedback, reviewSelection, enterEditMode, selectText, selectReviewMode,
-  listed, conversation, handled, seedThread, reviewApi, mutate, sendPending } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, enterEditMode, selectText, selectReviewMode, listed, conversation, handled, seedThread, reviewApi, mutate, sendPending, beginComment } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 const visibleTextHeight = (locator) => locator.evaluate(node => {
@@ -26,12 +25,12 @@ for (const external of [false, true]) test(`automatic/manual capture ${external 
   const file = writeFile(review, "capture-overlap-baseline.html", "<p id='copy'>Before overlap</p>");
   const ref = await openReview(page, review, file);
   await waitForSdk(page); await feedback(page);
-  await reviewSelection(page);
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   const captures = [];
@@ -42,8 +41,9 @@ for (const external of [false, true]) test(`automatic/manual capture ${external 
     captures.push(entry);
     if (captures.length === 1) await gate;
     const response = await route.fetch();
-    entry.status = response.status(); entry.response = await response.json();
+    entry.response = await response.json();
     await route.fulfill({ response });
+    entry.status = response.status();
   });
   try {
     fs.writeFileSync(file, "<p id='copy'>After overlap</p>");
@@ -104,21 +104,19 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await frame.locator("#copy").click(); await selectText(frame, "#copy"); await page.keyboard.insertText("Exact human wording");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Exact human wording");
   await selectReviewMode(page, "View"); await feedback(page);
-  await reviewSelection(page);
+  await feedback(page);
   const edits = page.locator(".conversation-edits");
   await expect(edits).toContainText("Already saved");
   await expect(edits.locator(".conversation-edit-preview")).toContainText("Original human wording");
   await expect(edits.locator(".conversation-edit-preview")).toContainText("Exact human wording");
-  const include = edits.getByRole("checkbox");
-  await include.uncheck();
-  await expect(page.locator("#send")).toBeDisabled();
-  await include.check();
-  await reviewSelection(page);
+  await expect(edits.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.locator("#draft-note").fill("Please update the agent target only.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;
   expect(work.edits[0].source.state).toBe("saved");
   fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("Original agent target", "Actual agent result"));
@@ -140,7 +138,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
   expect(await changes.locator(".comparison-current").textContent()).not.toContain("Exact human wording");
   await changes.getByRole("button", { name: "Back to review" }).click();
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   const draft = page.locator("#draft-new");
   await draft.fill("Keep exact IME draft");
   await draft.evaluate(node => { window.resultDraft = node; node.setSelectionRange(3, 8); node.dispatchEvent(new Event("select", { bubbles: true }));
@@ -155,6 +153,12 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await draft.press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(draft).toHaveCount(0);
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  const submission = page.locator(".conversation-submission").first();
+  await submission.locator(":scope > summary").click();
+  await expect(submission).toContainText("Saved by you before Send; no additional agent edit reported.");
+  await expect(submission.getByText(/^already-saved:/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
   const measurements = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
@@ -186,7 +190,7 @@ test("reply-only results lead to the exact conversation without fetching an empt
   const ref = await openReview(page, review, writeFile(review, "reply-result.html", "<p>Unchanged source</p>"));
   await waitForSdk(page); const thread = await seedThread(review, ref, "Please explain");
   await feedback(page); await expect(page.locator("#send")).toBeEnabled(); await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await handled(review, ref, { resultNote: "Explanation only; no edits were made." });
   const peek = page.getByRole("region", { name: "Latest submission result" });
   let comparisons = 0;
@@ -235,7 +239,7 @@ test("header History preserves mounted reply/note permissions and exposes full r
   const { threadId } = await seedThread(review, ref, "Explain the passage");
   await feedback(page);
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await handled(review, ref, { resultNote: "The complete reply-only result stays available from History and View changes. ".repeat(12) });
   const card = page.locator(`[data-thread="${threadId}"]`);
   await expect(card.locator(".conversation-response")).toBeVisible();
@@ -244,7 +248,7 @@ test("header History preserves mounted reply/note permissions and exposes full r
   await reply.fill("Retain this unsent reply");
   await reply.evaluate(node => { window.historyReply = node; node.setSelectionRange(3, 7); node.dispatchEvent(new Event("select", { bubbles: true })); });
   await card.getByRole("checkbox", { name: "Request a change" }).check();
-  await reviewSelection(page);
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   const note = page.getByRole("textbox", { name: "Note to agent", exact: true, includeHidden: true });
   await note.fill("A separate note");
@@ -291,17 +295,15 @@ test("deferred source-pending edits retain complete evidence and selected Send i
   } });
   await feedback(page);
   const edits = page.locator(".conversation-edits");
-  await reviewSelection(page);
+  await feedback(page);
   await expect(edits).toContainText("Source pending");
-  const checkbox = edits.getByRole("checkbox", { name: "Include Recorded paragraph in Send" });
-  await expect(checkbox).toHaveAttribute("data-slot", "checkbox");
-  await checkbox.uncheck(); await expect(page.locator("#send")).toBeDisabled();
-  await checkbox.check(); await expect(page.locator("#send")).toHaveText("Send to agent (1)");
+  await expect(edits.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await edits.getByText("Exact edit details", { exact: true }).click();
   await expect(edits.locator("pre").first()).toContainText("<p>Proposed wording</p>");
   await edits.getByText("Exact edit details", { exact: true }).click();
   await page.screenshot({ path: info.outputPath("source-pending-before-send.png") });
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const { work } = await handled(review, ref, { resultNote: "Deferred the recorded paragraph pending clarification." });
   expect(work.edits).toHaveLength(1); expect(work.edits[0].source.state).toBe("pending");
   const peek = page.getByRole("region", { name: "Latest submission result" });
@@ -322,11 +324,11 @@ for (const destination of ["Source", "Back to review"]) test(`late explicit capt
   const ref = await openReview(page, review, file);
   const frame = await waitForSdk(page);
   await feedback(page);
-  await reviewSelection(page);
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   let retry = false, release, captured = false;
   const gate = new Promise(resolve => { release = resolve; });
   await page.route("**/api/conversation/capture", async route => {

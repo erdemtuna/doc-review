@@ -265,7 +265,7 @@ test("stale frame payloads cannot open conversations; resolved and ended hosts r
   await expect(panel(page)).toHaveCount(0);
   await page.locator("#commentsButton").click();
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const submission = (await call(review, { ...ref, operation: "poll" })).submission;
   await activate(page, id);
   const renderBefore = await page.locator("#frame").getAttribute("src");
@@ -273,7 +273,10 @@ test("stale frame payloads cannot open conversations; resolved and ended hosts r
   const staleReport = await page.evaluate(() => ({ ...window.anchorReports.at(-1), renderId: "stale-render" }));
   await page.frameLocator("#frame").locator("body").evaluate((_node, data) => parent.postMessage(data, "*"), staleReport);
   await expect(page.getByRole("alert")).toContainText("Stale or foreign");
-  expect(await panel(page).boundingBox()).toEqual(beforeBounds);
+  const afterBounds = await panel(page).boundingBox();
+  expect({ x: afterBounds.x, y: afterBounds.y, width: afterBounds.width })
+    .toEqual({ x: beforeBounds.x, y: beforeBounds.y, width: beforeBounds.width });
+  expect(afterBounds.y + afterBounds.height).toBeLessThanOrEqual(page.viewportSize().height);
   const other = await context.newPage();
   await other.goto(page.url()); await waitForSdk(other);
   await other.locator("#commentsButton").click(); await other.locator("#endReview").click();
@@ -322,7 +325,7 @@ test("loaded exchanges and reading anchor survive host transfers; resolved conve
   await page.locator("#commentsButton").click();
   await expect(card(page, id).locator("[data-message]")).toHaveCount(55);
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received")).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const submission = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(submission));
   await expect(card(page, id).locator("[data-message]")).toHaveCount(2);

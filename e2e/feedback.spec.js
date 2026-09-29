@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, overallNote, reviewSelection, submissionHistory, intercept, failure, conversation, seedThread } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, overallNote, submissionHistory, intercept, failure, conversation, seedThread } from "./helpers.js";
 
 async function setup(page, review, name = "feedback.html") {
   const file = writeFile(review, name, "<!doctype html><p id='copy'>Original paragraph</p><input aria-label='Authored input'>");
@@ -71,7 +71,7 @@ test("uncertain Send preserves newer typing and retries exactly one identity wit
   await page.getByRole("button", { name: "Retry same request" }).click();
   await expect(page.locator("#send")).toBeDisabled();
   await note.fill("Newer note"); release();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   expect(bodies).toHaveLength(2); expect(bodies[1]).toEqual(bodies[0]);
   await expect(note).toHaveValue("Newer note");
   await submissionHistory(page);
@@ -94,7 +94,7 @@ test("optional capture failure is independent of delivery and never introduces a
   await overallNote(page);
   await page.getByRole("textbox", { name: "Note to agent" }).fill("Send independently");
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await expect(page.getByText(/Comparison baseline unavailable/)).toContainText("Feedback delivery is independent");
   expect((await conversation(review, ref, "status")).work.state).toBe("queued");
   await expect(page.getByRole("button", { name: /Send without/ })).toHaveCount(0);
@@ -107,7 +107,7 @@ test("Revert Cancel preserves edits; confirmation is single-flight and preserves
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("paragraph changed");
   await feedback(page); await overallNote(page);
   await page.getByRole("textbox", { name: "Note to agent" }).fill("Keep note");
-  await reviewSelection(page);
+  await feedback(page);
   const revert = page.getByRole("button", { name: "Revert", exact: true });
   await revert.click(); await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await expect(revert).toBeFocused(); expect(fs.readFileSync(file, "utf8")).toContain("changed");
@@ -154,7 +154,7 @@ for (const action of ["Send", "Revert", "End"]) {
     await expect(page.getByRole("alert")).toContainText("Exact edit could not be recorded");
     await feedback(page); await overallNote(page);
     await page.getByRole("textbox", { name: "Note to agent" }).fill("Preserve this");
-    if (action === "Revert") await reviewSelection(page);
+    if (action === "Revert") await feedback(page);
     let requests = 0;
     await intercept(page, action.toLowerCase(), async (route) => { requests++; await route.continue(); });
     await page.getByRole("button", { name: action === "End" ? "End review" : action, exact: true }).click();

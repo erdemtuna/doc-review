@@ -67,7 +67,16 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     }
   };
   const message = async (tab, body, change = false) => {
-    await feedback(tab); await tab.getByRole("button", { name: "New message", exact: true }).click();
+    if (await tab.locator("#commentsButton").getAttribute("aria-expanded") === "true") await tab.locator("#commentsButton").click();
+    const target = tab.frameLocator("#frame").locator("p, h1, h2, li").first();
+    await target.click();
+    await target.evaluate(node => {
+      const range = document.createRange(); range.selectNodeContents(node);
+      const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    });
+    await tab.keyboard.press("Control+Alt+m");
+    await expect(tab.locator('[data-composer="new"]')).toBeVisible();
+    await feedback(tab);
     const composer = tab.locator('[data-composer="new"]');
     await expect(composer.getByLabel("Request a change")).not.toBeChecked();
     await composer.getByRole("textbox").fill(body);
@@ -124,7 +133,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await feedback(second);
     await expect(second.locator(".conversation-thread").getByText("Why this wording?", { exact: true })).toBeVisible();
     await page.locator("#send").click();
-    await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
     const first = (await pick(ref)).submission;
     assert.equal(first.messages[0].message.intent, "discuss");
     const contextPage = await cli(["context", ...scopeArgs(ref), "--thread", first.messages[0].message.threadId], contracts.contextPageSchema);
@@ -167,7 +176,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await mode(page, "View");
     await message(page, "Clarify without changing more source.");
     await message(page, "Change only the Agent target paragraph.", true);
-    await page.locator("#send").click(); await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+    await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
     const mixed = (await pick(ref)).submission;
     assert.deepEqual(new Set(mixed.messages.map(({ message }) => message.intent)), new Set(["discuss", "request-change"]));
     assert.deepEqual(new Set(mixed.edits.map(({ content }) => content.kind)), new Set(["edited", "moved", "deleted"]));
@@ -297,7 +306,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
         await mode(second, "Edit");
         await type(second, "p", `Exact ${kind} source edit`);
         await feedback(second); await expect(second.getByText("Source pending", { exact: true })).toHaveCount(1);
-        await second.locator("#send").click(); await expect(second.getByText("Queued; not received", { exact: true })).toBeVisible();
+        await second.locator("#send").click(); await expect(second.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
         const work = (await pick(pendingRef)).submission;
         assert.equal(work.edits[0].source.state, "pending");
         assert.equal(fs.readFileSync(source, "utf8"), bytes, "rendered output never replaces source");
@@ -365,7 +374,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await overallNote(second);
     await second.getByRole("textbox", { name: "Note to agent" }).fill("Change identified source");
     await second.locator('[data-composer="note"]').getByLabel("Request a change").check();
-    await second.locator("#send").click(); await expect(second.getByText("Queued; not received", { exact: true })).toBeVisible();
+    await second.locator("#send").click(); await expect(second.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
     const noCapture = (await pick(unavailableRef)).submission;
     fs.writeFileSync(unavailableFile, "<p>After capture failure</p>");
     await respond(unavailableRef, responseFor(noCapture, { overallOutcome: "applied", resultNote: "Handled despite unavailable capture." }));

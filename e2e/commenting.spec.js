@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, reviewSelection, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
 
 async function setup(page, review, name, source = "<p id='copy'>First paragraph to review.</p><p id='other'>Second paragraph to review.</p><button id='action'>Authored control</button>") {
   const file = writeFile(review, name, source);
@@ -30,7 +30,7 @@ for (const mode of ["view", "edit"]) test(`explicit selection and keyboard block
   await compose(page, "Control feedback");
   await feedback(page);
   expect((await listed(review, ref, "threads")).items.map((item) => item.thread.target.kind).sort()).toEqual(["element", "selection"]);
-  await reviewSelection(page);
+  await feedback(page);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await expect(page.getByRole("textbox", { name: "Note to agent" })).toHaveValue("");
 });
@@ -142,7 +142,7 @@ test("saved correction remains immutable on handling; a newer pending follow-up 
   await card(page).getByRole("button", { name: "Edit message" }).click();
   await page.getByRole("textbox", { name: "Edit message" }).fill("Corrected before Send");
   await page.getByRole("textbox", { name: "Edit message" }).press("Enter");
-  await page.locator("#send").click(); await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await card(page).getByRole("button", { name: "Reply", exact: true }).click();
   await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Next round"); await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await handled(review, ref);
@@ -200,13 +200,13 @@ test("Markdown direct changes stay source-pending through View and immutable com
   await selectReviewMode(page, "View");
   expect(fs.readFileSync(file, "utf8")).toBe(source);
   await feedback(page); await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const { work } = await handled(review, ref);
   expect(work.edits[0].content.after).toBe("Exact preview wording");
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
   await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
-  await expect(page.getByText(/deferred: Preserved/)).toBeVisible();
+  await expect(page.getByText(/Deferred; no application reported for this edit\. Preserved/)).toBeVisible();
   expect(fs.readFileSync(file, "utf8")).toBe(source);
 });
 

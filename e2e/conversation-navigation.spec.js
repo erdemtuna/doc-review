@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, reviewSelection, overallNote, mutate, conversation, sendPending, handled } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, conversation, sendPending, handled } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
 test("Jump to reveals the exact passage without an overlay and returns to the same editor and inventory position", async ({ page, review }) => {
@@ -78,7 +78,7 @@ test("Comments, Your edits and optional note are independent disclosures with au
   await seedThread(review, { ...ref, key: joined.value.pageKey }, "Other-page comment");
   await mutate(review, ref, "record-edit", { pageKey: joined.value.pageKey, content: content("Other original", "Exact after") });
   await feedback(page);
-  await reviewSelection(page);
+  await feedback(page);
   const noteToggle = page.getByRole("button", { name: /Note to agent/ });
   await expect(noteToggle).toHaveAttribute("aria-expanded", "false");
   const note = await overallNote(page);
@@ -100,18 +100,18 @@ test("Comments, Your edits and optional note are independent disclosures with au
   await expect(page.locator("#send")).toHaveText("Send to agent (4)");
   await comments.click();
   await expect(page.locator("#conversationEdits")).toBeHidden();
-  for (const box of await page.getByRole("checkbox", { name: /^Include message:/ }).all()) await box.uncheck();
+  await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
   await edits.click();
   await expect(page.locator(".conversation-edit-preview")).toContainText("Other original");
   await expect(page.locator(".conversation-edit-preview")).toContainText("Exact after");
-  await page.locator(".conversation-edits").getByRole("checkbox").uncheck();
-  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
+  await expect(page.locator(".conversation-edits").getByRole("checkbox")).toHaveCount(0);
+  await expect(page.locator("#send")).toHaveText("Send to agent (4)");
   await expect(page.locator("#toolbarCount")).toHaveText("3");
   await noteToggle.click();
   expect(await note.evaluate(node => [node === window.disclosureNote, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 7]);
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;
-  expect(work.messages).toEqual([]); expect(work.edits).toEqual([]);
+  expect(work.messages).toHaveLength(2); expect(work.edits).toHaveLength(1);
   expect(work.overallNote).toEqual({ body: "Only this note grants permission", intent: "request-change" });
 });

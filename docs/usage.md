@@ -95,10 +95,12 @@ unchecked. Saved change requests display **Change requested**; ordinary discussi
 and answered replies need no status pill. Other response outcomes remain explicit;
 only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a
-thread only hides content. Each header identifies the selected text or recorded
-location separately from its controls. **Resolve** and **Reopen** are visible in
+thread only hides content. Editing an unsent message replaces its body in place,
+without appending a second editor. Each header shows a compact source excerpt
+beside an icon-only **Show in document** control; tooltips retain the full source description.
+**Resolve** and **Reopen** are visible in
 every conversation header, not hidden in the menu. Finish or close a local draft
-first; unsent messages (even excluded ones) and outstanding agent work prevent
+first; unsent messages and outstanding agent work prevent
 Resolve. An accepted resolution offers **Undo resolve** until the review changes.
 Undo never overrides newer changes from another tab or an ended review.
 
@@ -133,27 +135,26 @@ moving your reading position. Already expanded history remains available after
 refreshes. Collapse and filters are independent
 and local to this tab. New activity is marked without forcing expansion or scroll.
 The inventory includes all shared-review member pages, not just this tab's visits.
-Open **Choose what to send** to exclude pending messages or edits. A **Not included**
-cue on an excluded message returns to those controls.
+Send includes all saved pending comments and edits, plus the optional overall note.
+Start new comments from the document's selection or contextual comment control;
+use **Note to agent** for feedback that is not tied to a passage.
 
 Feedback is a nonmodal 380px sidebar. At 1020px and wider it docks beside a document
 viewport of at least 640px; at narrower PC widths it floats without resizing the
 document (clamped below 380px). There is no dimming or backdrop: clicks in the document
 work normally. Docking preserves the current passage and never reloads the iframe.
-Close, the Feedback toolbar toggle or Escape dismisses it. The inventory and
-expanded batch selection scroll independently; End and Send remain reachable.
-On short phone-sized screens, the filters share the Close row and the plus
-button starts a new message. **Comments** and **Your edits** collapse independently.
-**Note to agent** sits beside **Choose what to send**, not inside it. It starts
+Close, the Feedback toolbar toggle or Escape dismisses it. The inventory
+scrolls independently of the footer; End and Send remain reachable.
+**Comments** and **Your edits** collapse independently.
+**Note to agent** has its own disclosure. It starts
 collapsed and shows **Draft** when it contains text. One click opens its editor
-and independent permission without expanding batch selection. Collapse and resize keep its
+and independent permission. Collapse and resize keep its
 text and caret; a composing note cannot be collapsed. End and Send remain available,
-including note-only Send. On very short screens, expand the note to see the detailed
-selection counts. No disclosure saves, clears or changes either draft's permission.
+including note-only Send when no saved comments or edits are pending.
+No disclosure saves, clears or changes a draft's permission.
 The toolbar count is saved pending messages plus edits across all review pages,
-not unread activity. Excluded items remain pending and stay in that count.
-The footer lists the selected saved messages, pending edits and optional note;
-**Send to agent (N)** counts that exact selection, with no extra confirmation step.
+not unread activity. **Send to agent (N)** counts all saved pending messages,
+edits and the optional note, with no extra confirmation step.
 Send freezes selected message/edit versions and the note at activation. New feedback
 or note typing during preparation remains unsent. If a selected item changes during
 the source-save barrier, Send stops and asks you to review the selection.
@@ -391,8 +392,8 @@ the saved evidence again without recapturing it; a failed comparison read has a
 separate **Retry comparison** action. Missing or failed capture is
 never presented as zero changes, and does not undo a handled response.
 
-Inside **Choose what to send**, **Your edits** shows readable Before/After previews, an independent
-Include in Send checkbox, and **Already saved** or **Source pending** evidence.
+**Your edits** shows readable Before/After previews and **Already saved** or
+**Source pending** evidence. All pending edits are included in Send.
 **Exact edit details** retains the complete recorded content and source identity.
 The result note separates edits you saved before Send from agent-reported work;
 deferred edits do not imply that source was changed. At very short heights, the

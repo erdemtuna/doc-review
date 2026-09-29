@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, message, handled, seedThread, feedback, overallNote, selectReviewMode, expectEditBlocked, mutate, sendPending, intercept, failure, listed, selectText } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, message, handled, seedThread, feedback, overallNote, selectReviewMode, expectEditBlocked, mutate, sendPending, intercept, failure, listed, selectText, beginComment } from "./helpers.js";
 import { selectChoice } from "./choice-helpers.js";
 
 const fixture = readFileSync(new URL("../test/fixtures/toolbar-review.html", import.meta.url), "utf8");
@@ -17,7 +17,7 @@ test("toolbar preserves authored state and draft identity across themes and save
   const originalAppearance = await appearance();
   await message(page, "Explain the example");
   await sendPending(review, ref, { body: "Update the example", intent: "request-change" });
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await handled(review, ref, { overallOutcome: "applied" });
   await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
   await frame.getByLabel("Authored-page draft").fill("Keep this authored draft");
@@ -142,9 +142,8 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await expect(page.locator(".conversation-global-status")).toHaveCount(0);
       const lifecycle = await page.locator(".conversation-lifecycle").boundingBox();
       const mode = await page.locator("#modeButton").boundingBox();
-      expect(Math.abs(lifecycle.y + lifecycle.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
-      expect(lifecycle.x - mode.x - mode.width).toBe(8);
-      expect(lifecycle.x + lifecycle.width).toBe(width - 12);
+      if (width > 760) expect(Math.abs(lifecycle.y + lifecycle.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+      if (width > 640) expect(Math.abs(lifecycle.x + lifecycle.width / 2 - width / 2)).toBeLessThanOrEqual(1);
       expect(lifecycle.height).toBe(20);
       expect(lifecycle.x + lifecycle.width).toBeLessThanOrEqual(width);
       expect(toolbar.height).toBe(width > 760 ? 49 : 89);
@@ -173,7 +172,7 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await expect(page.locator("#commentsButton")).toBeHidden();
       await expect(page.locator(".conversation-lifecycle")).toBeVisible();
       const changesBadge = await page.locator(".conversation-lifecycle").boundingBox();
-      expect(changesBadge.x + changesBadge.width).toBe(width - 12);
+      if (width > 640) expect(Math.abs(changesBadge.x + changesBadge.width / 2 - width / 2)).toBeLessThanOrEqual(1);
       await expect(page.locator(".conversation-global-status")).toHaveCount(0);
       await expect(page.locator("#seeChanges")).toHaveAttribute("aria-pressed", "true");
       await page.locator("#latestVersion").click();
@@ -199,7 +198,7 @@ test("editing is disabled while the initial page is loading", async ({ page, rev
   } finally { release(); }
 });
 
-test("waiting and ended badges stay beside mode with receipt semantics and theme tokens in Review and Changes", async ({ page, review }, info) => {
+test("waiting and ended badges stay centered with receipt semantics and theme tokens in Review and Changes", async ({ page, review }, info) => {
   test.setTimeout(60_000);
   const ref = await openReview(page, review, writeFile(review, "lifecycle-badges.html", fixture));
   await waitForSdk(page);
@@ -212,7 +211,7 @@ test("waiting and ended badges stay beside mode with receipt semantics and theme
     await expect(badge).toHaveAttribute("data-slot", "badge");
     await expect(badge).toHaveAttribute("data-variant", ended ? "secondary" : "warning");
     await expect(badge).toHaveAttribute("role", "status");
-    await expect(badge).toHaveAccessibleDescription(/Queued; not received/);
+    await expect(badge).toHaveAccessibleDescription(/Waiting to be picked up/);
     expect(await badge.evaluate((element) => element.tabIndex)).toBe(0);
     for (const theme of ["light", "dark"]) {
       if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
@@ -229,9 +228,8 @@ test("waiting and ended badges stay beside mode with receipt semantics and theme
         ...[1440, 900, 899, 761, 760, 601, 481, 480, 390, 320].map(width => [width, 450])]) {
         await page.setViewportSize({ width, height });
         const mode = await page.locator("#modeButton").boundingBox(), box = await badge.boundingBox();
-        expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
-        expect(box.x - mode.x - mode.width).toBe(8);
-        expect(box.x + box.width).toBe(width - 12);
+        if (width > 760) expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+        if (width > 640) expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
         expect(box.x + box.width).toBeLessThanOrEqual(width);
         const toolbarHeight = (await page.locator(".shell-toolbar").boundingBox()).height;
         expect(toolbarHeight).toBeGreaterThanOrEqual(width > 760 ? 49 : 89);
@@ -242,7 +240,7 @@ test("waiting and ended badges stay beside mode with receipt semantics and theme
         await expect(page.locator("#modeButton")).toBeHidden();
         await expect(badge).toBeVisible();
         const changesBadge = await badge.boundingBox();
-        expect(changesBadge.x + changesBadge.width).toBe(width - 12);
+        if (width > 640) expect(Math.abs(changesBadge.x + changesBadge.width / 2 - width / 2)).toBeLessThanOrEqual(1);
         await expect(page.locator(".conversation-global-status")).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.locator("#latestVersion").click();
@@ -289,8 +287,8 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
     }
     if (state === "ended") await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
     const explanation = state === "reviewing" ? "Saved feedback is not sent until you choose Send"
-      : state === "queued" ? "Queued; not received"
-      : state === "received" ? "Received; delivery is not evidence of an active agent"
+      : state === "queued" ? "Waiting to be picked up"
+      : state === "received" ? "Feedback received; no response yet. This does not confirm an agent is currently working"
       : "Accepted work can still finish; ending the review does not cancel it";
     await expect(badge).toHaveAccessibleDescription(new RegExp(explanation));
     await expect(badge).not.toHaveAttribute("title");
@@ -505,7 +503,8 @@ test("multi-page navigation appears once and write blockers disable Edit without
   await expect(page.locator("#reviewPage")).toHaveAttribute("data-value", other.value.pageKey);
   await seedThread(review, ref, "Accepted discussion"); await sendPending(review, ref);
   await expectEditBlocked(page, true);
-  await feedback(page); await expect(page.getByRole("button", { name: "New message", exact: true })).toBeEnabled();
+  await beginComment(page);
+  await expect(page.getByRole("textbox", { name: "New message", exact: true })).toBeEditable();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await expect(page.locator("#modeButton")).toBeDisabled();
   await selectChoice(page, "reviewPage", ref.key); await waitForSdk(page);
@@ -516,7 +515,7 @@ test("long mutation errors occupy an on-demand recovery row below real pointer c
   await page.setViewportSize({ width: 900, height: 700 });
   await openReview(page, review, writeFile(review, "long-status.html", fixture)); await waitForSdk(page);
   await intercept(page, "create-thread", (route) => failure(route, "Source and review evidence could not be verified. ".repeat(8)));
-  await feedback(page); await page.getByRole("button", { name: "New message", exact: true }).click();
+  await feedback(page); await beginComment(page);
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Keep this draft");
   await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("could not be verified");

@@ -1,7 +1,7 @@
 import { selectChoice } from "./choice-helpers.js";
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, enterEditMode, openReview, waitForSdk, writeFile, seedThread, mutate, listed, feedback, reviewSelection, overallNote, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, enterEditMode, openReview, waitForSdk, writeFile, seedThread, mutate, listed, feedback, overallNote, intercept, failure, conversation, beginComment } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
 const source = '<!doctype html><html><body><p id="copy">Original paragraph for feedback.</p><label>Authored draft <input aria-label="Authored draft"></label></body></html>';
@@ -112,19 +112,19 @@ test("Send selects all saved items across authorized pages beyond one page of re
       pageKey, content: content("Original wording", `Revised wording ${i + 1}`, { label: `Paragraph ${i + 1}` }),
     });
   }
-  await reviewSelection(page);
-  await expect(page.locator(".conversation-edits").getByRole("checkbox")).toHaveCount(102);
+  await feedback(page);
+  await expect(page.locator(".conversation-edits .conversation-edit-list > li")).toHaveCount(102);
   await expect(page.locator("#toolbarCount")).toHaveText("99+");
   await expect(page.locator("#commentsButton")).toHaveAccessibleDescription("104 saved pending feedback items");
   await expect(page.locator("#send")).toHaveText("Send to agent (104)");
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   const draft = page.getByRole("textbox", { name: "New message", exact: true });
   await draft.fill("Unsaved contextual draft is excluded");
   await (await overallNote(page)).fill("A submission-level note, not a conversation");
   await expect(page.locator("#send")).toHaveText("Send to agent (105)");
-  await expect(page.locator("#send")).toHaveAccessibleDescription("Selected: 2 comments · 102 edits · 1 note");
+  await expect(page.locator("#send")).toHaveAccessibleDescription("Ready to send: 2 comments · 102 edits · 1 note");
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;
   expect(work.edits).toHaveLength(102); expect(work.messages).toHaveLength(2);
   expect(new Set(work.pageKeys)).toEqual(new Set([ref.key, joined.value.pageKey]));

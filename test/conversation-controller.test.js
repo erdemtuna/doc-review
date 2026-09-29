@@ -209,6 +209,7 @@ test("a newer saved-message edit compares cancellation against the exact newly a
 test("new intent is discuss; shared drafts survive collapse, filters and Focus; Save is not Send", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "A checked question", "request-change");
+  assert.equal(c.owner.getSnapshot().notice, "");
   assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.intent, "request-change");
   c.owner.commands.reply(id);
   c.owner.commands.update(id, { text: "Unsaved IME draft", selectionStart: 3, selectionEnd: 7, composing: true });
@@ -222,6 +223,13 @@ test("new intent is discuss; shared drafts survive collapse, filters and Focus; 
   await c.owner.commands.saveDraft(id);
   assert.equal(c.owner.getSnapshot().threads[0].pendingMessageCount, 2);
   assert.equal(c.owner.getSnapshot().threads[0].draft, null);
+  assert.equal(c.owner.getSnapshot().notice, "");
+  c.owner.commands.edit(c.owner.getSnapshot().threads[0].latestExchange.reviewer);
+  c.owner.commands.update(id, { text: "Updated without a redundant banner" });
+  await c.owner.commands.saveDraft(id);
+  assert.equal(c.owner.getSnapshot().notice, "");
+  assert.equal(c.owner.getSnapshot().threads[0].pendingMessageCount, 2);
+  assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.body, "Updated without a redundant banner");
 });
 
 test("pending selection covers every authorized page and preserves independent overall permission", async (t) => {
@@ -240,7 +248,7 @@ test("pending selection covers every authorized page and preserves independent o
   assert.equal(c.owner.getSnapshot().note.intent, "discuss");
 });
 
-test("derived selection matches Send versions/exclusions across paginated contexts and edit pages without counting drafts or attention", async (t) => {
+test("Send includes all saved versions across paginated contexts and edit pages without counting drafts or attention", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "First saved discussion");
   const joined = await c.f.mutate(c.ref, "join-page", { target: c.f.file("counts-other.html") });
@@ -261,27 +269,24 @@ test("derived selection matches Send versions/exclusions across paginated contex
   assert.equal(loaded.selection.pendingCount, 205);
   assert.equal(pending.find((message) => message.messageId === first.messageId).version, first.version + 1);
   assert.equal(loaded.edits.find((edit) => edit.editId === edited.editId).version, edited.version + 1);
-  const omittedMessage = pending[1], omittedEdit = loaded.edits[0];
-  c.owner.commands.select(omittedMessage.messageId, false);
-  c.owner.commands.select(omittedEdit.editId, false);
   c.owner.commands.reply(id);
   c.owner.commands.update(id, { text: "This memory-only reply is not selected", composing: true });
   c.owner.commands.update("note", { text: "Independent note permission", intent: "request-change" });
   const shown = c.owner.getSnapshot().selection;
-  assert.deepEqual(shown, { pendingCount: 205, messages: 102, edits: 101, note: true, total: 204 });
+  assert.deepEqual(shown, { pendingCount: 205, messages: 103, edits: 102, note: true, total: 206 });
   assert.equal(c.owner.getSnapshot().unsavedMessageDraftCount, 1);
   await c.owner.commands.send();
   const request = c.calls.findLast((body) => body.operation === "send");
   assert.equal(request.messages.length, shown.messages); assert.equal(request.edits.length, shown.edits);
   assert.equal(Number(!!request.overallNote), Number(shown.note));
-  assert.deepEqual(request.messages, pending.filter((item) => item.messageId !== omittedMessage.messageId)
+  assert.deepEqual(request.messages, pending
     .map(({ threadId, messageId, version }) => ({ threadId, messageId, version })));
-  assert.deepEqual(request.edits, loaded.edits.filter((item) => item.editId !== omittedEdit.editId)
+  assert.deepEqual(request.edits, loaded.edits
     .map(({ pageKey, editId, version }) => ({ pageKey, editId, version })));
   const work = (await c.f.read(c.ref, "poll")).submission;
   assert.ok(work.messages.every(({ message }) => message.intent === "discuss"));
   assert.deepEqual(work.overallNote, { body: "Independent note permission", intent: "request-change" });
-  assert.equal(c.owner.getSnapshot().selection.pendingCount, 2);
+  assert.equal(c.owner.getSnapshot().selection.pendingCount, 0);
   assert.equal(c.owner.getSnapshot().selection.total, 0);
   assert.equal(c.owner.getSnapshot().threads.find((item) => item.thread.threadId === id).draft.composing, true);
 });

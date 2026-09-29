@@ -1,6 +1,66 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, reviewSelection, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, beginComment, conversation } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
+
+test("compact inline editing preserves one editor across hosts and waiting hides internal bookkeeping", async ({ page, review }, info) => {
+  const ref = await openReview(page, review, writeFile(review, "compact-inline.html", "<h1>Review notes</h1><p id='copy'>A clear passage to discuss.</p>"));
+  await waitForSdk(page);
+  const { threadId } = await seedThread(review, ref, "Original saved comment", {
+    kind: "element", anchor: { selector: "#copy", label: "Review notes · p 1" },
+  });
+  await feedback(page);
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  await expect(page.getByRole("button", { name: "New message", exact: true })).toHaveCount(0);
+  await card.getByRole("button", { name: "Edit message", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "Edit message", exact: true });
+  await editor.fill("An inline correction, not a duplicate comment.");
+  await editor.evaluate(node => { window.inlineEditor = node; node.setSelectionRange(3, 9); node.dispatchEvent(new Event("select", { bubbles: true })); });
+  await editor.dispatchEvent("compositionstart");
+  for (const host of ["feedback", "focus", "adjacent"]) {
+    if (host !== "feedback") await (await threadAction(page, card, host === "focus" ? "Focus" : "Beside target")).click();
+    for (const [width, height] of [[1280, 720], [900, 600]]) {
+      await page.setViewportSize({ width, height });
+      for (const theme of ["light", "dark"]) {
+        if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+        await expect(card.locator(".conversation-exchange textarea")).toHaveCount(1);
+        await expect(card.locator(".conversation-body")).toHaveCount(0);
+        await expect(card.getByText("Original saved comment", { exact: true })).toHaveCount(0);
+        expect(await editor.evaluate(node => [node === window.inlineEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
+        await expect(card.getByRole("button", { name: "Update comment", exact: true })).toBeDisabled();
+        await expect(card.locator(".conversation-source")).toHaveText("Review notes");
+        await expect(card.getByRole("button", { name: "Show in document" })).toHaveText("");
+        await expect(editor).toBeInViewport();
+        await page.screenshot({ path: info.outputPath(`compact-edit-${host}-${theme}-${width}.png`), caret: "initial" });
+      }
+    }
+  }
+  await editor.dispatchEvent("compositionend");
+  await card.getByRole("button", { name: "Update comment", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(card.locator(".conversation-body")).toHaveText("An inline correction, not a duplicate comment.");
+  await card.getByRole("button", { name: "Back to Feedback" }).click();
+  await card.getByRole("button", { name: "Edit message", exact: true }).click();
+  await editor.fill("Discard this correction.");
+  await card.getByRole("button", { name: "Close edit" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(card.locator(".conversation-body")).toHaveText("An inline correction, not a duplicate comment.");
+  await page.locator("#send").click();
+  const lifecycle = page.getByRole("status", { name: "Waiting for agent", exact: true });
+  await expect(lifecycle).toHaveAccessibleDescription(/Waiting to be picked up/);
+  await expect(page.locator(".conversation-status")).toBeHidden();
+  const blockers = page.locator(".conversation-blockers");
+  await expect(blockers).toContainText("You can keep commenting.");
+  expect(await blockers.innerText()).not.toMatch(/review_|submission_|Queued|Feedback sent/);
+  await expect(blockers.locator("details")).not.toHaveAttribute("open");
+  await page.screenshot({ path: info.outputPath("compact-waiting.png"), caret: "initial" });
+  await blockers.getByText("Technical details", { exact: true }).click();
+  await expect(blockers.locator("pre")).toContainText(ref.reviewId);
+  await blockers.getByText("Technical details", { exact: true }).click();
+  const work = (await conversation(review, ref, "poll")).submission;
+  expect(work.messages[0].message.body).toBe("An inline correction, not a duplicate comment.");
+  await expect(lifecycle).toHaveAccessibleDescription(/Feedback received; no response yet/);
+  await expect(lifecycle).toHaveAccessibleDescription(/does not confirm an agent is currently working/);
+});
 
   for (const host of ["feedback", "history", "focus", "adjacent"]) test(`Back restores ${host} locally across failed and late comparison reads`, async ({ page, review }, info) => {
     const ref = await openReview(page, review, writeFile(review, `return-${host}.html`, "<p id='copy'>Keep the document state</p><input aria-label='Authored input'>"));
@@ -27,9 +87,12 @@ import { threadAction } from "./conversation-actions.js";
     const panel = page.locator(".conversation-panel");
     const previousHost = await panel.getAttribute("data-host");
     const inventory = page.locator(".conversation-inventory");
-    const previousScroll = await inventory.evaluate(node => node.scrollTop);
+    await trigger.evaluate(node => node.addEventListener("click", () => {
+      window.comparisonReturnScroll = document.querySelector(".conversation-inventory").scrollTop;
+    }, { once: true }));
     await page.route("**/api/conversation/comparison", route => route.abort("failed"));
     await trigger.click();
+    const previousScroll = await page.evaluate(() => window.comparisonReturnScroll);
     const result = page.getByRole("region", { name: "Saved comparison" });
     await expect(result.locator(".changes-controls[role='alert']")).toContainText("Couldn't load the change preview.");
     await page.screenshot({ path: info.outputPath(`failed-${host}.png`) });
@@ -124,10 +187,10 @@ test("coherence evidence covers the reported conversation, composition and resul
     }
   }
   await capture("answered-sidebar");
-  await expect(page.getByRole("button", { name: "Choose what to send", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: "Choose what to send", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Choose what to send", exact: true })).toBeHidden();
+  await expect(page.getByRole("region", { name: "Choose what to send", exact: true })).toHaveCount(0);
   await capture("note");
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await (await threadAction(page, card, "Beside target")).click();
@@ -237,7 +300,8 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await feedback(page);
   const card = page.locator(`[data-thread="${threadId}"]`);
   await expect(card.locator(".conversation-response")).toBeVisible();
-  await expect(card.locator(".conversation-source")).toContainText('Paragraph 2 near "Purpose"');
+  await expect(card.locator(".conversation-source")).toHaveText("Purpose");
+  await expect(card.locator(".conversation-target-quote")).toHaveAttribute("title", 'Paragraph 2 near "Purpose"');
   if (host !== "feedback") await (await threadAction(page, card, host === "focus" ? "Focus" : "Beside target")).click();
   await card.getByRole("button", { name: "Reply", exact: true }).click();
   const draft = card.getByRole("textbox", { name: "Reply", exact: true });
@@ -284,7 +348,7 @@ test("transient connection recovery preserves authored runtime and drafts withou
   await frame.getByRole("textbox").fill("Keep exact authored input");
   const boot = await frame.locator("body").evaluate(() => window.bootIdentity);
   await feedback(page);
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   const draft = page.getByRole("textbox", { name: "New message", exact: true });
   await draft.fill("Keep my unsent comment");
   await draft.evaluate(node => { window.reconnectDraft = node; node.setSelectionRange(2, 8); node.dispatchEvent(new Event("select", { bubbles: true })); });

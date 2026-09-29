@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, reviewSelection, enterEditMode, selectText, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, enterEditMode, selectText, selectReviewMode } from "./helpers.js";
 import { fieldNotes, summaryFeedback, actionFeedback } from "../test/fixtures/readme-review.js";
 import { threadAction } from "./conversation-actions.js";
 
@@ -68,7 +68,7 @@ for (const host of ["inventory", "reply", "focus", "adjacent"]) test(`integrated
   await auditHost(page, card, message, editor, host, info);
 });
 
-test("saved and source-pending edit evidence is reachable and independently selectable across the matrix", async ({ page, review }, info) => {
+test("saved and source-pending edit evidence is reachable and included in Send across the matrix", async ({ page, review }, info) => {
       test.setTimeout(120_000);
       const samples = [];
       for (const state of ["saved", "pending"]) {
@@ -79,7 +79,7 @@ test("saved and source-pending edit evidence is reachable and independently sele
         await frame.locator("p").click(); await selectText(frame, "p"); await page.keyboard.insertText("Exact revised wording.");
         await selectReviewMode(page, "View");
         await feedback(page);
-        await reviewSelection(page);
+        await feedback(page);
         const edits = page.locator(".conversation-edits");
         await expect(edits).toContainText(state === "saved" ? "Already saved" : "Source pending");
         const preview = edits.locator(".conversation-edit-preview dd").first();
@@ -94,11 +94,10 @@ test("saved and source-pending edit evidence is reachable and independently sele
           await page.screenshot({ path: info.outputPath(`edit-${state}-${theme}-${width}x${height}.png`) });
           expect.soft(text.font).toBeGreaterThanOrEqual(13);
           expect.soft(text.visibleFirstLine + 0.1, `${state} evidence ${width}x${height}`).toBeGreaterThanOrEqual(text.firstLine);
-          await expect(edits.getByRole("checkbox")).toBeChecked();
+          await expect(edits.getByRole("checkbox")).toHaveCount(0);
         }
-        const selection = edits.getByRole("checkbox");
-        await selection.uncheck(); await expect(page.locator("#send")).toBeDisabled();
-        await selection.check(); await expect(page.locator("#send")).toHaveText("Send to agent (1)");
+        await expect(page.locator("#send")).toBeEnabled();
+        await expect(page.locator("#send")).toHaveText("Send to agent (1)");
       }
       fs.writeFileSync(info.outputPath("edits-geometry.json"), JSON.stringify(samples, null, 2));
     });
@@ -109,7 +108,7 @@ test("saved and source-pending edit evidence is reachable and independently sele
       await card.getByRole("button", { name: "Reply", exact: true }).click();
       const editor = card.getByRole("textbox", { name: "Reply" });
       await editor.fill("Keep my compact reply");
-      await reviewSelection(page);
+      await feedback(page);
       const note = page.locator("#draft-note");
       const toggle = page.getByRole("button", { name: /Note to agent/ });
       await toggle.click();

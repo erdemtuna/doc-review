@@ -279,7 +279,7 @@ try {
     });
     const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js";
     try {
-      const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=4",
+      const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=2",
         `--output=${path.join(evidenceDir, "installed-parity")}`], root, {
         DOC_REVIEW_TEST_RUNTIME: path.join(installed, "lib"),
         DOC_REVIEW_TEST_ROOT: path.join(work, "parity-fixtures"),

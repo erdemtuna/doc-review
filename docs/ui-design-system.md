@@ -19,32 +19,33 @@ inventory background, with clear inter-card gaps. Reviewer and agent messages
 are unboxed, share author/avatar/time metadata and retain 13px body text.
 Ordinary Discussion and answered states have no pill; explicit Change requested,
 non-default response outcomes, pending-unsent and read-only cues remain per-message.
-Shared `ConversationSource` identifies Selected text or Recorded location above
-the compact action row, with the quote/description limited to two lines. Legacy
-generated location labels are expanded into readable wording without rewriting anchors.
+Shared `ConversationSource` shows a one-line excerpt beside the compact action row,
+without verbose source-type labels. Full source descriptions remain in tooltips.
+Legacy generated location labels use their heading stem without rewriting anchors.
 Sidebar, Focus and adjacent discussions use the same source, collapse, navigation
 and resolution controls; host styling changes geometry, not message anatomy.
 Readable timestamps expose the full date/time through a keyboard-
 accessible, hoverable tooltip. The thread's Conversation actions menu holds
 eligible Delete thread and host transfers; this is not a
 restoration of the removed global More menu. Focus is a named menu action and Edit
-is a compact icon control; every card has visible **Show in document** and
+is a compact icon control; every card has an icon-only **Show in document** and
 **Resolve/Reopen** actions. Collapse/Expand is a separate named icon button.
 Reply is a quiet visible action, sharing the last pending message's action row.
-Optional batch selection and draft permissions use the
-shared Checkbox primitive; selecting feedback does not change its permission.
+Draft permissions use the shared Checkbox primitive. There are no batch-selection
+or exclusion controls; Send includes all saved pending messages and edits.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
 pages merge by stable identity; reconnect must not leave an unreachable gap.
-Add comment / Add reply / Update comment retain unsent feedback; Send submits the selected saved pending items across
+Add comment / Add reply / Update comment retain unsent feedback; Send submits all saved pending items across
 authorized review pages. Immutable sent corrections are new messages.
 Each new message/note defaults to Discussion. The change checkbox appears only
 during composition/edit; saved Change requested intent is a badge, not an editable permission.
 
 One mounted thread/editor moves across Feedback, Focus and adjacent geometry.
-No transfer clones a textarea. Collapse and Close preserve drafts and reading
+Editing an unsent message replaces its body inside that exchange, never appending a
+duplicate editor after the transcript. No transfer clones a textarea. Collapse and Close preserve drafts and reading
 state; neither resolves a thread. One-click Resolve/Reopen is server-guarded
-and refuses drafts, pending messages (including excluded ones), and accepted work.
+and refuses drafts, pending messages, and accepted work.
 Undo is bound to the exact accepted review version and disappears after any newer
 review mutation or End; uncertain receipts must reconcile before Undo appears.
 The Undo action remains reachable in all hosts. Enter queues the draft, Shift+Enter inserts a newline,
@@ -60,16 +61,18 @@ resizing the authored iframe. Neither mode replaces the frame or alters source.
 The SDK retains a visible text range and restores its vertical position on width
 changes without modifying the selection. Ordinary Feedback has no backdrop or
 inert stage; modal confirmations retain their separate blocking behavior.
-The inventory scrolls independently from optional batch selection and bottom
+The inventory, including Your edits, scrolls independently from the note and bottom
 actions; footer support text has its own overflow area. End stays left and Send
 right. The note-only Request a change checkbox uses the shared Radix primitive
 and defaults unchecked; it does not grant permission to other messages.
-Choose what to send and Note to agent are sibling controls. Their editors remain
-mounted independently; the note has one accessible label and no nested accordion.
-The note appears before the selection list so its permission remains reachable,
-while selection retains a minimum scrollable area on short screens. Counts omit
-zero-valued categories without hiding unknown or failed selection state.
+Note to agent has its own disclosure and one accessible label, with no nested accordion.
+Its editor remains mounted while collapsed. Routine counts are in the Send button
+and its accessible description; unfinished drafts and unknown counts remain explicit.
+New comments originate in the document; there is no general New message button.
 History has one heading, quiet timestamps and receipt details after the result.
+History and Changes share human-readable edit-outcome summaries; conversation
+badges and note outcomes share labels such as Change reported and Needs clarification,
+rather than exposing wire values such as `already-saved` or `clarification-needed`.
 Empty Changes offers Open Feedback as an explicit destination; Back to review
 still restores the exact initiating context.
 Focus/adjacent has one transcript scroll area with a reachable header
@@ -218,9 +221,9 @@ not mounted. Multi-page navigation uses one existing ChoiceMenu next to the
 destinations; a single-page review does not duplicate its filename. Revert stays
 with the Feedback edit actions, not a separate toolbar strip.
 
-At widths up to 480px and heights up to 550px, group the centered badge and
-far-right mode menu into the same row (89px toolbar); keep established type sizes.
-Feedback groups its filters, named New message icon and Close control before
+At widths up to 760px, toolbar tools move to a second row; below 640px, the
+lifecycle badge shares the destinations row without requiring exact midpoint alignment.
+Keep established type sizes. Feedback groups its filters and Close control before
 the body. Inline reply/edit drafts disclose the independent overall note and
 Send details, but retain the same mounted editor, focused/composing note and
 bottom actions. Active inline-card controls stick within the inventory; repeated
@@ -259,12 +262,12 @@ request with fabricated IDs. Review, Changes, Feedback, theme and page navigatio
 remain readable after End; writing stays guarded. Mode/theme/destination changes
 do not replace the frame or the conversation editor. The Feedback count shows
 saved pending messages plus edits across every review page, independently of
-unread activity and local exclusions. Its accessible description retains the
+unread activity. Its accessible description retains the
 exact count even above the compact 99+ display. The footer separately describes
-selected saved messages, edits and an optional overall note; Send counts all
+all saved pending messages, edits and an optional overall note; Send counts all
 three. The controller derives presentation and Send payload from one selection
 helper over complete paginated pending contexts and edits, including versions
-and exclusions. Memory-only message drafts and submitted/handled work are not
+at activation. Memory-only message drafts and submitted/handled work are not
 selected. Loading, disconnected, failed/incomplete reads and uncertain acceptance
 show an unavailable count, never a false zero, and disable Send.
 
@@ -292,7 +295,9 @@ The result surface has a persistent **Back to review**, retained draft nodes and
 local focus restoration. Closing invalidates in-flight comparison reads; failures
 cannot strand the reviewer or reopen an obsolete result. Discussion-only results
 do not render comparison tools. Summary widths stay readable, while actual diffs
-may expand. Lifecycle status is grouped beside View/Edit in the shared toolbar.
+may expand. Lifecycle status is centered in the desktop toolbar, separate from View/Edit.
+Waiting has one headline rather than repeated queued/sent notices. Restrictions use
+plain language, and raw review/submission identifiers stay in collapsed Technical details.
 The header's **History** destination holds the full ledger, agent command, receipt
 diagnostics and advanced abandonment confirmation, rather than repeating them under
 the discussion inventory. History and Feedback retain the same mounted reply/note
@@ -306,7 +311,7 @@ fractional predecessor height that would round a transferred reading anchor.
 
 Changes fills the region below the approved global toolbar. The full note scrolls
 normally above the former comparison toolbar; it is not a sticky banner. Pending
-edits reuse the former readable inventory with styled inclusion checkboxes and
+edits reuse the former readable inventory with
 explicit source-persistence badges. Complete content, receipts and source identities
 remain in secondary details; they are never inferred from a successful capture.
 

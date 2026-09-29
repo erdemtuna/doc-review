@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import { selectChoice } from "./choice-helpers.js";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, submissionHistory, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, submissionHistory, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode, beginComment } from "./helpers.js";
 
 async function sendNote(page, text = "Refine this source", change = true) {
   await feedback(page);
@@ -10,7 +10,7 @@ async function sendNote(page, text = "Refine this source", change = true) {
   await note.getByRole("textbox").fill(text);
   await note.getByLabel("Request a change").setChecked(change);
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible({ timeout: 10000 });
 }
 async function compare(review, ref, submissionId, mode = "content") {
   const result = await reviewApi(review, "/api/conversation/comparison", { method: "POST", body: {
@@ -108,7 +108,7 @@ test("comparison leaves interactive document, new-message draft and selection mo
   const { ref, frame } = await setup(page, review, "history-draft.html");
   await frame.locator("#details summary").click(); await sendNote(page, "Explain", false);
   await handled(review, ref);
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   const input = page.getByRole("textbox", { name: "New message", exact: true });
   await input.fill("Unsent draft"); await input.evaluate((element) => { window.historyDraft = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
   await submissionHistory(page);
@@ -138,7 +138,7 @@ test("Send waits for the exact source-save acceptance and verification before ba
   await expect(page.locator("#send")).toBeDisabled();
   expect((await conversation(review, ref, "status")).work).toBeNull(); expect(captured).toBe(false);
   release(); await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;
   expect(work.edits[0].source.state).toBe("saved");
   const baseline = (await listed(review, ref, "comparisons", { submissionId: work.submissionId })).items[0].baselineRevisionId;

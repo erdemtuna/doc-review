@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, reviewSelection, sendPending, handled, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 test("identical pending and handled cards retain readable content and record density across themes and sizes", async ({ page, review }, info) => {
@@ -36,7 +36,7 @@ test("identical pending and handled cards retain readable content and record den
         const titleBox = await title.boundingBox(), actionsBox = await actions.boundingBox();
         expect(titleBox.width).toBeGreaterThanOrEqual(24);
         expect(Math.abs(actionsBox.y - titleBox.y)).toBeLessThan(8);
-        await expect(card.locator(".conversation-source")).toContainText("Selected text");
+        await expect(card.locator(".conversation-target-quote")).toHaveAttribute("title", `Selected text: "${quote}"`);
         await expect(card.locator(".conversation-source")).toContainText(quote);
         await expect(card.locator(".conversation-meta").getByText(/^(Discussion|answered)$/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -119,7 +119,8 @@ test("only meaningful permission and response outcomes remain attached to their 
     const card = page.locator(`[data-thread="${item.threadId}"]`);
     await expect(card.locator(".conversation-response p")).toHaveText(`Agent response for ${item.outcome}`);
     await expect(card.locator(".conversation-meta").getByText("Discussion", { exact: true })).toHaveCount(0);
-    await expect(card.locator(".conversation-response .conversation-meta").getByText(item.outcome, { exact: true }))
+    const label = { answered: "Answered", applied: "Change reported", deferred: "Deferred", "clarification-needed": "Needs clarification" }[item.outcome];
+    await expect(card.locator(".conversation-response .conversation-meta").getByText(label, { exact: true }))
       .toHaveCount(item.outcome === "answered" ? 0 : 1);
     await expect(card.locator(".conversation-exchange > .conversation-meta").getByText("Change requested", { exact: true }))
       .toHaveCount(item.intent === "request-change" ? 1 : 0);
@@ -179,11 +180,9 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await expect(card.getByText("Discussion", { exact: true })).toHaveCount(0);
   await expect(card.locator(".conversation-exchange").first().getByText("Change requested", { exact: true })).toHaveCount(0);
   await expect(card.locator(".conversation-exchange").first().getByText("Not sent yet", { exact: true })).toBeVisible();
-  await reviewSelection(page);
-  const selected = page.getByRole("checkbox", { name: /^Include message:/ });
-  await expect(selected).toHaveCount(2);
-  await selected.first().uncheck();
-  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
+  await feedback(page);
+  await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
+  await expect(page.locator("#send")).toHaveText("Send to agent (2)");
   await expect(page.locator("#toolbarCount")).toHaveText("2");
 });
 

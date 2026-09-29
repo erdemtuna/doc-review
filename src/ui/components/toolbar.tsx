@@ -116,7 +116,8 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
   return <>
     {destinations}
     {status ? <>
-      <div className="shell-tools">{actions}<div className="shell-mode-status">{modeControls}<div className="shell-status">{status}</div></div></div>
+      <div className="shell-status">{status}</div>
+      <div className="shell-tools">{actions}{modeControls}</div>
     </> : <>{modeControls}{actions}</>}
   </>;
 }

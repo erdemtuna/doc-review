@@ -13,16 +13,14 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
 
 export function ConversationSource({ target }: { target: ConversationTarget }) {
   if (target.kind === "selection") return <div className="conversation-source">
-    <span className="conversation-source-label">Selected text</span>
-    <span className="conversation-target-quote" title={target.anchor.quote}>"{target.anchor.quote}"</span>
+    <span className="conversation-target-quote" title={`Selected text: "${target.anchor.quote}"`}>"{target.anchor.quote}"</span>
   </div>;
   const label = target.anchor.label ?? "";
   const generated = /^(.*?) \u00b7 (p|li|h[1-6]|div|section|article|blockquote|table|pre)(?: (\d+))?$/.exec(label);
   const names: Record<string, string> = { p: "Paragraph", li: "List item", div: "Block", section: "Section", article: "Article", blockquote: "Quotation", table: "Table", pre: "Code block" };
   const description = generated ? `${names[generated[2]] ?? "Heading"}${generated[3] ? ` ${generated[3]}` : ""} near "${generated[1]}"` : label || "Document element";
   return <div className="conversation-source">
-    <span className="conversation-source-label">Recorded location</span>
-    <span className="conversation-target-quote" title={label}>{description}</span>
+    <span className="conversation-target-quote" title={description}>{generated?.[1] || label || "Document"}</span>
   </div>;
 }
 

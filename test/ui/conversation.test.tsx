@@ -54,7 +54,7 @@ async function fixture() {
 }
 it("short reply composition groups the same independent overall note without losing permission, selection or IME", async () => {
   const { owner, shell, updateChrome } = await fixture();
-  fireEvent.click(screen.getByRole("button", { name: "Choose what to send" }));
+  expect(screen.queryByRole("button", { name: "Choose what to send" })).toBeNull();
   const toggle = screen.getByRole("button", { name: /Note to agent/ });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(toggle);
@@ -184,7 +184,7 @@ it("adjacent conversations separate source context, navigation and collapse cont
     updateChrome({ adjacent: { kind: "attached", left: 800, top: 80, width: 380, height: 600 } });
     owner.commands.adjacent("thread");
   });
-  expect(screen.getByText("Recorded location")).toBeVisible();
+  expect(screen.queryByText("Recorded location")).toBeNull();
   expect(screen.getByText("Paragraph", { exact: true })).toBeVisible();
   expect(screen.getByRole("button", { name: "Show in document" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Resolve" })).toBeEnabled();
@@ -236,7 +236,6 @@ it("discussion messages omit default pills, replies default to no change permiss
 it("Feedback counts saved pending items separately from attention and note-only selection with a styled independent permission", async () => {
   const { owner, shell } = await fixture();
   expect(screen.queryByRole("textbox", { name: "Note to agent" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Choose what to send" }));
   fireEvent.click(screen.getByRole("button", { name: /Note to agent/ }));
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -244,7 +243,7 @@ it("Feedback counts saved pending items separately from attention and note-only 
   fireEvent.change(note, { target: { value: "Only the note" } });
   const send = screen.getByRole("button", { name: "Send" });
   expect(send).toHaveTextContent("Send to agent (1)");
-  expect(send).toHaveAccessibleDescription("Selected: 1 note");
+  expect(send).toHaveAccessibleDescription("Ready to send: 1 note");
   expect(send).toBeEnabled();
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
   const permission = screen.getByRole("checkbox", { name: "Request a change" });
@@ -354,7 +353,6 @@ it.each(["new", "reply", "edit"] as const)("%s composer restores Enter, Shift+En
 
 it("overall note keys remain multiline and never save, send or cancel the note", async () => {
   const { owner, shell } = await fixture();
-  fireEvent.click(screen.getByRole("button", { name: "Choose what to send" }));
   fireEvent.click(screen.getByRole("button", { name: /Note to agent/ }));
   const save = vi.spyOn(owner.commands, "saveDraft"), send = vi.spyOn(owner.commands, "send");
   const note = screen.getByRole("textbox", { name: "Note to agent" });
@@ -425,10 +423,10 @@ it("uses descriptive focusable status Badges in a separate center slot, includin
   expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Saved feedback is not sent until you choose Send/);
   status.work = { submissionId: "submission", state: "queued", version: 1 };
   await act(() => owner.refresh());
-  assertBadge("Waiting for agent", "warning", "Queued; not received");
+  assertBadge("Waiting for agent", "warning", "Waiting to be picked up");
   status.work.state = "delivered";
   await act(() => owner.refresh());
-  const receipt = "Received; delivery is not evidence of an active agent";
+  const receipt = "Feedback received; no response yet. This does not confirm an agent is currently working";
   assertBadge("Waiting for agent", "warning", receipt);
   act(() => updateChrome({ comparisonOpen: true }));
   expect(screen.queryByRole("button", { name: "View" })).toBeNull();

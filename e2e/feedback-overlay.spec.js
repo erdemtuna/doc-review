@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, reviewSelection, mutate, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, intercept, failure, conversation } from "./helpers.js";
 
 const source = '<!doctype html><p id="copy">Feedback overlay target</p><label>Authored input <input aria-label="Authored input"></label>';
 
@@ -10,7 +10,7 @@ for (const theme of ["light", "dark"]) {
     await waitForSdk(page);
     for (let i = 0; i < 2; i++) await seedThread(review, ref, `Saved feedback ${i}`);
     await feedback(page);
-    await reviewSelection(page);
+    await feedback(page);
     await expect(page.getByRole("button", { name: /Note to agent/ })).toHaveAttribute("aria-expanded", "false");
     await overallNote(page);
     const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
@@ -40,8 +40,7 @@ for (const theme of ["light", "dark"]) {
           return { clipped, scroll: label.parentElement.scrollTop, fontSize: getComputedStyle(label).fontSize };
         })).toEqual({ clipped: [], scroll: 0, fontSize: "12px" });
         expect((await page.locator(".conversation-inventory").boundingBox()).height).toBeGreaterThanOrEqual(50);
-        const support = await page.locator(".conversation-footer-support").boundingBox();
-        expect(support.height).toBeGreaterThanOrEqual(28);
+        await expect(page.locator(".conversation-footer-support")).toBeHidden();
         for (const id of ["endReview", "send"]) {
           const box = await page.locator(`#${id}`).boundingBox();
           expect(box.y + box.height).toBeLessThanOrEqual(height);
@@ -84,9 +83,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
       expect(inventoryBox.height).toBeGreaterThanOrEqual(50);
       expect(inventoryBox.y + inventoryBox.height).toBeLessThanOrEqual(footerBox.y + 1);
       expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(height);
-      const support = await panel.locator(".conversation-footer-support").boundingBox();
-      expect(support.height).toBeGreaterThanOrEqual(28);
-      expect(support.y + support.height).toBeLessThanOrEqual((await panel.locator(".feedback-actions").boundingBox()).y);
+      await expect(panel.locator(".conversation-footer-support")).toBeHidden();
       const end = await page.locator("#endReview").boundingBox(), send = await page.locator("#send").boundingBox();
       expect(end.x + end.width).toBeLessThan(send.x);
       expect(end.y).toBe(send.y); expect(send.y + send.height).toBeLessThanOrEqual(height);
@@ -131,23 +128,22 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
   await expect(frame.getByLabel("Authored input")).toHaveValue("Keep authored draft");
 });
 
-test("pending and selected cues distinguish exclusions, note-only permission and unknown counts from unread activity", async ({ page, review }) => {
+test("Send includes all saved feedback with independent note permission and unknown counts stay explicit", async ({ page, review }) => {
   const ref = await openReview(page, review, writeFile(review, "feedback-selection.html", source));
   await waitForSdk(page); await seedThread(review, ref, "Saved discussion"); await feedback(page);
   await expect(page.locator("#toolbarCount")).toHaveText("1");
   await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await expect(page.locator(".conversation-thread").getByRole("checkbox")).toHaveCount(0);
-  await reviewSelection(page);
-  await page.getByRole("checkbox", { name: /^Include message:/ }).uncheck();
-  await expect(page.locator(".conversation-thread").getByRole("button", { name: "Not included" })).toBeVisible();
+  await feedback(page);
+  await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
   await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#send")).toBeDisabled();
+  await expect(page.locator("#send")).toBeEnabled();
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Only this note requests a change");
   const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
   await expect(permission).not.toBeChecked(); await permission.check();
-  await expect(page.locator("#send")).toHaveText("Send to agent (1)");
-  await expect(page.locator("#send")).toHaveAccessibleDescription("Selected: 1 note");
+  await expect(page.locator("#send")).toHaveText("Send to agent (2)");
+  await expect(page.locator("#send")).toHaveAccessibleDescription("Ready to send: 1 comment · 1 note");
   await intercept(page, "list", (route) => failure(route, "Counts cannot be verified"));
   await page.locator("#commentsButton").click();
   await mutate(review, ref, "create-thread", { pageKey: ref.key, target: { kind: "element", anchor: { selector: "body" } }, body: "Remote pending", intent: "discuss" });
@@ -165,16 +161,16 @@ test("pending and selected cues distinguish exclusions, note-only permission and
   await page.unroute("**/api/conversation");
   await page.getByRole("button", { name: "Refresh review", exact: true }).click();
   await expect(page.locator("#toolbarCount")).toHaveText("2");
-  const boxes = page.getByRole("checkbox", { name: /^Include message:/ });
-  for (const box of await boxes.all()) await box.uncheck();
+  await expect(page.locator("#send")).toHaveText("Send to agent (3)");
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;
-  expect(work.messages).toEqual([]); expect(work.edits).toEqual([]);
+  expect(work.messages).toHaveLength(2); expect(work.edits).toEqual([]);
+  expect(work.messages.every(item => item.message.intent === "discuss")).toBe(true);
   expect(work.overallNote).toEqual({ body: "Only this note requests a change", intent: "request-change" });
-  await expect(page.locator("#toolbarCount")).toHaveText("2");
+  await expect(page.locator("#toolbarCount")).toHaveText("0");
   await expect(page.locator("#send")).toBeDisabled();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
-  await expect(page.locator("#toolbarCount")).toHaveText("2");
+  await expect(page.locator("#toolbarCount")).toHaveText("0");
 });

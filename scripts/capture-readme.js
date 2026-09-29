@@ -101,7 +101,7 @@ try {
   await expect(page.locator('[data-composer="note"]').getByLabel("Request a change")).not.toBeChecked();
   await capture("doc-review-feedback.png");
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const delivered = contracts.pollResponseSchema.parse(await request({ operation: "poll", ...reference }));
   assert.equal(delivered.state, "work");
   await writeFile(target, fieldNotes({ edited: true, revised: true }));

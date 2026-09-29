@@ -141,11 +141,18 @@ export async function submissionHistory(page) {
   return history;
 }
 
-export async function reviewSelection(page) {
+export async function beginComment(page) {
+  const frame = await waitForSdk(page);
+  if (await page.locator("#commentsButton").getAttribute("aria-expanded") === "true") await page.locator("#commentsButton").click();
+  const target = frame.locator("p, h1, h2, h3, li, blockquote").first();
+  await target.click();
+  await target.evaluate(node => {
+    const range = document.createRange(); range.selectNodeContents(node);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  });
+  await page.keyboard.press("Control+Alt+m");
+  await expect(page.locator('[data-composer="new"]')).toBeVisible();
   await feedback(page);
-  const toggle = page.getByRole("button", { name: /^Choose what to send/ });
-  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
-  return page.getByRole("region", { name: "Choose what to send", exact: true });
 }
 
 export async function overallNote(page) {
@@ -156,8 +163,7 @@ export async function overallNote(page) {
 }
 
 export async function message(page, text, change = false) {
-  await feedback(page);
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   await compose(page, text, change);
 }
 

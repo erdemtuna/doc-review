@@ -49,8 +49,8 @@ permission for that request only; the agent can answer, clarify, apply, or defer
    The editor's X or Escape closes an empty/unchanged draft immediately and asks
    **Keep editing / Discard** for unsaved changes. Feedback's outer X only hides
    the panel and preserves your drafts.
-3. **Send feedback.** Open **Feedback**, use **Choose what to send** for message/edit
-   selection or **Note to agent** for optional context, then **Send to agent**. Each new message defaults
+3. **Send feedback.** Open **Feedback**, add an optional **Note to agent**, then
+   **Send to agent** sends all saved pending comments and edits together. Each new message defaults
    to Discussion; check **Request a change** only for that message's permission.
 4. **Check the response and result.** Each submitted message gets an inline reply,
    each direct edit gets an exact outcome, and the submission gets one result note.

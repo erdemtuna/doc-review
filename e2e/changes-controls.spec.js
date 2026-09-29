@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate, beginComment } from "./helpers.js";
 import { choiceItem, selectChoice } from "./choice-helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
 
@@ -153,7 +153,7 @@ test("comparison menu Escape leaves a hidden conversation draft intact and menus
   const { region } = await setup(page, review);
   await region.getByRole("button", { name: "Back to review" }).click();
   await feedback(page);
-  await page.getByRole("button", { name: "New message", exact: true }).click();
+  await beginComment(page);
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Preserve hidden draft");
   await page.getByRole("button", { name: "View changes", exact: true }).click();
   await page.locator("#submissionPicker").click();

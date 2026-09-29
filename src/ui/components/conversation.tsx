@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/t
 import { Checkbox } from "./ui/checkbox";
 import { Icon } from "./icon";
 import { ConversationAuthor, ConversationMenu, ConversationTime, ConversationSource } from "./conversation-controls";
-import { EditEvidence, ResultActions, resultAvailability, resultHeading } from "./conversation-results";
+import { EditEvidence, ResultActions, editOutcomeSummary, responseOutcomeLabels, resultAvailability, resultHeading } from "./conversation-results";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
@@ -45,21 +45,26 @@ function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationCont
     }
   }, []); // The editor stays mounted across collapse, filters, Feedback and Focus.
   useLayoutEffect(() => {
-    if (id === "note" || id === "new" || state.host !== "feedback" || !state.open) return;
-    const field = input.current, inventory = field?.closest<HTMLElement>(".conversation-inventory");
+    if (id === "note" || id === "new" || !state.open || (state.host !== "feedback" && !draft.messageId)) return;
+    const field = input.current, inventory = field?.closest<HTMLElement>(
+      state.host !== "feedback" && draft.messageId ? ".conversation-transcript" : ".conversation-inventory");
     if (!field || !inventory) return;
-    const preserveReading = !!owner.readingAnchor(id);
+    const preserveReading = !draft.messageId && !!owner.readingAnchor(id);
     let width = preserveReading ? inventory.clientWidth : -1, height = preserveReading ? inventory.clientHeight : -1;
+    let hidden = false;
     const observer = new ResizeObserver(() => {
-      if (!inventory.clientHeight || !inventory.clientWidth ||
-          (width === inventory.clientWidth && height === inventory.clientHeight)) return;
+      if (!inventory.clientHeight || !inventory.clientWidth) { hidden = true; return; }
+      const resumed = hidden; hidden = false;
+      if (width === inventory.clientWidth && height === inventory.clientHeight) return;
       width = inventory.clientWidth; height = inventory.clientHeight;
+      if (resumed) return;
       const bounds = inventory.getBoundingClientRect(), editor = field.getBoundingClientRect();
       const composer = field.closest(".conversation-composer")!.getBoundingClientRect();
-      if (!editor.height || editor.top < bounds.top || composer.top >= bounds.bottom) return;
+      if (!editor.height || (!draft.messageId && (editor.top < bounds.top || composer.top >= bounds.bottom))) return;
       const firstLine = Math.min(36, editor.height);
       const bottom = bounds.top + inventory.clientTop + inventory.clientHeight;
-      if (editor.top + firstLine > bottom) inventory.scrollTop += Math.ceil(editor.top + firstLine - bottom);
+      if (editor.top < bounds.top) inventory.scrollTop += editor.top - bounds.top;
+      else if (editor.top + firstLine > bottom) inventory.scrollTop += Math.ceil(editor.top + firstLine - bottom);
     });
     observer.observe(inventory);
     return () => observer.disconnect();
@@ -71,9 +76,9 @@ function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationCont
     event.stopPropagation(); event.preventDefault();
     owner.commands.cancelDraft(id);
   }}>
-    {id === "note" ? <label className="sr-only" htmlFor={`draft-${id}`}>{label}</label> : <div className={id === "new" ? "sr-only" : "conversation-composer-heading"}>
+    {id === "note" ? <label className="sr-only" htmlFor={`draft-${id}`}>{label}</label> : <div className={id === "new" || draft.messageId ? "sr-only" : "conversation-composer-heading"}>
       <label htmlFor={`draft-${id}`}>{label}</label>
-      {id !== "new" && !disabled && <Button variant="ghost" size="icon-xs"
+      {id !== "new" && !draft.messageId && !disabled && <Button variant="ghost" size="icon-xs"
         aria-label={`Close ${draft.messageId ? "edit" : "reply"}`} disabled={saving || draft.composing}
         onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
     </div>}
@@ -189,10 +194,9 @@ function NewMessage({ shell, snapshot, chrome }: {
       saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes("new")} />
   </div>;
 }
-function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
+function ThreadCard({ owner, item, snapshot, shell, chrome }: {
   owner: ConversationController; item: Thread; snapshot: Snapshot; shell: ConversationShell;
   chrome: ReturnType<ConversationShell["getSnapshot"]>;
-  reviewSelection(): void;
 }) {
   const id = item.thread.threadId, focus = snapshot.focusId === id;
   const adjacent = focus && snapshot.host === "adjacent";
@@ -215,7 +219,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
           return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
         };
         const header = node.querySelector<HTMLElement>(":scope > header")!;
-        const controls = node.querySelector<HTMLElement>(".conversation-composer, .conversation-reply");
+        const controls = node.querySelector<HTMLElement>(".conversation-thread-content > .conversation-composer, .conversation-thread-content > .conversation-reply");
         const overview = panel.querySelector<HTMLElement>(".conversation-overview")!;
         const fixed = padding(panel) + padding(inventory) + padding(node) + header.getBoundingClientRect().height +
           parseFloat(getComputedStyle(header).marginBottom) + (controls?.getBoundingClientRect().height ?? 0) + overview.getBoundingClientRect().height;
@@ -269,10 +273,11 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
   const trailingTargetNotice = !!item.draft && !focus && chrome.viewport.width <= 480 && chrome.viewport.height <= 550;
   const replyControl = !item.draft && !disabled && item.thread.status === "open" &&
     <Button variant="ghost" size="sm" data-reply onClick={() => owner.commands.reply(id)}>Reply</Button>;
+  const draftView = item.draft && <Draft owner={owner} id={id} draft={item.draft} disabled={snapshot.review?.state !== "open"}
+    saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes(id)} />;
   const messageControls = (reviewer: Thread["exchanges"][number]["reviewer"]) => <>
     <Button size="icon-xs" variant="ghost" className="conversation-icon" aria-label="Edit message" title="Edit message"
       data-edit-message={reviewer.messageId} onClick={() => act(owner, () => owner.commands.edit(reviewer))}><Icon name="pencil" /></Button>
-    {snapshot.excluded.includes(reviewer.messageId) && <Button variant="ghost" size="xs" onClick={reviewSelection}>Not included</Button>}
   </>;
   const lastPending = item.exchanges.at(-1)?.reviewer;
   const pinnedMessageControls = focus && replyControl && lastPending?.submissionId === null;
@@ -293,12 +298,13 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
         <Button size="icon-xs" variant="ghost" className="conversation-icon" aria-label="Close conversation" title="Close conversation"
           onMouseDown={(event) => event.preventDefault()} onClick={() => owner.commands.open(false)}><Icon name="x" /></Button>
       </div>}
+      <div className="conversation-thread-toolbar">
       <ConversationSource target={item.thread.target} />
       <div className="conversation-thread-actions">
-      <Button variant="ghost" size="xs" className="conversation-jump" disabled={!target.canJump}
+      <Button variant="ghost" size="icon-xs" className="conversation-jump conversation-icon" disabled={!target.canJump}
           aria-label="Show in document" aria-describedby={target.reason ? `target-status-${id}` : undefined} title={target.reason || "Show the exact passage"}
           onMouseDown={(event) => event.preventDefault()} onClick={() => act(owner, () => owner.commands.jump(id))}>
-          <Icon name="locate" />Show in document</Button>
+          <Icon name="locate" /></Button>
       <Button size="xs" variant="ghost" disabled={disabled} onClick={() => act(owner, () => owner.commands.resolve(id))}>
         {item.thread.status === "resolved" ? "Reopen" : "Resolve"}</Button>
       <Button variant="ghost" size="icon-xs" className="conversation-thread-title conversation-icon"
@@ -317,6 +323,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
       ]} />
       {item.attention && <Button className="conversation-activity" size="icon-xs" variant="ghost" aria-label="New activity" title="New activity: mark as read"
         onClick={() => owner.commands.markRead(id)}><span aria-hidden="true" /></Button>}
+      </div>
       </div>
       {adjacent && peersControl}
     </header>
@@ -344,16 +351,21 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
         {item.contextError && <p className="conversation-context-error" role="alert">{item.contextError}</p>}
         {item.exchanges.map(({ reviewer, response }, index) => <section className="conversation-exchange" key={reviewer.messageId} data-message={reviewer.messageId} tabIndex={-1}>
           <div className="conversation-meta inventory-meta"><ConversationAuthor role="You" /><ConversationTime value={reviewer.createdAt} />
-            {reviewer.intent === "request-change" && <Badge variant="outline">{intentBadge(reviewer.intent)}</Badge>}
+            {reviewer.intent === "request-change" && item.draft?.messageId !== reviewer.messageId && <Badge variant="outline">{intentBadge(reviewer.intent)}</Badge>}
             {reviewer.submissionId === null && <span className="conversation-pending">{snapshot.review?.state === "ended" ? "Not sent · read-only" : "Not sent yet"}</span>}
+            {item.draft?.messageId === reviewer.messageId && snapshot.review?.state === "open" && <Button variant="ghost" size="icon-xs" className="conversation-close-edit"
+              aria-label="Close edit" disabled={disabled || snapshot.savingDraftIds.includes(id) || item.draft.composing}
+              onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
           </div>
+          {item.draft?.messageId === reviewer.messageId ? draftView : <>
           <p className="conversation-body">{reviewer.body}</p>
           {reviewer.submissionId === null && !disabled && !(pinnedMessageControls && index === item.exchanges.length - 1) && <div className="conversation-actions">
             {messageControls(reviewer)}
             {index === item.exchanges.length - 1 && !focus && replyControl}
           </div>}
+          </>}
           {response && <div className="conversation-response"><div className="conversation-meta inventory-meta"><ConversationAuthor role="Agent" /><ConversationTime value={response.createdAt} />
-            {response.outcome !== "answered" && <Badge variant="outline">{response.outcome}</Badge>}</div><p className="conversation-body">{response.body}</p></div>}
+            {response.outcome !== "answered" && <Badge variant="outline">{responseOutcomeLabels[response.outcome]}</Badge>}</div><p className="conversation-body">{response.body}</p></div>}
         </section>)}
         {item.exchanges.at(-1)?.reviewer.submissionId !== null && !focus && replyControl &&
           <div className="conversation-reply conversation-actions">{replyControl}</div>}
@@ -362,8 +374,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, reviewSelection }: {
       </div>
       {focus && replyControl && <div className="conversation-reply conversation-actions">
         {pinnedMessageControls && messageControls(lastPending!)}{replyControl}</div>}
-      {item.draft && <Draft owner={owner} id={id} draft={item.draft} disabled={snapshot.review?.state !== "open"}
-        saving={snapshot.busy || !!snapshot.uncertain || snapshot.savingDraftIds.includes(id)} />}
+      {!item.draft?.messageId && draftView}
       {target.reason && trailingTargetNotice && <p id={`target-status-${id}`} className="conversation-target-status">{target.reason}</p>}
     </div>
   </article>;
@@ -391,7 +402,7 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
         {detail?.result && <ResultActions detail={detail} shell={shell} />}
-        {detail?.result?.editOutcomes.map((outcome) => <p key={outcome.editId}>{outcome.outcome}: {outcome.reason}</p>)}
+        {detail?.result?.editOutcomes.map((outcome) => <p key={outcome.editId}>{editOutcomeSummary(outcome.outcome)} {outcome.reason}</p>)}
         {item.state === "abandoned" && <p role="status">Abandoned. External source work may still have happened; check the source. No undo or cancellation is guaranteed.</p>}
         {(item.state === "queued" || item.state === "delivered") && <details><summary>Advanced actions</summary>
           <Button variant="outline" disabled={snapshot.busy || !!snapshot.uncertain}
@@ -437,13 +448,8 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const [commentsExpanded, setCommentsExpanded] = useState(true);
   const [editsExpanded, setEditsExpanded] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [selectionOpen, setSelectionOpen] = useState(false);
   const [noteExpanded, setNoteExpanded] = useState(false);
   const noteOpen = noteExpanded || snapshot.note.composing;
-  const showSelection = () => {
-    owner.commands.focus(null); setHistoryOpen(false); setSelectionOpen(true);
-    requestAnimationFrame(() => document.getElementById("reviewSelectionToggle")?.focus({ preventScroll: true }));
-  };
   const contextual = snapshot.host === "compose" && !!snapshot.newMessage;
   const historyVisible = historyOpen && !snapshot.focusId && !contextual;
   useLayoutEffect(() => {
@@ -528,7 +534,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const disabled = readonly || snapshot.busy || !!snapshot.uncertain;
   const work = snapshot.status?.work;
   const status = !snapshot.review ? "Loading review" : readonly ? "Review ended" : work ? "Waiting for agent" : "Reviewing";
-  const workDetails = work ? work.state === "queued" ? "Queued; not received" : "Received; delivery is not evidence of an active agent" : "";
+  const workDetails = work ? work.state === "queued" ? "Waiting to be picked up" : "Feedback received; no response yet. This does not confirm an agent is currently working" : "";
   const statusDetails = [
     !snapshot.review ? "Loading the shared review." : readonly
       ? `This shared review has ended. Saved-unsent messages and edits remain read-only here.${work ? " Accepted work can still finish; ending the review does not cancel it." : ""}`
@@ -551,11 +557,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   };
   const selection = snapshot.selection;
   const selectionDescription = selection
-    ? selection.total ? `Selected: ${[
+    ? selection.total ? `Ready to send: ${[
       selection.messages ? `${selection.messages} comment${selection.messages === 1 ? "" : "s"}` : "",
       selection.edits ? `${selection.edits} edit${selection.edits === 1 ? "" : "s"}` : "",
       selection.note ? "1 note" : "",
-    ].filter(Boolean).join(" · ")}` : "Nothing selected to send."
+    ].filter(Boolean).join(" · ")}` : "Nothing to send."
     : !snapshot.connected ? "" : snapshot.loading ? "Checking pending feedback…" : "Couldn't check what's ready to send. Refresh the review.";
   // Keep a focused editor mounted and focusable while waiting for current-frame geometry.
   const measuring = { ...fallbackBounds, width: Math.min(contextual ? 340 : 360, chrome.viewport.width - 24), height: "auto", opacity: 0, pointerEvents: "none" as const };
@@ -583,10 +589,9 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         chrome.anchorViews[item.thread.threadId]?.reason === chrome.anchorNotice)) &&
       <p className="conversation-notice" role="status">{chrome.anchorNotice}</p>}
     <div className="conversation-status" role="status" aria-label="Submission details"
-      hidden={!work && !readonly && snapshot.connected && !snapshot.resolutionUndo && (!snapshot.notice || snapshot.host === "adjacent")}>
-      {work && <span>{workDetails}</span>}
+      hidden={!readonly && !snapshot.resolutionUndo && (work || !snapshot.notice || snapshot.host === "adjacent") ? true : undefined}>
       {readonly && <span>{snapshot.status?.pendingMessageCount ?? 0} saved-unsent messages and {snapshot.status?.pendingEditCount ?? 0} edits remain read-only here.</span>}
-      {snapshot.notice && <span>{snapshot.notice}</span>}
+      {!work && snapshot.notice && <span>{snapshot.notice}</span>}
       {snapshot.resolutionUndo && <Button size="xs" variant="outline" disabled={snapshot.busy || !!snapshot.uncertain}
         onClick={() => act(owner, owner.commands.undoResolve)}>Undo resolve</Button>}
     </div>
@@ -599,15 +604,16 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         <Button disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(false))}>Check receipt</Button>
         <Button disabled={snapshot.busy} onClick={() => act(owner, () => owner.commands.reconcile(true))}>Retry same request</Button>
       </div></div>}
-    {!!snapshot.status?.blockers.length && <div className="conversation-blockers">{snapshot.sendBlocked
-      ? "Send and affected source writes are blocked by outstanding work:" : "Other member pages have outstanding work; their source writes are blocked:"}
-      {snapshot.status.blockers.map((blocker) => <p key={blocker.submissionId}><a href={`/r/${encodeURIComponent(blocker.reviewId)}`} target="_blank" rel="noreferrer">{blocker.reviewId}</a> · {blocker.submissionId}</p>)}</div>}
+    {!!snapshot.status?.blockers.length && <div className="conversation-blockers">
+      <p>{snapshot.sendBlocked ? "You can keep commenting. Sending and editing are paused until this batch is handled."
+        : "Another review is waiting for a response. Editing its pages is paused; you can keep commenting."}</p>
+      {[...new Set(snapshot.status.blockers.map(blocker => blocker.reviewId))].filter(id => id !== snapshot.review?.reviewId)
+        .map(id => <p key={id}><a href={`/r/${encodeURIComponent(id)}`} target="_blank" rel="noreferrer">Open related review</a></p>)}
+      <details><summary>Technical details</summary><pre>{JSON.stringify(snapshot.status.blockers, null, 2)}</pre></details>
+    </div>}
     <div className="conversation-filters" hidden={!!snapshot.focusId || historyVisible}>
       <SegmentedControl aria-label="Conversation filters" hidden={!snapshot.threads.length}>{(["open", "resolved"] as const).map((kind) => <SegmentedControlItem key={kind} size="sm" selected={snapshot.filters[kind]}
         onClick={() => owner.commands.filter(kind)}>{kind === "open" ? "Open" : "Resolved"} ({snapshot.threads.filter((item) => item.thread.status === kind).length})</SegmentedControlItem>)}</SegmentedControl>
-      <Button className="conversation-new-trigger" aria-label="New message" size="sm" variant="ghost" disabled={disabled || !chrome.pageKey} onClick={() => act(owner, () => owner.commands.begin(chrome.pageKey!, { kind: "element", anchor: { selector: "body", label: chrome.pageName || "Page" } }))}>
-        <Icon name="plus" /><span>New message</span>
-      </Button>
     </div>
     {(snapshot.captureNotice || chrome.captureError) && <p className="conversation-notice" role="status">{snapshot.captureNotice || chrome.captureError}</p>}
     </div>
@@ -627,63 +633,43 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         <Icon name={commentsExpanded ? "chevronDown" : "chevronRight"} size={14} />Comments ({snapshot.threads.length})
       </Button>
       <div className="conversation-comments" id="conversationComments" hidden={historyVisible || (!commentsExpanded && !snapshot.focusId)}>
-      {snapshot.threads.map((item) => <ThreadCard key={item.thread.threadId} owner={owner} item={item} snapshot={snapshot} shell={shell} chrome={chrome} reviewSelection={showSelection} />)}
-      {!snapshot.threads.length && !snapshot.newMessage && <p className={snapshot.edits.length ? "conversation-empty-with-edits" : undefined}>No conversations yet. Select text in the document or start a new message.</p>}
+      {snapshot.threads.map((item) => <ThreadCard key={item.thread.threadId} owner={owner} item={item} snapshot={snapshot} shell={shell} chrome={chrome} />)}
+      {!snapshot.threads.length && !snapshot.newMessage && <p className={snapshot.edits.length ? "conversation-empty-with-edits" : undefined}>Select text or a passage in the document to add a comment.</p>}
       </div>
+      {(!!snapshot.edits.length || chrome.canRevert) && <section className="conversation-edits" aria-label="Your edits"
+        hidden={!!snapshot.focusId || contextual || historyVisible}>
+        <div className="feedback-edit-status">
+          <Button className="conversation-section-toggle" variant="ghost" size="sm" aria-expanded={editsExpanded}
+            aria-controls="conversationEdits" onClick={() => setEditsExpanded(value => !value)}>
+            <Icon name={editsExpanded ? "chevronDown" : "chevronRight"} size={14} />Your edits ({snapshot.edits.length})
+          </Button>
+          <Button className="feedback-revert" variant="ghost" size="sm" disabled={chrome.blocked || chrome.loading || !chrome.canRevert}
+            onClick={() => owner.commands.confirm("revert")}>Revert</Button>
+        </div>
+        <ul id="conversationEdits" hidden={!editsExpanded} className="feedback-edit-list conversation-edit-list">{snapshot.edits.map(edit => <li key={edit.editId}>
+          <div className="conversation-edit-heading"><span className="feedback-edit-label">{edit.content.label}</span>
+            <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Source pending"}</Badge>
+            <Badge variant="outline">{edit.content.kind}</Badge></div>
+          <EditEvidence edit={edit} />
+        </li>)}</ul>
+      </section>}
       <div id="conversationHistory" hidden={!historyVisible}><History snapshot={snapshot} shell={shell} visible={historyVisible} /></div>
     </div>
     <footer className="conversation-footer" hidden={!!snapshot.focusId || contextual || historyVisible}>
       <div className="conversation-footer-controls">
-      <Button id="reviewSelectionToggle" className="conversation-selection-toggle justify-start" size="sm" variant="ghost"
-        aria-expanded={selectionOpen} aria-controls="reviewSelection"
-        onClick={() => setSelectionOpen(value => !value)}>
-        <Icon name={selectionOpen ? "chevronDown" : "chevronRight"} size={14} />Choose what to send
-      </Button>
       <Button className="conversation-note-toggle" variant="ghost" size="sm" disabled={snapshot.note.composing}
         aria-expanded={noteOpen} aria-controls="conversationNoteDetails" onClick={() => setNoteExpanded(value => !value)}>
         <Icon name={noteOpen ? "chevronDown" : "chevronRight"} size={14} />Note to agent
         {snapshot.note.text.trim() && <span className="conversation-pending">Draft</span>}
       </Button>
       </div>
-      <div className="conversation-footer-details" hidden={!noteOpen && !selectionOpen}>
+      <div className="conversation-footer-details" hidden={!noteOpen}>
       <div className="conversation-note-content" id="conversationNoteDetails" hidden={!noteOpen}>
         <Draft owner={owner} id="note" draft={snapshot.note} disabled={readonly} saving={snapshot.busy || !!snapshot.uncertain} />
       </div>
-      <section id="reviewSelection" className="conversation-selection" aria-label="Choose what to send" hidden={!selectionOpen}>
-        {!selection?.pendingCount && !snapshot.edits.length && <p>No saved comments or edits to include.</p>}
-        {snapshot.pages.map(({ page }) => {
-          const pending = snapshot.threads.filter(item => item.thread.pageKey === page.pageKey)
-            .flatMap(item => item.exchanges.filter(exchange => exchange.reviewer.submissionId === null));
-          if (!pending.length) return null;
-          return <fieldset key={page.pageKey} className="conversation-selection-page"><legend>{pageLabel(snapshot, page.pageKey)}</legend>
-            {pending.map(({ reviewer }) => <label key={reviewer.messageId} className="conversation-selection-message">
-              <Checkbox disabled={disabled} aria-label={`Include message: ${reviewer.body}`} checked={!snapshot.excluded.includes(reviewer.messageId)}
-                onCheckedChange={checked => owner.commands.select(reviewer.messageId, checked === true)} />
-              <span><span className="conversation-selection-preview">{reviewer.body}</span>
-                <small>{reviewer.intent === "request-change" ? "Change requested" : "Discussion only"}</small></span>
-            </label>)}
-          </fieldset>;
-        })}
-        {(!!snapshot.edits.length || chrome.canRevert) && <section className="conversation-edits">
-          <div className="feedback-edit-status">
-            <Button className="conversation-section-toggle" variant="ghost" size="sm" aria-expanded={editsExpanded}
-              aria-controls="conversationEdits" onClick={() => setEditsExpanded(value => !value)}>
-              <Icon name={editsExpanded ? "chevronDown" : "chevronRight"} size={14} />Your edits ({snapshot.edits.length})
-            </Button>
-            <Button className="feedback-revert" variant="ghost" size="sm" disabled={chrome.blocked || chrome.loading || !chrome.canRevert}
-              onClick={() => owner.commands.confirm("revert")}>Revert</Button></div>
-          <ul id="conversationEdits" hidden={!editsExpanded} className="feedback-edit-list conversation-edit-list">{snapshot.edits.map((edit) => <li key={edit.editId}>
-            <div className="conversation-edit-heading"><label className="feedback-edit-label"><Checkbox disabled={disabled}
-              aria-label={`Include ${edit.content.label} in Send`} checked={!snapshot.excluded.includes(edit.editId)}
-              onCheckedChange={(checked) => owner.commands.select(edit.editId, checked === true)} />{edit.content.label}</label>
-              <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Source pending"}</Badge>
-              <Badge variant="outline">{edit.content.kind}</Badge></div>
-            <EditEvidence edit={edit} />
-          </li>)}</ul></section>}
-      </section>
       </div>
-      <div className="conversation-footer-support">
-        <p id="sendSelectionDescription" className="feedback-help" role="status">{selectionDescription}</p>
+      <div className="conversation-footer-support" hidden={!snapshot.unsavedMessageDraftCount && (selection !== null || !snapshot.connected)}>
+        <p id="sendSelectionDescription" className={selection ? "sr-only" : "feedback-help"} role="status">{selectionDescription}</p>
         {!!snapshot.unsavedMessageDraftCount && <p className="feedback-help">{snapshot.unsavedMessageDraftCount} unfinished drafts are not included. Add or update your comments before sending.</p>}
       </div>
       <div className="feedback-actions">

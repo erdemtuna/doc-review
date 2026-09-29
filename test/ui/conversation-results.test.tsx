@@ -2,9 +2,17 @@ import { afterEach, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { directEditSchema, submissionSchema, submissionResultSchema } from "../../src/contracts/feedback";
 import { submissionHistoryItemSchema } from "../../src/contracts/history";
-import { EditEvidence, resultAvailability, SubmissionResultNote, type ResultDetail } from "@/components/conversation-results";
+import { EditEvidence, editOutcomeSummary, responseOutcomeLabels, resultAvailability, SubmissionResultNote, type ResultDetail } from "@/components/conversation-results";
 
 afterEach(cleanup);
+it("History and result surfaces share readable outcome wording without leaking wire enums", () => {
+  expect(editOutcomeSummary("already-saved")).toBe("Saved by you before Send; no additional agent edit reported.");
+  expect(editOutcomeSummary("applied")).toBe("Agent reported applying this source-pending edit.");
+  expect(editOutcomeSummary("deferred")).toBe("Deferred; no application reported for this edit.");
+  expect(editOutcomeSummary(undefined)).toBe("Edit outcome unavailable.");
+  expect(responseOutcomeLabels["clarification-needed"]).toBe("Needs clarification");
+  expect(responseOutcomeLabels.applied).toBe("Change reported");
+});
 const pending = directEditSchema.parse({
   editId: "edit", reviewId: "review", pageKey: "page", version: 1, sequence: 1, author: "reviewer", createdAt: 1, updatedAt: 1,
   content: { label: "Title", kind: "edited", before: "Exact before", after: "Exact after", before_html: "<b>Exact before</b>",

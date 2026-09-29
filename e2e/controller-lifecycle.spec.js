@@ -102,7 +102,7 @@ test("Review and Changes keep the same iframe and authored runtime state", async
   const frame = await waitForSdk(page);
   await message(page, "Explain without changing source");
   await page.locator("#send").click();
-  await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await handled(review, ref);
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
   await submissionHistory(page);

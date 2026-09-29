@@ -9,6 +9,16 @@ type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 export type ResultDetail = Snapshot["submissions"][number]["value"];
 type HistoryItem = Snapshot["history"][number];
 
+export const responseOutcomeLabels = {
+  applied: "Change reported", answered: "Answered", "clarification-needed": "Needs clarification", deferred: "Deferred",
+};
+
+export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>["editOutcomes"][number]["outcome"] | undefined) {
+  return outcome === "already-saved" ? "Saved by you before Send; no additional agent edit reported."
+    : outcome === "applied" ? "Agent reported applying this source-pending edit."
+    : outcome === "deferred" ? "Deferred; no application reported for this edit." : "Edit outcome unavailable.";
+}
+
 export function ResultActions({ detail, shell }: { detail: ResultDetail; shell: ConversationShell }) {
   const [expanded, setExpanded] = useState(false);
   const responses = detail.result?.responses ?? [];
@@ -85,9 +95,7 @@ export function SubmissionResultNote({ detail }: { detail: ResultDetail }) {
     <div className="inventory-meta"><strong>Agent-reported result</strong><ConversationTime value={result.createdAt} /></div>
     <h2>{result.title}</h2>
     <p className="conversation-result-body">{result.body}</p>
-    {result.overallOutcome && <p>Note to the agent: <Badge variant="outline">{{
-      applied: "Change reported", answered: "Answered", "clarification-needed": "Needs clarification", deferred: "Deferred",
-    }[result.overallOutcome]}</Badge></p>}
+    {result.overallOutcome && <p>Note to the agent: <Badge variant="outline">{responseOutcomeLabels[result.overallOutcome]}</Badge></p>}
     {detail.submission.edits.length > 0 && <section aria-label="Your submitted edits">
       <h3>Your submitted edits</h3>
       <p>Edits you included in this batch, separate from new agent-reported work.</p>
@@ -96,9 +104,7 @@ export function SubmissionResultNote({ detail }: { detail: ResultDetail }) {
         return <li key={edit.editId}>
           <div className="conversation-edit-heading"><strong className="feedback-edit-label">{edit.content.label}</strong>
             <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Source pending at Send"}</Badge></div>
-          <p>{outcome?.outcome === "already-saved" ? "Saved by you before Send; no additional agent edit reported."
-            : outcome?.outcome === "applied" ? "Agent reported applying this source-pending edit."
-            : outcome?.outcome === "deferred" ? "Deferred; no application reported for this edit." : "Edit outcome unavailable."}</p>
+          <p>{editOutcomeSummary(outcome?.outcome)}</p>
           {outcome && <p>{outcome.reason}</p>}
           <EditEvidence edit={edit} />
         </li>;

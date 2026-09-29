@@ -37,9 +37,9 @@ the accepted review version is still current.
 
 Add comment / Add reply / Update comment queue a message;
 **Send to agent (N)** dispatches a deliberate batch.
-**Choose what to send** contains message/edit exclusions and exact human edit
-evidence. **Note to agent** opens separately with its own unchecked change permission. Excluded
-messages show **Not included** and remain pending. Unsaved drafts are not sent.
+Send includes all saved pending messages and edits. **Your edits** contains exact
+human edit evidence. **Note to agent** opens separately with its own unchecked
+change permission. Unsaved comment drafts are not sent.
 Send freezes the selected versions and note at activation; feedback arriving
 during preparation stays pending. A changed selected version requires reviewing
 the selection again.
