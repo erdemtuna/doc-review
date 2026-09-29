@@ -158,7 +158,7 @@
   .conversation-result-note h2 { margin: 6px 0; font-size: 17px; }
   .conversation-result-note h3 { font-size: 14px; }
   .conversation-result-body { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .conversation-comparison { position: fixed; inset: var(--toolbar-h) 0 0; z-index: 50; overflow: auto; padding: 12px; background: var(--background); color: var(--foreground); font: 14px/1.55 var(--review-font-sans); }
+  .conversation-comparison { position: fixed; inset: var(--toolbar-h) 0 0; z-index: 50; overflow: auto; padding: 12px; scroll-padding-top: var(--comparison-header-height, 0px); background: var(--background); color: var(--foreground); font: 14px/1.55 var(--review-font-sans); }
   .conversation-comparison-title { position: sticky; top: -12px; z-index: 2; background: var(--background); display: flex; align-items: center; gap: 16px; padding-block: 8px; margin-bottom: 12px; }
   .conversation-comparison-title h2 { margin: 0; font-size: 17px; }
   .conversation-comparison > .conversation-result-note { max-width: 72ch; margin-inline: auto; }
@@ -166,6 +166,7 @@
   .conversation-result-note :is(h2, h3, p) { margin-block: 8px; }
   .conversation-comparison-summary { font-size: 13px; overflow-wrap: anywhere; }
   .conversation-comparison > header { background: var(--background); }
+  .conversation-comparison > .conversation-comparison-tools { position: sticky; top: calc(var(--comparison-title-height, 0px) - 12px); z-index: 2; padding: 0; }
   .conversation-comparison[hidden] { display: none; }
   .conversation-comparison .changes-toolbar { width: 100%; }
   @media (max-width: 760px) {

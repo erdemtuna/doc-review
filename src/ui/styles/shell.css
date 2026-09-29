@@ -75,7 +75,7 @@
   @media (max-width: 700px) {
     .changes-toolbar { grid-template-columns: minmax(0, 1fr); }
     .changes-navigation { grid-column: 1; grid-row: 2; }
-    .changes-view-tools { grid-column: 1; grid-row: 3; justify-self: center; justify-content: center; }
+    .changes-view-tools { grid-column: 1; grid-row: 3; justify-self: end; justify-content: flex-end; }
   }
   .changes-diagnostics { margin-top: 12px; padding: 0 12px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
   .changes-diagnostics summary { width: fit-content; max-width: 100%; min-height: 32px; padding: 8px 0; color: var(--foreground); font-weight: 500; cursor: pointer; }

@@ -365,8 +365,13 @@ in the existing short inventory. Its 13px text uses a 20px line box, avoiding a
 fractional predecessor height that would round a transferred reading anchor.
 
 Changes fills the region below the approved global toolbar. The full note scrolls
-normally above the former comparison toolbar; it is not a sticky banner. Pending
-edits reuse the former readable inventory with
+normally above the comparison toolbar; it is not a sticky banner. The
+comparison controls stay sticky immediately below the Changes heading, with
+measured offsets that follow wrapping and viewport changes. The submission picker
+and edit counts share the left group, Previous/Next is centered in equal-width
+side columns independently of their contents, and Document/Source is right-aligned.
+Narrow layouts wrap the groups while keeping navigation centered and reachable.
+Pending edits reuse the former readable inventory with
 explicit source-persistence badges. Complete content, receipts and source identities
 remain in secondary details; they are never inferred from a successful capture.
 

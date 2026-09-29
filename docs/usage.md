@@ -377,6 +377,9 @@ The document stays mounted and retains unsent drafts while Changes is open. A co
 normally compares content captured when feedback was sent with the result
 captured after the agent reported source changes in a complete response. Previous submissions keep their
 own fixed endpoints instead of changing on each reload.
+The version selector and edit counts sit on the left, Previous/Next stays
+centered, and Document/Source sits on the right. This control strip stays visible
+below the Changes heading as you scroll through the comparison.
 
 ![The Field Notes submission comparison, with before-and-after text for the revised description and call to action](../assets/doc-review-changes.png)
 

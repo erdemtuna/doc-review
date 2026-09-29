@@ -90,6 +90,21 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
     await page.addInitScript((theme) => localStorage.setItem("doc-review:theme", theme), theme);
     const requests = []; page.on("request", (request) => { if (request.url().includes("saved.invalid")) requests.push(request.url()); });
     const { region } = await setup(page, review);
+    const tools = region.getByRole("group", { name: "Comparison tools" });
+    const navigation = tools.getByRole("navigation", { name: "Change navigation" });
+    const counts = tools.locator(".changes-counts");
+    await expect(tools.locator(".changes-context .changes-counts")).toHaveCount(1);
+    const toolbarBox = await tools.boundingBox(), navigationBox = await navigation.boundingBox();
+    expect(Math.abs(navigationBox.x + navigationBox.width / 2 - toolbarBox.x - toolbarBox.width / 2)).toBeLessThanOrEqual(1);
+    const formats = await tools.getByRole("group", { name: "Comparison format" }).boundingBox();
+    expect(Math.abs(formats.x + formats.width - (toolbarBox.x + toolbarBox.width - 13))).toBeLessThanOrEqual(1);
+    if (width === 1440) {
+      const version = await tools.locator("#submissionPicker").boundingBox(), countBox = await counts.boundingBox();
+      expect(countBox.x).toBeGreaterThan(version.x + version.width);
+      expect(Math.abs(countBox.y + countBox.height / 2 - version.y - version.height / 2)).toBeLessThanOrEqual(1);
+      expect(countBox.x + countBox.width).toBeLessThan(navigationBox.x);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`toolbar-${width}-${theme}.png`), animations: "disabled" });
     await page.locator("#frame").evaluate((element) => { window.savedFrame = element; });
     await region.locator(".comparison-expand").first().click();
     const expanded = region.locator('[data-row-id="row-10"]');
@@ -112,13 +127,24 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
         const box = element.getBoundingClientRect(), header = element.closest("section[aria-label='Saved comparison']").querySelector("header").getBoundingClientRect();
         return box.bottom > header.bottom && box.top < innerHeight;
       })).toBe(true);
+      const titleBox = await region.locator(".conversation-comparison-title").boundingBox();
+      const stickyBox = await region.locator("header").boundingBox();
+      const regionBox = await region.boundingBox();
+      expect(Math.abs(titleBox.y - regionBox.y)).toBeLessThanOrEqual(1);
+      expect(stickyBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
       for (const button of await region.locator("header button").all()) {
         const box = await button.boundingBox();
         expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
+        expect(box.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+        expect(box.y + box.height).toBeLessThanOrEqual(740);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await region.getByRole("button", { name: "Previous change" }).click();
       await expect(region.locator(".comparison-current")).toHaveAttribute("data-row-id", "row-0");
+      await region.evaluate(node => { node.scrollTop = node.scrollHeight / 2; });
+      await expect(region.getByRole("button", { name: "Next change" })).toBeInViewport();
+      await region.getByRole("button", { name: "Next change" }).click();
+      await expect(region.locator(".comparison-current")).toHaveAttribute("data-row-id", "row-43");
       await page.screenshot({ path: testInfo.outputPath(`comparison-${mode}-${width}-${theme}.png`), animations: "disabled" });
     }
     expect(requests).toEqual([]);
@@ -128,15 +154,31 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
 }
 
 for (const [width, height] of [[320, 400], [768, 430], [1440, 400]]) {
-  test(`sticky comparison tools leave the selected change reachable at ${width}x${height}`, async ({ page, review }) => {
+  test(`sticky comparison tools leave the selected change reachable at ${width}x${height}`, async ({ page, review }, testInfo) => {
     await page.setViewportSize({ width, height });
     const { region } = await setup(page, review);
+    await region.locator(".comparison-expand").first().click();
+    await region.evaluate(node => { node.scrollTop = 700; });
+    const pinnedTitle = await region.locator(".conversation-comparison-title").boundingBox();
+    const pinnedTools = await region.locator("header").boundingBox();
+    expect(Math.abs(pinnedTools.y - pinnedTitle.y - pinnedTitle.height)).toBeLessThanOrEqual(1);
+    await region.evaluate(node => { node.scrollTop += 300; });
+    expect((await region.locator("header").boundingBox()).y).toBeCloseTo(pinnedTools.y, 0);
+    await page.screenshot({ path: testInfo.outputPath(`sticky-${width}x${height}.png`), animations: "disabled" });
     await selectChoice(page, "changeJump", "1");
     const last = region.locator(".comparison-current");
     await expect(last).toHaveAttribute("data-row-id", "row-43");
     const box = await last.boundingBox(), header = await region.locator("header").boundingBox();
     expect(box.y + box.height).toBeGreaterThan(header.y + header.height);
     expect(box.y).toBeLessThan(height);
+    const title = await region.locator(".conversation-comparison-title").boundingBox();
+    expect(Math.abs(header.y - title.y - title.height)).toBeLessThanOrEqual(1);
+    expect(header.y + header.height).toBeLessThan(height - 32);
+    for (const button of await region.locator("header button").all()) {
+      const bounds = await button.boundingBox();
+      expect(bounds.y).toBeGreaterThanOrEqual(title.y + title.height);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
+    }
   });
 }
 

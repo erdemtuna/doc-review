@@ -14,7 +14,7 @@ type Snapshot = ReturnType<ConversationShell["owner"]["getSnapshot"]>;
 
 export function ConversationComparison({ shell, chrome, snapshot }: { shell: ConversationShell; chrome: Chrome; snapshot: Snapshot }) {
   const current = chrome.comparison!;
-  const root = useRef<HTMLElement>(null), header = useRef<HTMLElement>(null);
+  const root = useRef<HTMLElement>(null), header = useRef<HTMLElement>(null), title = useRef<HTMLDivElement>(null);
   const context = `${current.submissionId}:${current.pageKey}:${current.mode}`;
   const [selection, setSelection] = useState({ context, index: 0, scroll: false });
   const [menu, setMenu] = useState<string | null>(null);
@@ -38,8 +38,20 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
   }));
   useLayoutEffect(() => { setMenu(null); }, [context, chrome.comparisonOpen]);
   useLayoutEffect(() => {
+    if (!chrome.comparisonOpen || !root.current || !title.current) return;
+    const measure = () => {
+      const titleHeight = title.current?.getBoundingClientRect().height ?? 0;
+      root.current?.style.setProperty("--comparison-title-height", `${titleHeight}px`);
+      root.current?.style.setProperty("--comparison-header-height", `${titleHeight + (header.current?.getBoundingClientRect().height ?? 0)}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(title.current);
+    if (header.current) observer.observe(header.current);
+    return () => observer.disconnect();
+  }, [chrome.comparisonOpen, detail?.result?.effect]);
+  useLayoutEffect(() => {
     if (!selection.scroll || selection.context !== context || current.loading || !chrome.comparisonOpen) return;
-    root.current?.style.setProperty("--comparison-header-height", `${header.current?.getBoundingClientRect().height ?? 0}px`);
     root.current?.querySelector(".comparison-current")?.scrollIntoView({ block: "center", behavior: "instant" });
   }, [selection, context, current.loading, chrome.comparisonOpen]);
   const disclosure = (name: string) => ({
@@ -59,7 +71,7 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     ? String(value.viewComparison.message) : "";
   return <section ref={root} className="conversation-comparison review-ui" aria-label="Saved comparison" hidden={!chrome.comparisonOpen}
     onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (menu) setMenu(null); else shell.commands.closeComparison(); } }}>
-    <div className="conversation-comparison-title">
+    <div ref={title} className="conversation-comparison-title">
       <Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>{replyOnly ? "Agent response" : "Changes"}</h2></div>
     {detail?.result && <SubmissionResultNote detail={detail} />}
     {history && !replyOnly && <p className="conversation-comparison-summary">{resultAvailability(history)}</p>}
@@ -74,6 +86,12 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
               const target = keys?.includes(current.pageKey) ? current.pageKey : keys?.[0];
               if (target) choose(id, target);
             }} />
+          {value?.available === true && <div className="changes-counts">
+            {(["added", "modified", "removed"] as const).map((kind) => <Badge key={kind} variant="outline" className={`changes-${kind}`}
+              role="img" aria-label={`${counts[kind]} ${kind} changes`}>
+              <Icon name={kind === "added" ? "plus" : kind === "modified" ? "pencil" : "minus"} size={14} />{counts[kind]}
+            </Badge>)}
+          </div>}
           {pages.length > 1 && <ChoiceMenu id="historyTarget" label="Comparison page" value={current.pageKey} options={pages}
             triggerLabel={pages.find((item) => item.value === current.pageKey)?.label ?? "Page"} {...disclosure("page")}
             onValueChange={(key) => choose(current.submissionId, key)} />}
@@ -91,12 +109,6 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
             {(["content", "source"] as const).map((mode) => <SegmentedControlItem key={mode} selected={current.mode === mode}
               onClick={() => choose(current.submissionId, current.pageKey, mode)}>{mode === "content" ? "Document" : "Source"}</SegmentedControlItem>)}
           </SegmentedControl>
-          {value?.available === true && <div className="changes-counts">
-            {(["added", "modified", "removed"] as const).map((kind) => <Badge key={kind} variant="outline" className={`changes-${kind}`}
-              role="img" aria-label={`${counts[kind]} ${kind} changes`}>
-              <Icon name={kind === "added" ? "plus" : kind === "modified" ? "pencil" : "minus"} size={14} />{counts[kind]}
-            </Badge>)}
-          </div>}
         </div>
       </div>
     </header>}
