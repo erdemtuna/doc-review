@@ -339,9 +339,10 @@ header opens earlier submissions without replacing your reply or overall-note
 editors. Use **Back to Feedback** to return to their retained text, permissions and
 reading position. Completed submissions are collapsed in **History**;
 expand one for its note, result, named pages and **Content changes** or
-**Source changes** actions. Waiting submissions have a compact **Submission actions**
-menu with **Abandon submission**, which still requires confirmation. History does not
-display CLI commands, raw submission identifiers, receipt JSON or technical disclosures.
+**Source changes** actions. Waiting submissions show status and time without an actions
+menu. History does not display CLI commands, raw submission identifiers, receipt JSON
+or technical disclosures. Abandonment remains a separate management API operation,
+not a History control; ending the review does not abandon accepted work.
 
 A temporary connection loss shows one **Reconnect** action. If the same server
 session is still available, reconnecting preserves the live document, native

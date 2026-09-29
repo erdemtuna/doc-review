@@ -306,7 +306,7 @@ Waiting has one centered toolbar status rather than repeated queued/sent notices
 Feedback contains no waiting explanation or technical disclosure after Send.
 The header's **History** destination holds submission status, notes and results without
 CLI commands, raw identifiers, receipt JSON or technical disclosures.
-Waiting submissions expose abandonment through a compact actions menu with confirmation;
+Waiting submissions show status and time without an actions menu or abandonment control;
 related-review links remain available for overlapping work.
 History and Feedback retain the same mounted reply/note
 editors and independent reading positions. Capture errors belong to their exact

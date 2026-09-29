@@ -107,10 +107,8 @@
   .conversation-panel.has-history .conversation-new-message { display: none; }
   .conversation-capture-warning { font-size: 12px; color: var(--foreground); }
   .conversation-history h3, .conversation-edits h3 { font-size: 14px; margin: 6px 0; }
-  .conversation-submission { position: relative; padding: 8px; margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
+  .conversation-submission { padding: 8px; margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
   .conversation-submission summary { cursor: pointer; font-weight: 600; }
-  .conversation-submission:has(.conversation-submission-actions) > summary { padding-right: 28px; }
-  .conversation-submission-actions { position: absolute; top: 6px; right: 6px; }
   .conversation-submission > summary .conversation-time { display: block; margin: 4px 0 0 16px; font-weight: 400; color: var(--muted-foreground); font-size: 11px; }
   .conversation-submission h4 { margin: 12px 0 6px; font-size: 13px; }
   .conversation-result { padding-block: 6px; }

@@ -401,12 +401,6 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
       return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
         <summary>{item.result ? (detail ? resultHeading(detail) : "Agent response") : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned batch"} <ConversationTime value={item.createdAt} /></summary>
-        {(item.state === "queued" || item.state === "delivered") && <div className="conversation-submission-actions">
-          <ConversationMenu label="Submission actions" actions={[{
-            label: "Abandon submission", destructive: true, disabled: snapshot.busy || !!snapshot.uncertain,
-            run: () => owner.commands.confirm("abandon", item.submissionId),
-          }]} />
-        </div>}
         {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <ConversationIntent />}</h4>
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}

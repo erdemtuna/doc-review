@@ -73,7 +73,14 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   const history = page.getByRole("region", { name: "Submission history" });
   await expect(history.locator("pre, code")).toHaveCount(0);
   expect(await history.textContent()).not.toMatch(/You can keep commenting|Technical details|Agent command|Receipt details|Advanced actions|review_|submission_|doc-review poll/);
-  await expect(history.getByRole("button", { name: "Submission actions" })).toBeVisible();
+  await expect(history.locator("button")).toHaveCount(0);
+  const submission = history.locator(".conversation-submission");
+  await submission.locator("summary").click();
+  await expect(submission).not.toHaveAttribute("open");
+  await expect(history.locator("button")).toHaveCount(0);
+  await submission.locator("summary").click();
+  await expect(submission).toHaveAttribute("open");
+  await expect(history.locator("button")).toHaveCount(0);
   for (const [width, height] of [[1280, 720], [720, 480]]) {
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
@@ -89,6 +96,9 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   await expect(lifecycle).toHaveAccessibleDescription(/Feedback received; no response yet/);
   await expect(lifecycle).toHaveAccessibleDescription(/does not confirm an agent is currently working/);
   await expect(blockers).toBeHidden();
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(history).toContainText("Waiting for a response");
+  await expect(history.locator("button")).toHaveCount(0);
 });
 
   for (const host of ["feedback", "history", "focus", "adjacent"]) test(`Back restores ${host} locally across failed and late comparison reads`, async ({ page, review }, info) => {
