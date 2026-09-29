@@ -30,7 +30,10 @@ test("long inventory and direct actions fit every width without remounting docum
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      const bounds = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
+      const panel = page.getByRole("complementary", { name: "Feedback" });
+      await expect(panel).toHaveCSS("left", `${Math.max(0, width - 380)}px`);
+      await expect(panel).toHaveCSS("width", `${Math.min(380, width)}px`);
+      const bounds = await panel.boundingBox();
       expect(bounds.width).toBeLessThanOrEqual(width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(await inventory.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);

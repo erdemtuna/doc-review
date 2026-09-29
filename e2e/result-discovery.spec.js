@@ -394,6 +394,7 @@ test("header History preserves mounted reply/note permissions and full results w
     .not.toMatch(/Receipt details|Agent command|Technical details|review_|submission_|doc-review poll/);
   await page.setViewportSize({ width: 720, height: 480 });
   const inventory = page.locator(".conversation-inventory");
+  await expect.poll(() => inventory.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThanOrEqual(100);
   await inventory.evaluate(node => { node.scrollTop = 100; });
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
   await page.getByRole("button", { name: "Close feedback", exact: true }).click();
