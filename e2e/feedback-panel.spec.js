@@ -11,7 +11,7 @@ async function setup(page, review, name) {
   await expect(page.locator(".conversation-thread")).toHaveCount(1);
   return { ref, file };
 }
-const note = (page) => page.getByRole("textbox", { name: "Overall note", exact: true });
+const note = (page) => page.getByRole("textbox", { name: "Note to agent", exact: true });
 const close = (page) => page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true });
 
 test("thread disclosure retains DOM and tab-lifetime choices across pages; reload expands and loses only local drafts", async ({ page, review }) => {
@@ -122,7 +122,7 @@ test("Send selects all saved items across authorized pages beyond one page of re
   await draft.fill("Unsaved contextual draft is excluded");
   await (await overallNote(page)).fill("A submission-level note, not a conversation");
   await expect(page.locator("#send")).toHaveText("Send to agent (105)");
-  await expect(page.locator("#send")).toHaveAccessibleDescription("2 saved messages · 102 pending edits · 1 overall note selected");
+  await expect(page.locator("#send")).toHaveAccessibleDescription("Selected: 2 comments · 102 edits · 1 note");
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;

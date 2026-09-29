@@ -143,16 +143,16 @@ export async function submissionHistory(page) {
 
 export async function reviewSelection(page) {
   await feedback(page);
-  const toggle = page.getByRole("button", { name: /^Review selection/ });
+  const toggle = page.getByRole("button", { name: /^Choose what to send/ });
   if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
-  return page.getByRole("region", { name: "Review selection", exact: true });
+  return page.getByRole("region", { name: "Choose what to send", exact: true });
 }
 
 export async function overallNote(page) {
-  await reviewSelection(page);
-  const disclosure = page.getByRole("button", { name: /Overall note \(optional\)/ });
+  await feedback(page);
+  const disclosure = page.getByRole("button", { name: /Note to agent/ });
   if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
-  return page.getByRole("textbox", { name: "Overall note", exact: true });
+  return page.getByRole("textbox", { name: "Note to agent", exact: true });
 }
 
 export async function message(page, text, change = false) {

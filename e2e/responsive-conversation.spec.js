@@ -111,7 +111,7 @@ test("saved and source-pending edit evidence is reachable and independently sele
       await editor.fill("Keep my compact reply");
       await reviewSelection(page);
       const note = page.locator("#draft-note");
-      const toggle = page.getByRole("button", { name: /Overall note \(optional\)/ });
+      const toggle = page.getByRole("button", { name: /Note to agent/ });
       await toggle.click();
       await note.fill("Separate note permission and text");
       await page.locator('[data-composer="note"]').getByRole("checkbox").check();

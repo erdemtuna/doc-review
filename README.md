@@ -44,17 +44,17 @@ permission for that request only; the agent can answer, clarify, apply, or defer
 2. **Point out what matters.** Select text or choose an element to leave a
    comment. Switch to **Edit** for direct changes to wording, formatting, images,
    or layout. Commenting works in either mode. New comments open beside the target
-   when space permits, with a safe Feedback fallback. **Save** retains the
-   comment in the review without sending it. Enter saves; Shift+Enter adds a line.
+   when space permits, with a safe Feedback fallback. **Add comment** retains the
+   comment without sending it. Enter adds it; Shift+Enter adds a line.
    The editor's X or Escape closes an empty/unchanged draft immediately and asks
    **Keep editing / Discard** for unsaved changes. Feedback's outer X only hides
    the panel and preserves your drafts.
-3. **Send feedback.** Open **Feedback**, select saved pending messages and edits,
-   expand **Overall note (optional)** if needed, and choose **Send**. Each new message defaults
+3. **Send feedback.** Open **Feedback**, use **Choose what to send** for message/edit
+   selection or **Note to agent** for optional context, then **Send to agent**. Each new message defaults
    to Discussion; check **Request a change** only for that message's permission.
 4. **Check the response and result.** Each submitted message gets an inline reply,
    each direct edit gets an exact outcome, and the submission gets one result note.
-   Find the latest result above the conversations and choose **View result**. Use
+   Find the latest result above the conversations and choose **View reply** or **View changes**. Use
    **History** in the Feedback header for earlier submissions and the agent command. Choose
    **Content** or **Source** to compare the submission's captured
    before and after content, then continue reviewing. Comparisons show observed
@@ -114,7 +114,7 @@ Feedback, Focus and the highlight-adjacent host share one mounted editor,
 in-memory drafts, caret, selection and loaded history. Explicit highlight
 activation opens one conversation; ambiguous/unavailable targets and constrained
 viewports fall back safely to Feedback without changing the original anchor.
-Each sidebar discussion has its own bordered card and a visible **Jump to**
+Each discussion has its own bordered card and a visible **Show in document**
 action. A successful jump hides Feedback to reveal the passage; reopening it
 retains drafts and reading position. Comments and Your edits collapse independently.
 Collapse or Close never resolves a thread. Resolve/Reopen is explicit; Resolve

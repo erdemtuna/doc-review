@@ -31,7 +31,7 @@ restoration of the removed global More menu. Focus is a named menu action and Ed
 is a compact icon control; every card has visible **Show in document** and
 **Resolve/Reopen** actions. Collapse/Expand is a separate named icon button.
 Reply is a quiet visible action, sharing the last pending message's action row.
-Optional Review selection and draft permissions use the
+Optional batch selection and draft permissions use the
 shared Checkbox primitive; selecting feedback does not change its permission.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
@@ -60,10 +60,18 @@ resizing the authored iframe. Neither mode replaces the frame or alters source.
 The SDK retains a visible text range and restores its vertical position on width
 changes without modifying the selection. Ordinary Feedback has no backdrop or
 inert stage; modal confirmations retain their separate blocking behavior.
-The inventory scrolls independently from optional Review selection and bottom
+The inventory scrolls independently from optional batch selection and bottom
 actions; footer support text has its own overflow area. End stays left and Send
 right. The note-only Request a change checkbox uses the shared Radix primitive
 and defaults unchecked; it does not grant permission to other messages.
+Choose what to send and Note to agent are sibling controls. Their editors remain
+mounted independently; the note has one accessible label and no nested accordion.
+The note appears before the selection list so its permission remains reachable,
+while selection retains a minimum scrollable area on short screens. Counts omit
+zero-valued categories without hiding unknown or failed selection state.
+History has one heading, quiet timestamps and receipt details after the result.
+Empty Changes offers Open Feedback as an explicit destination; Back to review
+still restores the exact initiating context.
 Focus/adjacent has one transcript scroll area with a reachable header
 and composer. Status/error overflow must not push actions off-screen.
 Synchronous per-draft Save locks prevent double delivery while typing stays

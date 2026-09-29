@@ -134,7 +134,7 @@ test("Send waits for the exact source-save acceptance and verification before ba
   await enterEditMode(page); await frame.locator("#copy").click(); await selectText(frame, "#copy"); await page.keyboard.insertText("Saved before Send");
   await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("Saved before Send");
   await feedback(page); await overallNote(page);
-  await page.getByRole("textbox", { name: "Overall note" }).fill("Check");
+  await page.getByRole("textbox", { name: "Note to agent" }).fill("Check");
   await expect(page.locator("#send")).toBeDisabled();
   expect((await conversation(review, ref, "status")).work).toBeNull(); expect(captured).toBe(false);
   release(); await page.locator("#send").click();
@@ -179,7 +179,7 @@ test("accepted Send remains accepted when its history refresh fails", async ({ p
     await route.continue();
   });
   await feedback(page); await overallNote(page);
-  const note = page.getByRole("textbox", { name: "Overall note" }); await note.fill("One accepted note");
+  const note = page.getByRole("textbox", { name: "Note to agent" }); await note.fill("One accepted note");
   await page.locator("#send").click();
   await expect(page.getByRole("alert")).toContainText(/accepted|refresh|History offline/i);
   await expect(note).toHaveValue(""); expect(sends).toBe(1);
@@ -258,11 +258,11 @@ test("strict flush rejects stale and uncorrelated acknowledgements instead of di
   });
   const { ref } = await setup(page, review, "strict-flush.html");
   await feedback(page); await overallNote(page);
-  await page.getByRole("textbox", { name: "Overall note" }).fill("Do not lose this");
+  await page.getByRole("textbox", { name: "Note to agent" }).fill("Do not lose this");
   await page.locator("#send").click();
   await expect(page.getByRole("alert")).toContainText(/flush|respond|save|page/i, { timeout: 10000 });
   expect((await conversation(review, ref, "status")).work).toBeNull();
-  await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("Do not lose this");
+  await expect(page.getByRole("textbox", { name: "Note to agent" })).toHaveValue("Do not lose this");
 });
 
 test("two immutable completed submissions keep different baselines and comparisons after later work", async ({ page, review }) => {

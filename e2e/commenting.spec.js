@@ -31,8 +31,8 @@ for (const mode of ["view", "edit"]) test(`explicit selection and keyboard block
   await feedback(page);
   expect((await listed(review, ref, "threads")).items.map((item) => item.thread.target.kind).sort()).toEqual(["element", "selection"]);
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
-  await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("");
+  await page.getByRole("button", { name: /Note to agent/ }).click();
+  await expect(page.getByRole("textbox", { name: "Note to agent" })).toHaveValue("");
 });
 
 test("Save and Cancel restore the exact authored control, and later renders do not reopen composition", async ({ page, review }) => {

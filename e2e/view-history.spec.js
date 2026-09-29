@@ -32,10 +32,10 @@ test("returning to the captured live tab retries without reloading or auto-click
     await expect(frame.locator("#screens-panel")).toBeVisible();
     await feedback(page);
     await overallNote(page);
-    await page.getByRole("textbox", { name: "Overall note" }).fill("Improve the Screens section");
+    await page.getByRole("textbox", { name: "Note to agent" }).fill("Improve the Screens section");
     await page.locator('[data-composer="note"]').getByLabel("Request a change").check();
     await page.locator("#send").click();
-    await expect(page.getByRole("textbox", { name: "Overall note" })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Note to agent" })).toHaveValue("");
     await page.getByRole("button", { name: "Close", exact: true }).click();
     const work = (await conversation(review, session, "poll")).submission;
     version = "After";

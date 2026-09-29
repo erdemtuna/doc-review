@@ -13,7 +13,7 @@ async function populated(page, review, count = 2) {
   return { ref, frame };
 }
 const button = (card, name) => card.getByRole("button", { name, exact: true });
-const note = (page) => page.getByRole("textbox", { name: "Overall note", exact: true });
+const note = (page) => page.getByRole("textbox", { name: "Note to agent", exact: true });
 
 test("long inventory and direct actions fit every width without remounting document or note", async ({ page, review }, info) => {
   test.setTimeout(60000);

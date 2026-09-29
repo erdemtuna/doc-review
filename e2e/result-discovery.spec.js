@@ -27,7 +27,7 @@ for (const external of [false, true]) test(`automatic/manual capture ${external 
   const ref = await openReview(page, review, file);
   await waitForSdk(page); await feedback(page);
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click();
@@ -114,7 +114,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await expect(page.locator("#send")).toBeDisabled();
   await include.check();
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.locator("#draft-note").fill("Please update the agent target only.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click();
@@ -223,7 +223,9 @@ test("invalid comparison modes remain explicit and retry keeps the result summar
   await expect(changes.locator(".conversation-result-body")).toHaveText("Reported change; comparison validation stays independent.");
   await page.unroute("**/api/conversation/comparison");
   await changes.getByRole("button", { name: "Retry comparison" }).click();
-  await expect(changes.getByRole("alert")).toHaveCount(0);
+  await expect(changes.getByText("Invalid comparison response", { exact: false })).toHaveCount(0);
+  await expect(changes.locator(".comparison-surface")).toContainText("Comparison target");
+  await expect(changes.locator(".conversation-result-body")).toHaveText("Reported change; comparison validation stays independent.");
 });
 
 test("header History preserves mounted reply/note permissions and exposes full results, receipts and agent handoff", async ({ page, review }) => {
@@ -243,8 +245,8 @@ test("header History preserves mounted reply/note permissions and exposes full r
   await reply.evaluate(node => { window.historyReply = node; node.setSelectionRange(3, 7); node.dispatchEvent(new Event("select", { bubbles: true })); });
   await card.getByRole("checkbox", { name: "Request a change" }).check();
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
-  const note = page.getByRole("textbox", { name: "Overall note", exact: true, includeHidden: true });
+  await page.getByRole("button", { name: /Note to agent/ }).click();
+  const note = page.getByRole("textbox", { name: "Note to agent", exact: true, includeHidden: true });
   await note.fill("A separate note");
   await note.evaluate(node => { window.historyNote = node; });
   await expect(page.getByRole("region", { name: "Submission history" })).toHaveCount(0);
@@ -321,7 +323,7 @@ for (const destination of ["Source", "Back to review"]) test(`late explicit capt
   const frame = await waitForSdk(page);
   await feedback(page);
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.locator("#draft-note").fill("Update this paragraph.");
   await page.locator('[data-composer="note"]').getByRole("checkbox", { name: "Request a change" }).check();
   await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();

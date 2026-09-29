@@ -62,10 +62,8 @@ export async function conversationSmoke({ browser, expect, project, state, evide
   };
   const overallNote = async (tab) => {
     await feedback(tab);
-    const selection = tab.getByRole("button", { name: /^Review selection/ });
-    if (await selection.getAttribute("aria-expanded") !== "true") await selection.click();
-    if (!await tab.getByRole("textbox", { name: "Overall note", exact: true }).isVisible()) {
-      await tab.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+    if (!await tab.getByRole("textbox", { name: "Note to agent", exact: true }).isVisible()) {
+      await tab.getByRole("button", { name: /Note to agent/ }).click();
     }
   };
   const message = async (tab, body, change = false) => {
@@ -227,12 +225,9 @@ export async function conversationSmoke({ browser, expect, project, state, evide
 
     const thread = page.locator(`[data-thread="${first.messages[0].message.threadId}"]`);
     await threadAction(page, thread, "Resolve");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
     await threadAction(page, thread, "Reopen");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
-    await thread.getByRole("button", { name: "Conversation actions" }).click();
-    await expect(page.getByRole("menuitem", { name: "Resolve", exact: true })).toBeEnabled();
-    await page.keyboard.press("Escape");
+    await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeEnabled();
     const lost = new Map();
     await page.route("**/api/conversation", async (route) => {
       const body = route.request().postDataJSON();
@@ -241,7 +236,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
       } else await route.continue();
     });
     await overallNote(page);
-    const note = page.getByRole("textbox", { name: "Overall note", exact: true });
+    const note = page.getByRole("textbox", { name: "Note to agent", exact: true });
     await note.fill("Late explanation only.");
     await expect(page.locator('[data-composer="note"]').getByLabel("Request a change")).not.toBeChecked();
     await page.locator("#send").click();
@@ -258,14 +253,14 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Check receipt", exact: true }).click();
     for (const tab of [page, second]) await expect(tab.locator(".conversation-lifecycle")).toHaveText("Review ended");
-    await expect(page.getByText("Saved unsent · read-only", { exact: true })).toBeVisible();
+    await expect(page.getByText("Not sent · read-only", { exact: true })).toBeVisible();
     await page.unroute("**/api/conversation");
     const oldUrl = page.url();
     await restart();
     await page.goto(oldUrl); await ready(page); await feedback(page);
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
     await overallNote(page);
-    await expect(page.getByRole("textbox", { name: "Overall note", exact: true })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toHaveValue("");
     await expect(page.locator(".conversation-thread").getByText("Saved unsent stays in the old review.", { exact: true })).toBeVisible();
     const fresh = await open(target), freshRef = refFor(fresh);
     assert.notEqual(freshRef.reviewId, ref.reviewId);
@@ -368,7 +363,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await second.route("**/api/conversation/capture", (route) => route.fulfill({ status: 409,
       json: contracts.contractFailure(new contracts.ContractError("VERSION_CONFLICT", "Fixture capture unavailable")) }));
     await overallNote(second);
-    await second.getByRole("textbox", { name: "Overall note" }).fill("Change identified source");
+    await second.getByRole("textbox", { name: "Note to agent" }).fill("Change identified source");
     await second.locator('[data-composer="note"]').getByLabel("Request a change").check();
     await second.locator("#send").click(); await expect(second.getByText("Queued; not received", { exact: true })).toBeVisible();
     const noCapture = (await pick(unavailableRef)).submission;

@@ -92,8 +92,10 @@
   .conversation-actions label, .conversation-edits label { display: inline-flex; align-items: center; gap: 6px; }
   .conversation-panel footer { flex: 0 0 auto; border-top: 1px solid var(--border); }
   .conversation-panel .conversation-footer { flex: 0 1 auto; min-height: 0; max-height: min(60dvh, 480px); display: flex; flex-direction: column; background: var(--card); }
-  .conversation-selection-toggle { flex-shrink: 0; margin: 6px 8px; }
-  .conversation-selection { min-height: 0; overflow: auto; padding: 0 12px 8px; border-bottom: 1px solid var(--border); }
+  .conversation-footer-controls { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 4px 8px; }
+  .conversation-footer-controls > button { padding-inline: 6px; }
+  .conversation-footer-details { min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+  .conversation-selection { min-height: 64px; overflow: auto; padding: 0 12px 8px; border-bottom: 1px solid var(--border); }
   .conversation-selection-page { border: 0; padding: 8px 0; margin: 0; min-width: 0; }
   .conversation-selection-page legend { color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
   .conversation-selection-message { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; font-size: 13px; }
@@ -107,13 +109,7 @@
   .conversation-footer .feedback-actions { flex-shrink: 0; }
   .conversation-footer .feedback-help { margin: 0; font-size: 12px; line-height: 1.5; }
   .conversation-footer .conversation-handoff { padding: 0; max-height: none; }
-  .conversation-note-region, .conversation-note-content { display: contents; }
-  .conversation-note-region[data-compact="true"] { display: flex; flex-direction: column; min-height: 0; }
-  .conversation-note-region[data-compact="true"] .conversation-note-content { display: block; overflow: auto; min-height: 0; }
-  .conversation-note-region:has(.conversation-note-toggle[aria-expanded="true"]) { min-height: 112px; flex: 1 1 auto; }
-  .conversation-note-toggle { flex-shrink: 0; justify-content: flex-start; margin: 4px 8px; }
-  .conversation-footer:has(.conversation-note-region[data-compact="true"]) { display: flex; flex-direction: column; }
-  .conversation-footer:has(.conversation-note-region[data-compact="true"]) .feedback-actions { flex-shrink: 0; }
+  .conversation-note-content { flex: 0 0 auto; min-height: 0; }
   .conversation-bottom { padding: 0 8px 8px; justify-content: space-between; }
   .conversation-error, .conversation-blockers { padding: 6px 10px; border-bottom: 1px solid var(--border); max-height: 22dvh; overflow: auto; overflow-wrap: anywhere; color: var(--destructive); }
   .conversation-blockers { color: var(--foreground); }
@@ -125,6 +121,8 @@
   .conversation-history h3, .conversation-edits h3 { font-size: 14px; margin: 6px 0; }
   .conversation-submission { padding: 8px; margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
   .conversation-submission summary { cursor: pointer; font-weight: 600; }
+  .conversation-submission > summary .conversation-time { display: block; margin: 4px 0 0 16px; font-weight: 400; color: var(--muted-foreground); font-size: 11px; }
+  .conversation-receipt { margin-top: 12px; color: var(--muted-foreground); font-size: 11px; }
   .conversation-submission small { font-size: 10px; color: var(--muted-foreground); }
   .conversation-submission h4 { margin: 12px 0 6px; font-size: 13px; }
   .conversation-result { padding-block: 6px; }
@@ -184,7 +182,9 @@
   .durable-review[data-conversation-short="true"] .conversation-footer .conversation-composer { padding: 4px 12px; gap: 3px; }
   .durable-review[data-conversation-short="true"] .conversation-footer textarea { height: 36px; max-height: 60px; }
   .durable-review[data-conversation-short="true"] .conversation-footer .feedback-actions { padding-bottom: 6px; }
-  .durable-review[data-conversation-short="true"] .conversation-footer-support { max-height: 28px; }
+  @media (max-width: 480px) {
+    .durable-review[data-conversation-short="true"] .conversation-footer-support { max-height: 28px; }
+  }
   .durable-review[data-conversation-short="true"] .conversation-status { max-height: 50px; overflow: auto; }
   .durable-review[data-conversation-short="true"] .has-focus .conversation-status { max-height: 32px; }
   .durable-review[data-conversation-short="true"] .has-focus .focused > header { max-height: 33%; flex-shrink: 1; }
@@ -218,9 +218,7 @@
     .conversation-new-trigger > span { display: none; }
     .conversation-inventory { padding: 8px 12px; }
     .conversation-section-toggle { height: 24px; margin-bottom: 4px; }
-    .conversation-note-toggle { margin-block: 0; }
-    .conversation-note-region:has(.conversation-note-toggle[aria-expanded="true"]) { min-height: 96px; }
-    .conversation-footer:has(.conversation-selection-toggle[aria-expanded="false"]) .conversation-footer-support { display: none; }
+    .conversation-footer:has(.conversation-selection-toggle[aria-expanded="false"]):has(.conversation-note-toggle[aria-expanded="false"]) .conversation-footer-support { display: none; }
     .conversation-empty-with-edits { display: none; }
     .conversation-edits { padding-block: 0; }
     .conversation-edits h3 { margin-block: 0; }

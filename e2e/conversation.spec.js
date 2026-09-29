@@ -147,8 +147,8 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(newMessage).toHaveCount(0);
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
-  const note = page.getByRole("textbox", { name: "Overall note", exact: true });
+  await page.getByRole("button", { name: /Note to agent/ }).click();
+  const note = page.getByRole("textbox", { name: "Note to agent", exact: true });
   await note.fill("Overall"); await note.press("Enter"); await page.keyboard.insertText("More");
   await note.press("Escape"); await expect(note).toHaveValue("Overall\nMore");
   expect((await call(review, { ...ref, operation: "poll" })).state).toBe("waiting");
@@ -409,8 +409,8 @@ test("unknown End stays visible in its dialog and replays the same request witho
   await open(page, review, writeFile(review, "conversation-end-unknown.html", "<p>End uncertainty</p>"));
   await page.locator("#commentsButton").click(); await message(page, "Retained unsent message");
   await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
-  await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Local unsaved note");
+  await page.getByRole("button", { name: /Note to agent/ }).click();
+  await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Local unsaved note");
   const attempts = [];
   await page.route("**/api/conversation", async (route) => {
     const body = route.request().postDataJSON();
@@ -428,7 +428,7 @@ test("unknown End stays visible in its dialog and replays the same request witho
   await expect(page.locator(".conversation-panel").getByText("end: acceptance unknown", { exact: true })).toHaveCount(0);
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await expect(page.locator(".conversation-thread").getByText("Retained unsent message", { exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Overall note", exact: true })).toHaveValue("Local unsaved note");
+  await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toHaveValue("Local unsaved note");
   expect(attempts).toHaveLength(2); expect(attempts[1]).toEqual(attempts[0]);
 });
 
@@ -698,8 +698,8 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
     await message(page, "Saved but never sent");
     await reviewSelection(page);
-    await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
-    await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Local draft survives reattachment only");
+    await page.getByRole("button", { name: /Note to agent/ }).click();
+    await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Local draft survives reattachment only");
     await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
@@ -707,7 +707,7 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     const oldSession = await page.locator("body").getAttribute("data-session");
     await review.restart();
     await expect(page.locator("body")).not.toHaveAttribute("data-session", oldSession);
-    await expect(page.getByRole("textbox", { name: "Overall note", exact: true })).toHaveValue("Local draft survives reattachment only");
+    await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toHaveValue("Local draft survives reattachment only");
     await expect(page.locator(".conversation-thread").getByText("Saved but never sent", { exact: true })).toBeVisible();
     const cli = async (...args) => {
       const child = spawn(process.execPath, [path.join(process.cwd(), "lib", "cli.js"), ...args], {

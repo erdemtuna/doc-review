@@ -133,7 +133,7 @@ moving your reading position. Already expanded history remains available after
 refreshes. Collapse and filters are independent
 and local to this tab. New activity is marked without forcing expansion or scroll.
 The inventory includes all shared-review member pages, not just this tab's visits.
-Open **Review selection** to exclude pending messages or edits. A **Not included**
+Open **Choose what to send** to exclude pending messages or edits. A **Not included**
 cue on an excluded message returns to those controls.
 
 Feedback is a nonmodal 380px sidebar. At 1020px and wider it docks beside a document
@@ -141,11 +141,12 @@ viewport of at least 640px; at narrower PC widths it floats without resizing the
 document (clamped below 380px). There is no dimming or backdrop: clicks in the document
 work normally. Docking preserves the current passage and never reloads the iframe.
 Close, the Feedback toolbar toggle or Escape dismisses it. The inventory and
-expanded Review selection scroll independently; End and Send remain reachable.
+expanded batch selection scroll independently; End and Send remain reachable.
 On short phone-sized screens, the filters share the Close row and the plus
 button starts a new message. **Comments** and **Your edits** collapse independently.
-Inside Review selection, **Overall note (optional)** starts collapsed and shows **Draft** when it contains
-text. Expand it to edit its independent permission. Collapse and resize keep its
+**Note to agent** sits beside **Choose what to send**, not inside it. It starts
+collapsed and shows **Draft** when it contains text. One click opens its editor
+and independent permission without expanding batch selection. Collapse and resize keep its
 text and caret; a composing note cannot be collapsed. End and Send remain available,
 including note-only Send. On very short screens, expand the note to see the detailed
 selection counts. No disclosure saves, clears or changes either draft's permission.
@@ -390,7 +391,7 @@ the saved evidence again without recapturing it; a failed comparison read has a
 separate **Retry comparison** action. Missing or failed capture is
 never presented as zero changes, and does not undo a handled response.
 
-Inside **Review selection**, **Your edits** shows readable Before/After previews, an independent
+Inside **Choose what to send**, **Your edits** shows readable Before/After previews, an independent
 Include in Send checkbox, and **Already saved** or **Source pending** evidence.
 **Exact edit details** retains the complete recorded content and source identity.
 The result note separates edits you saved before Send from agent-reported work;

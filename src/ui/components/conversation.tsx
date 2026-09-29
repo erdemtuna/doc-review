@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { ConversationShell } from "../../conversation-shell.js";
 import type { ConversationController, ConversationDraft } from "../../conversation-controller.js";
@@ -23,18 +23,6 @@ function act(owner: ConversationController, action: () => unknown) {
   try { Promise.resolve(action()).catch(owner.report); } catch (cause) { owner.report(cause); }
 }
 function time(value: number) { return new Date(value).toLocaleString(); }
-function ResponsiveNote({ composing, hasText, children }: { composing: boolean; hasText: boolean; children: ReactNode }) {
-  const [expanded, setExpanded] = useState(false);
-  const open = expanded || composing;
-  return <div className="conversation-note-region" data-compact="true">
-    <Button className="conversation-note-toggle" variant="ghost" size="sm" disabled={composing}
-      aria-expanded={open} aria-controls="conversationNoteDetails" onClick={() => setExpanded(value => !value)}>
-      <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
-      Overall note (optional){hasText && <Badge variant="secondary">Draft</Badge>}
-    </Button>
-    <div className="conversation-note-content" id="conversationNoteDetails" hidden={!open}>{children}</div>
-  </div>;
-}
 function rememberExchange(owner: ConversationController, id: string, transcript: HTMLElement, container: HTMLElement) {
   const bounds = container.getBoundingClientRect();
   const visible = [...transcript.querySelectorAll<HTMLElement>("[data-message]")].find((element) => {
@@ -76,21 +64,21 @@ function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationCont
     observer.observe(inventory);
     return () => observer.disconnect();
   }, [id, state.host, state.open]);
-  const label = id === "note" ? "Overall note" : id === "new" ? "New message" : draft.messageId ? "Edit message" : "Reply";
+  const label = id === "note" ? "Note to agent" : id === "new" ? "New message" : draft.messageId ? "Edit message" : "Reply";
   const actionLabel = id === "new" ? "Add comment" : draft.messageId ? "Update comment" : "Add reply";
   return <div className="conversation-composer" data-composer={id} onKeyDown={(event) => {
     if (id === "note" || event.key !== "Escape" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || draft.composing) return;
     event.stopPropagation(); event.preventDefault();
     owner.commands.cancelDraft(id);
   }}>
-    {id === "note" ? <label htmlFor={`draft-${id}`}>{label}</label> : <div className={id === "new" ? "sr-only" : "conversation-composer-heading"}>
+    {id === "note" ? <label className="sr-only" htmlFor={`draft-${id}`}>{label}</label> : <div className={id === "new" ? "sr-only" : "conversation-composer-heading"}>
       <label htmlFor={`draft-${id}`}>{label}</label>
       {id !== "new" && !disabled && <Button variant="ghost" size="icon-xs"
         aria-label={`Close ${draft.messageId ? "edit" : "reply"}`} disabled={saving || draft.composing}
         onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
     </div>}
     <Textarea ref={input} className="min-h-9" id={`draft-${id}`} rows={id === "note" ? 2 : undefined}
-      placeholder={id === "note" ? "Overall note…" : undefined} value={draft.text} readOnly={disabled}
+      placeholder={id === "note" ? "Optional context for the agent" : undefined} value={draft.text} readOnly={disabled}
       onChange={(event) => owner.commands.update(id, { text: event.target.value, selectionStart: event.target.selectionStart, selectionEnd: event.target.selectionEnd })}
       onSelect={(event) => owner.commands.update(id, { selectionStart: event.currentTarget.selectionStart, selectionEnd: event.currentTarget.selectionEnd })}
       onBlur={(event) => owner.commands.update(id, { selectionStart: event.currentTarget.selectionStart, selectionEnd: event.currentTarget.selectionEnd })}
@@ -392,16 +380,14 @@ function CaptureNotices({ snapshot, shell, submissionId }: { snapshot: Snapshot;
 }
 function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: ConversationShell; visible: boolean }) {
   const owner = shell.owner;
-  return <section className="conversation-history" aria-label="Submission history"><h3>Submissions and results</h3>
+  return <section className="conversation-history" aria-label="Submission history">
     {!snapshot.history.length && <p>No submissions yet. Send saved feedback when you are ready.</p>}
     <details className="conversation-handoff"><summary>Agent command</summary><code>{shell.getSnapshot().pollCommand}</code></details>
     {snapshot.history.map((item) => {
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
       return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
         <summary>{item.result ? (detail ? resultHeading(detail) : "Agent response") : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned batch"} <ConversationTime value={item.createdAt} /></summary>
-        <details><summary>Receipt details</summary><small>{item.submissionId}</small>
-          {detail?.receipt && <pre>{JSON.stringify(detail.receipt, null, 2)}</pre>}</details>
-        {detail?.submission.overallNote && <section><h4>Submitted overall note {detail.submission.overallNote.intent === "request-change" && <Badge variant="outline">{intentBadge(detail.submission.overallNote.intent)}</Badge>}</h4>
+        {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <Badge variant="outline">{intentBadge(detail.submission.overallNote.intent)}</Badge>}</h4>
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
         {detail?.result && <ResultActions detail={detail} shell={shell} />}
@@ -421,6 +407,8 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
               title={key !== shell.getSnapshot().pageKey ? "Open this page in Review before capturing current content." : undefined}
               onClick={() => act(owner, () => shell.commands.recapture(item.submissionId, key))}>Capture current content</Button>}
           </div></section>)}
+        <details className="conversation-receipt"><summary>Receipt details</summary><small>{item.submissionId}</small>
+          {detail?.receipt && <pre>{JSON.stringify(detail.receipt, null, 2)}</pre>}</details>
       </details>;
     })}
     {snapshot.historyCursor && <Button variant="outline" onClick={() => act(owner, owner.commands.historyEarlier)}>Load earlier submissions</Button>}
@@ -450,6 +438,8 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const [editsExpanded, setEditsExpanded] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectionOpen, setSelectionOpen] = useState(false);
+  const [noteExpanded, setNoteExpanded] = useState(false);
+  const noteOpen = noteExpanded || snapshot.note.composing;
   const showSelection = () => {
     owner.commands.focus(null); setHistoryOpen(false); setSelectionOpen(true);
     requestAnimationFrame(() => document.getElementById("reviewSelectionToggle")?.focus({ preventScroll: true }));
@@ -561,7 +551,11 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   };
   const selection = snapshot.selection;
   const selectionDescription = selection
-    ? `${selection.messages} saved messages · ${selection.edits} pending edits${selection.note ? " · 1 overall note" : ""} selected`
+    ? selection.total ? `Selected: ${[
+      selection.messages ? `${selection.messages} comment${selection.messages === 1 ? "" : "s"}` : "",
+      selection.edits ? `${selection.edits} edit${selection.edits === 1 ? "" : "s"}` : "",
+      selection.note ? "1 note" : "",
+    ].filter(Boolean).join(" · ")}` : "Nothing selected to send."
     : !snapshot.connected ? "" : snapshot.loading ? "Checking pending feedback…" : "Couldn't check what's ready to send. Refresh the review.";
   // Keep a focused editor mounted and focusable while waiting for current-frame geometry.
   const measuring = { ...fallbackBounds, width: Math.min(contextual ? 340 : 360, chrome.viewport.width - 24), height: "auto", opacity: 0, pointerEvents: "none" as const };
@@ -639,16 +633,24 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       <div id="conversationHistory" hidden={!historyVisible}><History snapshot={snapshot} shell={shell} visible={historyVisible} /></div>
     </div>
     <footer className="conversation-footer" hidden={!!snapshot.focusId || contextual || historyVisible}>
+      <div className="conversation-footer-controls">
       <Button id="reviewSelectionToggle" className="conversation-selection-toggle justify-start" size="sm" variant="ghost"
-        aria-expanded={selectionOpen} aria-controls="reviewSelection" disabled={snapshot.note.composing}
+        aria-expanded={selectionOpen} aria-controls="reviewSelection"
         onClick={() => setSelectionOpen(value => !value)}>
-        <Icon name={selectionOpen ? "chevronDown" : "chevronRight"} size={14} />Review selection
-        {snapshot.note.text.trim() && <span className="conversation-pending">Note draft</span>}
+        <Icon name={selectionOpen ? "chevronDown" : "chevronRight"} size={14} />Choose what to send
       </Button>
-      <section id="reviewSelection" className="conversation-selection" aria-label="Review selection" hidden={!selectionOpen}>
-      <ResponsiveNote composing={snapshot.note.composing} hasText={!!snapshot.note.text.trim()}>
-      <Draft owner={owner} id="note" draft={snapshot.note} disabled={readonly} saving={snapshot.busy || !!snapshot.uncertain} />
-      </ResponsiveNote>
+      <Button className="conversation-note-toggle" variant="ghost" size="sm" disabled={snapshot.note.composing}
+        aria-expanded={noteOpen} aria-controls="conversationNoteDetails" onClick={() => setNoteExpanded(value => !value)}>
+        <Icon name={noteOpen ? "chevronDown" : "chevronRight"} size={14} />Note to agent
+        {snapshot.note.text.trim() && <span className="conversation-pending">Draft</span>}
+      </Button>
+      </div>
+      <div className="conversation-footer-details" hidden={!noteOpen && !selectionOpen}>
+      <div className="conversation-note-content" id="conversationNoteDetails" hidden={!noteOpen}>
+        <Draft owner={owner} id="note" draft={snapshot.note} disabled={readonly} saving={snapshot.busy || !!snapshot.uncertain} />
+      </div>
+      <section id="reviewSelection" className="conversation-selection" aria-label="Choose what to send" hidden={!selectionOpen}>
+        {!selection?.pendingCount && !snapshot.edits.length && <p>No saved comments or edits to include.</p>}
         {snapshot.pages.map(({ page }) => {
           const pending = snapshot.threads.filter(item => item.thread.pageKey === page.pageKey)
             .flatMap(item => item.exchanges.filter(exchange => exchange.reviewer.submissionId === null));
@@ -679,6 +681,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
             <EditEvidence edit={edit} />
           </li>)}</ul></section>}
       </section>
+      </div>
       <div className="conversation-footer-support">
         <p id="sendSelectionDescription" className="feedback-help" role="status">{selectionDescription}</p>
         {!!snapshot.unsavedMessageDraftCount && <p className="feedback-help">{snapshot.unsavedMessageDraftCount} unfinished drafts are not included. Add or update your comments before sending.</p>}
@@ -756,11 +759,16 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         <section className="conversation-comparison review-ui" aria-label="Changes"
           onKeyDown={event => { if (event.key === "Escape") shell.commands.closeComparison(); }}>
           <div className="conversation-comparison-title"><Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>Changes</h2></div>
+          <div className="conversation-empty-result">
           <p>{!snapshot.review || snapshot.loading ? "Loading review history..." : snapshot.history.some((item) => item.result)
             ? "No document changes reported. Read the agent replies in Feedback or the batch summaries in History."
             : snapshot.history.some((item) => item.state === "abandoned")
             ? "No handled submission is selected. Abandoned work does not have an accepted result."
             : "No handled submissions yet. Send feedback to receive a response and its available comparisons."}</p>
+          <Button variant="outline" onClick={() => {
+            shell.commands.closeComparison(); owner.commands.focus(null); setHistoryOpen(false);
+          }}>Open Feedback</Button>
+          </div>
         </section>}
     </div>, document.body)}
   </>;

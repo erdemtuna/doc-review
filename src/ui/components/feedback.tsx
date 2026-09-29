@@ -58,8 +58,8 @@ export function FeedbackFooter({ runtime }: Props) {
     state.delivery.sent || state.agent === "stranded");
   return <>
     <div className="send-primary feedback-primary">
-      <Label htmlFor="note">Overall note</Label>
-      <Textarea ref={input} id="note" rows={2} placeholder="Overall note…" value={draft.text}
+      <Label htmlFor="note">Note to agent</Label>
+      <Textarea ref={input} id="note" rows={2} placeholder="Optional context for the agent" value={draft.text}
         disabled={state.disabled} aria-describedby={state.drafts ? "draftWarning" : undefined}
         onChange={(event) => update(event.currentTarget)}
         onSelect={(event) => update(event.currentTarget)}

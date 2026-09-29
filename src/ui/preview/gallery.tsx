@@ -98,7 +98,7 @@ export function Gallery() {
             </div>
           </div>
           <div className="preview-field">
-            <Label htmlFor="sample-note">Overall note</Label>
+            <Label htmlFor="sample-note">Note to agent</Label>
             <Textarea id="sample-note" value={note} onChange={(event) => setNote(event.target.value)} rows={3}
               aria-describedby="sample-note-help" />
             <p id="sample-note-help" className="text-xs text-muted-foreground">Edits here are local to this preview. Try selecting text and changing theme.</p>

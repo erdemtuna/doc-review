@@ -52,11 +52,11 @@ test("G1 controls preserve draft selection, theme preference and focus", async (
   await page.goto(base);
   const primarySize = await page.getByRole("button", { name: "Send feedback", exact: true }).boundingBox();
   expect(primarySize.height).toBe(32);
-  expect(await page.getByLabel("Overall note").evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
+  expect(await page.getByLabel("Note to agent").evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
   expect(await page.getByRole("button", { name: "Cancel", exact: true }).evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   const contentColor = await page.getByRole("radio", { name: "Content" }).evaluate((element) => getComputedStyle(element).backgroundColor);
   expect(await page.getByRole("radio", { name: "Source" }).evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(contentColor);
-  const note = page.getByLabel("Overall note");
+  const note = page.getByLabel("Note to agent");
   await note.fill("Keep this selected draft.");
   await note.evaluate((element) => element.setSelectionRange(5, 9));
   await page.getByRole("button", { name: "Switch to dark theme" }).click();

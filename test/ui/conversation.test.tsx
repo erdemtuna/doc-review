@@ -54,11 +54,11 @@ async function fixture() {
 }
 it("short reply composition groups the same independent overall note without losing permission, selection or IME", async () => {
   const { owner, shell, updateChrome } = await fixture();
-  fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
-  const toggle = screen.getByRole("button", { name: /Overall note \(optional\)/ });
+  fireEvent.click(screen.getByRole("button", { name: "Choose what to send" }));
+  const toggle = screen.getByRole("button", { name: /Note to agent/ });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(toggle);
-  const note = screen.getByRole("textbox", { name: "Overall note" });
+  const note = screen.getByRole("textbox", { name: "Note to agent" });
   fireEvent.change(note, { target: { value: "Retained overall note", selectionStart: 2, selectionEnd: 8 } });
   act(() => { owner.commands.update("note", { intent: "request-change" }); owner.commands.reply("thread"); });
   const reply = screen.getByRole("textbox", { name: "Reply" });
@@ -71,12 +71,12 @@ it("short reply composition groups the same independent overall note without los
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(reply);
   expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
   fireEvent.click(toggle);
-  expect(screen.getByRole("textbox", { name: "Overall note" })).toBe(note);
+  expect(screen.getByRole("textbox", { name: "Note to agent" })).toBe(note);
   expect(note).toHaveValue("Retained overall note");
   expect(owner.getSnapshot().note.intent).toBe("request-change");
   expect(owner.getSnapshot().threads[0].draft?.intent).toBe("discuss");
   act(() => updateChrome({ viewport: { left: 0, top: 0, width: 1440, height: 900 } }));
-  expect(screen.getByRole("textbox", { name: "Overall note" })).toBe(note);
+  expect(screen.getByRole("textbox", { name: "Note to agent" })).toBe(note);
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(reply);
   expect(owner.getSnapshot().threads[0].draft?.composing).toBe(true);
   expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(1);
@@ -84,7 +84,7 @@ it("short reply composition groups the same independent overall note without los
   fireEvent.click(toggle);
   fireEvent.focus(note);
   act(() => updateChrome({ viewport: { left: 0, top: 0, width: 320, height: 400 } }));
-  expect(screen.getByRole("textbox", { name: "Overall note" })).toBe(note);
+  expect(screen.getByRole("textbox", { name: "Note to agent" })).toBe(note);
   expect(toggle).toHaveAttribute("aria-expanded", "true");
   shell.dispose();
 });
@@ -235,16 +235,16 @@ it("discussion messages omit default pills, replies default to no change permiss
 
 it("Feedback counts saved pending items separately from attention and note-only selection with a styled independent permission", async () => {
   const { owner, shell } = await fixture();
-  expect(screen.queryByRole("textbox", { name: "Overall note" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
-  fireEvent.click(screen.getByRole("button", { name: /Overall note \(optional\)/ }));
+  expect(screen.queryByRole("textbox", { name: "Note to agent" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Choose what to send" }));
+  fireEvent.click(screen.getByRole("button", { name: /Note to agent/ }));
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-  const note = screen.getByRole("textbox", { name: "Overall note" });
+  const note = screen.getByRole("textbox", { name: "Note to agent" });
   fireEvent.change(note, { target: { value: "Only the note" } });
   const send = screen.getByRole("button", { name: "Send" });
   expect(send).toHaveTextContent("Send to agent (1)");
-  expect(send).toHaveAccessibleDescription("0 saved messages · 0 pending edits · 1 overall note selected");
+  expect(send).toHaveAccessibleDescription("Selected: 1 note");
   expect(send).toBeEnabled();
   expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
   const permission = screen.getByRole("checkbox", { name: "Request a change" });
@@ -354,10 +354,10 @@ it.each(["new", "reply", "edit"] as const)("%s composer restores Enter, Shift+En
 
 it("overall note keys remain multiline and never save, send or cancel the note", async () => {
   const { owner, shell } = await fixture();
-  fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
-  fireEvent.click(screen.getByRole("button", { name: /Overall note \(optional\)/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Choose what to send" }));
+  fireEvent.click(screen.getByRole("button", { name: /Note to agent/ }));
   const save = vi.spyOn(owner.commands, "saveDraft"), send = vi.spyOn(owner.commands, "send");
-  const note = screen.getByRole("textbox", { name: "Overall note" });
+  const note = screen.getByRole("textbox", { name: "Note to agent" });
   fireEvent.change(note, { target: { value: "Submission only\nSecond line" } });
   for (const event of [{ key: "Enter" }, { key: "Enter", shiftKey: true }, { key: "Escape" }]) {
     expect(fireEvent.keyDown(note, event)).toBe(true);

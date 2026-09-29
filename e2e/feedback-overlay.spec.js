@@ -11,7 +11,7 @@ for (const theme of ["light", "dark"]) {
     for (let i = 0; i < 2; i++) await seedThread(review, ref, `Saved feedback ${i}`);
     await feedback(page);
     await reviewSelection(page);
-    await expect(page.getByRole("button", { name: /Overall note \(optional\)/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: /Note to agent/ })).toHaveAttribute("aria-expanded", "false");
     await overallNote(page);
     const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
     await expect(permission).not.toBeChecked();
@@ -100,7 +100,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
       });
       const reading = await firstVisible();
       await overallNote(page);
-      const note = page.getByRole("textbox", { name: "Overall note", exact: true });
+      const note = page.getByRole("textbox", { name: "Note to agent", exact: true });
       await note.fill("Retain note between overlay openings");
       const noteBox = await note.boundingBox();
       await page.mouse.move(noteBox.x + noteBox.width - 3, noteBox.y + noteBox.height - 3);
@@ -123,7 +123,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
       expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
       expect(await page.locator("#frame").boundingBox()).toEqual(before);
       await feedback(page);
-      await expect(page.getByRole("textbox", { name: "Overall note", exact: true })).toHaveValue("Retain note between overlay openings");
+      await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toHaveValue("Retain note between overlay openings");
       await page.screenshot({ path: info.outputPath(`feedback-overlay-${theme}-${width}.png`) });
       await panel.getByRole("button", { name: "Close", exact: true }).click();
     }
@@ -142,12 +142,12 @@ test("pending and selected cues distinguish exclusions, note-only permission and
   await expect(page.locator(".conversation-thread").getByRole("button", { name: "Not included" })).toBeVisible();
   await expect(page.locator("#toolbarCount")).toHaveText("1");
   await expect(page.locator("#send")).toBeDisabled();
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
-  await page.getByRole("textbox", { name: "Overall note", exact: true }).fill("Only this note requests a change");
+  await page.getByRole("button", { name: /Note to agent/ }).click();
+  await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Only this note requests a change");
   const permission = page.locator("footer").getByRole("checkbox", { name: "Request a change" });
   await expect(permission).not.toBeChecked(); await permission.check();
   await expect(page.locator("#send")).toHaveText("Send to agent (1)");
-  await expect(page.locator("#send")).toHaveAccessibleDescription("0 saved messages · 0 pending edits · 1 overall note selected");
+  await expect(page.locator("#send")).toHaveAccessibleDescription("Selected: 1 note");
   await intercept(page, "list", (route) => failure(route, "Counts cannot be verified"));
   await page.locator("#commentsButton").click();
   await mutate(review, ref, "create-thread", { pageKey: ref.key, target: { kind: "element", anchor: { selector: "body" } }, body: "Remote pending", intent: "discuss" });

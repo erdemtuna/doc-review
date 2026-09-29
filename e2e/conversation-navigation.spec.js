@@ -79,7 +79,7 @@ test("Comments, Your edits and optional note are independent disclosures with au
   await mutate(review, ref, "record-edit", { pageKey: joined.value.pageKey, content: content("Other original", "Exact after") });
   await feedback(page);
   await reviewSelection(page);
-  const noteToggle = page.getByRole("button", { name: /Overall note \(optional\)/ });
+  const noteToggle = page.getByRole("button", { name: /Note to agent/ });
   await expect(noteToggle).toHaveAttribute("aria-expanded", "false");
   const note = await overallNote(page);
   await note.fill("Only this note grants permission");

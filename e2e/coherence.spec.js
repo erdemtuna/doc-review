@@ -124,10 +124,12 @@ test("coherence evidence covers the reported conversation, composition and resul
     }
   }
   await capture("answered-sidebar");
-  await reviewSelection(page);
-  await page.getByRole("button", { name: /Overall note \(optional\)/ }).click();
+  await expect(page.getByRole("button", { name: "Choose what to send", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: /Note to agent/ }).click();
+  await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Choose what to send", exact: true })).toBeHidden();
   await capture("note");
-  await page.getByRole("button", { name: /^Review selection/ }).click();
+  await page.getByRole("button", { name: /Note to agent/ }).click();
   await (await threadAction(page, card, "Beside target")).click();
   await capture("adjacent");
   await (await threadAction(page, card, "Focus")).click();
@@ -153,12 +155,75 @@ test("coherence evidence covers the reported conversation, composition and resul
   await page.locator("#seeChanges").click();
   const changes = page.getByRole("region", { name: "Changes", exact: true });
   await expect(changes).toContainText("No document changes reported.");
+  expect((await changes.getByRole("button", { name: "Open Feedback", exact: true }).boundingBox()).x)
+    .toBe((await changes.locator(".conversation-empty-result p").boundingBox()).x);
   await capture("no-change-results");
   await changes.getByRole("button", { name: "Back to review" }).click();
   await expect(card).toBeVisible();
   await expect(card).toHaveClass(/focused/);
+  await page.locator("#seeChanges").click();
+  await changes.getByRole("button", { name: "Open Feedback", exact: true }).click();
+  await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
+  await expect(changes).toBeHidden();
+  await expect(card).not.toHaveClass(/focused/);
   await page.unroute("**/api/**");
   fs.writeFileSync(info.outputPath("surface-metrics.json"), JSON.stringify(metrics, null, 2));
+});
+
+test("shared composer styles and exact draft survive every desktop host in both themes", async ({ page, review }, info) => {
+  test.setTimeout(90_000);
+  const ref = await openReview(page, review, writeFile(review, "shared-style.html", "<p>A concise target.</p>"));
+  await waitForSdk(page);
+  const { threadId } = await seedThread(review, ref, "Explain the wording.", {
+    kind: "selection", anchor: { quote: "A concise target." },
+  });
+  await sendPending(review, ref); await handled(review, ref); await feedback(page);
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "Reply", exact: true });
+  await editor.fill("Keep my exact draft and independent permission.");
+  await editor.evaluate(node => { window.parityEditor = node; node.setSelectionRange(2, 9); node.dispatchEvent(new Event("select", { bubbles: true })); });
+  const samples = [];
+  for (const [width, height] of [[1366, 800], [1024, 768], [900, 700], [720, 760], [1100, 550]]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ["light", "dark"]) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      let expectedStyles;
+      for (const host of ["feedback", "focus", "adjacent"]) {
+        if (host === "feedback") {
+          const back = card.getByRole("button", { name: "Back to Feedback", exact: true });
+          if (await back.isVisible()) await back.click();
+        } else await (await threadAction(page, card, host === "focus" ? "Focus" : "Beside target")).click();
+        await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", host);
+        // Feedback restores reading position rather than forcing a draft into view.
+        if (host === "feedback") await editor.scrollIntoViewIfNeeded();
+        await expect(editor).toBeInViewport();
+        await page.locator("#theme").focus();
+        await page.mouse.move(0, 0);
+        await expect.poll(() => card.evaluate(node => node.getAnimations({ subtree: true })
+          .some(animation => animation.playState === "running"))).toBe(false);
+        const styles = await card.evaluate(node => {
+          const properties = selector => {
+            const style = getComputedStyle(node.querySelector(selector));
+            return Object.fromEntries(["fontFamily", "fontSize", "lineHeight", "color", "backgroundColor", "borderTopColor", "borderRadius"]
+              .map(key => [key, style[key]]));
+          };
+          return { message: properties(".conversation-body"), source: properties(".conversation-source"),
+            editor: properties("textarea"), action: properties(".conversation-composer-actions > button:last-of-type") };
+        });
+        if (!expectedStyles) expectedStyles = styles;
+        else expect(styles).toEqual(expectedStyles);
+        expect(await editor.evaluate(node => [node === window.parityEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 9]);
+        await expect(card.getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
+        if (host === "feedback") {
+          expect(await page.locator(".conversation-footer-support").evaluate(node => node.scrollHeight <= node.clientHeight)).toBe(true);
+        }
+        samples.push({ host, theme, width, height, styles });
+        await page.screenshot({ path: info.outputPath(`${host}-${theme}-${width}x${height}.png`), animations: "disabled", caret: "initial" });
+      }
+    }
+  }
+  fs.writeFileSync(info.outputPath("shared-style-parity.json"), JSON.stringify(samples, null, 2));
 });
 
 for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and version-safe Undo work in ${host}`, async ({ page, review }, info) => {

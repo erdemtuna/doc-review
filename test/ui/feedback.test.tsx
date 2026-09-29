@@ -23,11 +23,11 @@ function fixture() {
 }
 it("keeps the session note and textarea node across unrelated publications", () => {
   const { context, runtime } = fixture();
-  const note = screen.getByLabelText("Overall note");
+  const note = screen.getByLabelText("Note to agent");
   fireEvent.change(note, { target: { value: "Keep note", selectionStart: 3, selectionEnd: 5 } });
   expect(context.note.text).toBe("Keep note");
   act(() => { context.agent = "working"; runtime.publish(); });
-  expect(screen.getByLabelText("Overall note")).toBe(note);
+  expect(screen.getByLabelText("Note to agent")).toBe(note);
   expect(note).toHaveValue("Keep note");
   expect(screen.getByRole("button", { name: "Feedback delivered" })).toBeDisabled();
 });
@@ -60,7 +60,7 @@ it("keeps save problems visible with Edits collapsed and preserves the note and 
     context.total = 1;
     runtime.publish();
   });
-  const note = screen.getByLabelText("Overall note");
+  const note = screen.getByLabelText("Note to agent");
   fireEvent.change(note, { target: { value: "Still here" } });
   const edit = screen.getByText("Headline");
   fireEvent.click(screen.getByRole("button", { name: "Edits" }));
@@ -70,7 +70,7 @@ it("keeps save problems visible with Edits collapsed and preserves the note and 
   expect(screen.getByRole("alert")).toHaveTextContent("Couldn't save");
   expect(screen.getByRole("alert")).toBeVisible();
   expect(screen.getByRole("button", { name: "Edits" })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.getByLabelText("Overall note")).toBe(note);
+  expect(screen.getByLabelText("Note to agent")).toBe(note);
   expect(note).toHaveValue("Still here");
   fireEvent.click(screen.getByRole("button", { name: "Edits" }));
   expect(screen.getByText("Headline")).toBe(edit);
@@ -79,7 +79,7 @@ it("keeps save problems visible with Edits collapsed and preserves the note and 
 
 it("places End then Send after the note and collapses the empty supporting region", () => {
   fixture();
-  const note = screen.getByLabelText("Overall note");
+  const note = screen.getByLabelText("Note to agent");
   const end = screen.getByRole("button", { name: "End review" });
   const send = screen.getByRole("button", { name: "Nothing to send yet" });
   expect(note.compareDocumentPosition(end) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

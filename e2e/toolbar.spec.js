@@ -25,7 +25,7 @@ test("toolbar preserves authored state and draft identity across themes and save
   await page.locator("#frame").evaluate((element) => { window.originalFrame = element; });
   await feedback(page);
   await overallNote(page);
-  const note = page.getByRole("textbox", { name: "Overall note", exact: true });
+  const note = page.getByRole("textbox", { name: "Note to agent", exact: true });
   await note.fill("Keep this overall note");
   await note.evaluate((element) => {
     window.originalNote = element; element.setSelectionRange(5, 9);
@@ -276,7 +276,7 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
   await frame.getByLabel("Authored-page draft").fill("Keep authored input");
   await feedback(page);
   await overallNote(page);
-  const note = page.getByRole("textbox", { name: "Overall note", exact: true });
+  const note = page.getByRole("textbox", { name: "Note to agent", exact: true });
   await note.fill("Keep the memory-only note");
   await note.evaluate((element) => { window.keptNote = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
   await page.locator("#commentsButton").click();

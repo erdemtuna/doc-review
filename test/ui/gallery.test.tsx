@@ -23,14 +23,14 @@ describe("G1 component vocabulary", () => {
   it("preserves the draft node, text and caret across theme changes", async () => {
     const user = userEvent.setup();
     render(<StrictMode><Gallery /></StrictMode>);
-    const note = screen.getByLabelText<HTMLTextAreaElement>("Overall note");
+    const note = screen.getByLabelText<HTMLTextAreaElement>("Note to agent");
     await user.clear(note);
     await user.type(note, "Keep this sample draft");
     note.setSelectionRange(5, 9);
     await user.click(screen.getByRole("button", { name: "Switch to dark theme" }));
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem("doc-review:theme")).toBe("dark");
-    expect(screen.getByLabelText("Overall note")).toBe(note);
+    expect(screen.getByLabelText("Note to agent")).toBe(note);
     expect(note.value).toBe("Keep this sample draft");
     expect([note.selectionStart, note.selectionEnd]).toEqual([5, 9]);
   });
@@ -61,7 +61,7 @@ describe("G1 component vocabulary", () => {
     const user = userEvent.setup();
     render(<StrictMode><Gallery /></StrictMode>);
     const trigger = screen.getByRole("button", { name: "Try confirmation" });
-    const note = screen.getByLabelText<HTMLTextAreaElement>("Overall note");
+    const note = screen.getByLabelText<HTMLTextAreaElement>("Note to agent");
     const before = note.value;
     await user.click(trigger);
     expect(screen.getByRole("alertdialog")).toBeTruthy();
