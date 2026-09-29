@@ -55,7 +55,7 @@ permission for that request only; the agent can answer, clarify, apply, or defer
 4. **Check the response and result.** Each submitted message gets an inline reply,
    each direct edit gets an exact outcome, and the submission gets one result note.
    Find the latest result above the conversations and choose **View reply** or **View changes**. Use
-   **History** in the Feedback header for earlier submissions and the agent command. Choose
+   **History** in the **Feedback | History** switch for earlier submissions. Choose
    **Content** or **Source** to compare the submission's captured
    before and after content, then continue reviewing. Comparisons show observed
    changes, not a guarantee that every request was resolved.

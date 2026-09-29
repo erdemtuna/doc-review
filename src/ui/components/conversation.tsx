@@ -474,9 +474,10 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   useLayoutEffect(() => {
     if (inventory.current) inventory.current.scrollTop = owner.readingPosition(historyVisible ? "history" : "inventory", "feedback");
   }, [historyVisible]);
-  const toggleHistory = () => {
+  const selectHistory = (value: boolean) => {
+    if (value === historyVisible) return;
     if (inventory.current) owner.rememberReadingPosition(historyVisible ? "history" : "inventory", "feedback", inventory.current.scrollTop);
-    setHistoryOpen(value => !value);
+    setHistoryOpen(value);
   };
   const composerBounds = chrome.composer && {
     left: chrome.composer.left, top: chrome.composer.top, width: chrome.composer.width, height: chrome.composer.height,
@@ -594,12 +595,15 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         if (contextual) owner.commands.cancelDraft("new"); else owner.commands.open(false);
       }
     }}>
-    <header className="conversation-panel-header" hidden={!!snapshot.focusId || contextual}><h2>{historyVisible ? "History" : "Feedback"}</h2>
-      <Button variant="ghost" size="sm" aria-label={historyVisible ? "Back to Feedback" : "History"} aria-expanded={historyVisible}
-        aria-description={!historyVisible && chrome.captureFailures.length ? `${chrome.captureFailures.length} capture issues in History` : undefined}
-        aria-controls="conversationHistory" onClick={toggleHistory}>{historyVisible ? "Back to Feedback" : "History"}
-        {!historyVisible && chrome.captureFailures.length > 0 && <Badge variant="outline" aria-label={`${chrome.captureFailures.length} capture issues`}>{chrome.captureFailures.length}</Badge>}
-      </Button>
+    <header className="conversation-panel-header" hidden={!!snapshot.focusId || contextual}>
+      <SegmentedControl variant="navigation" aria-label="Feedback destination">
+        <SegmentedControlItem selected={!historyVisible} aria-controls="conversationInventory" onClick={() => selectHistory(false)}>Feedback</SegmentedControlItem>
+        <SegmentedControlItem selected={historyVisible} aria-label="History"
+          aria-description={chrome.captureFailures.length ? `${chrome.captureFailures.length} capture issues in History` : undefined}
+          aria-controls="conversationHistory" onClick={() => selectHistory(true)}>History
+          {chrome.captureFailures.length > 0 && <Badge variant="outline" aria-label={`${chrome.captureFailures.length} capture issues`}>{chrome.captureFailures.length}</Badge>}
+        </SegmentedControlItem>
+      </SegmentedControl>
       <Button variant="ghost" size="icon" aria-label="Close" title="Close feedback" onClick={() => owner.commands.open(false)}><Icon name="x" /></Button></header>
     <div className="conversation-overview" hidden={contextual}>
     {chrome.anchorNotice && snapshot.host !== "adjacent" &&
@@ -629,7 +633,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     </div>
     {(snapshot.captureNotice || chrome.captureError) && <p className="conversation-notice" role="status">{snapshot.captureNotice || chrome.captureError}</p>}
     </div>
-    <div className="conversation-inventory" ref={inventory} onScroll={() => {
+    <div id="conversationInventory" className="conversation-inventory" ref={inventory} onScroll={() => {
       if (snapshot.open && !snapshot.focusId && inventory.current) {
         owner.rememberReadingPosition(historyVisible ? "history" : "inventory", "feedback", inventory.current.scrollTop);
         if (historyVisible) return;

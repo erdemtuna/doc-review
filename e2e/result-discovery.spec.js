@@ -158,7 +158,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await submission.locator(":scope > summary").click();
   await expect(submission).toContainText("Saved by you before Send; no additional agent edit reported.");
   await expect(submission.getByText(/^already-saved:/)).toHaveCount(0);
-  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   const measurements = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
@@ -272,7 +272,7 @@ test("header History preserves mounted reply/note permissions and full results w
   await page.locator("#commentsButton").click();
   await expect(page.getByRole("region", { name: "Submission history" })).toBeVisible();
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
-  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   await expect(reply).toBeVisible(); await expect(note).toHaveValue("A separate note");
   expect(await reply.evaluate(node => [node === window.historyReply, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 7]);
   await expect(card.getByRole("checkbox", { name: "Request a change" })).toBeChecked();

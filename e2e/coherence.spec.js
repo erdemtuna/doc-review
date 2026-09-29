@@ -2,6 +2,52 @@ import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, beginComment, conversation } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
+test("Feedback and History share Review and Changes navigation styling and stay reachable at every size", async ({ page, review }, info) => {
+  test.setTimeout(60_000);
+  await openReview(page, review, writeFile(review, "panel-navigation.html", "<p>Review navigation</p>"));
+  await waitForSdk(page); await feedback(page);
+  const destination = page.getByRole("group", { name: "Feedback destination" });
+  const feedbackButton = destination.getByRole("button", { name: "Feedback", exact: true });
+  const historyButton = destination.getByRole("button", { name: "History", exact: true });
+  const history = page.getByRole("region", { name: "Submission history" });
+  await feedbackButton.focus(); await feedbackButton.press("Tab");
+  await expect(historyButton).toBeFocused();
+  await historyButton.press("Enter"); await historyButton.press("Enter");
+  await expect(history).toBeVisible();
+  await expect(historyButton).toHaveAttribute("aria-pressed", "true");
+  for (const [width, height] of [[1280, 720], [900, 600], [390, 480], [320, 400]]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ["light", "dark"]) {
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      for (const pane of ["Feedback", "History"]) {
+        const selected = pane === "Feedback" ? feedbackButton : historyButton;
+        const inactive = pane === "Feedback" ? historyButton : feedbackButton;
+        await selected.click(); await selected.click();
+        await expect(selected).toHaveAttribute("aria-pressed", "true");
+        await expect(inactive).toHaveAttribute("aria-pressed", "false");
+        await expect(feedbackButton).toBeInViewport(); await expect(historyButton).toBeInViewport();
+        if (pane === "Feedback") {
+          await expect(history).toBeHidden();
+          await expect(page.locator("#send")).toBeInViewport();
+        } else await expect(history).toBeVisible();
+        await expect.poll(() => page.evaluate(() => {
+          const style = (element) => {
+            const css = getComputedStyle(element), inset = getComputedStyle(element, "::before");
+            return [css.minHeight, css.borderRadius, css.paddingLeft, css.paddingRight, css.color, inset.backgroundColor, inset.borderRadius];
+          };
+          return JSON.stringify(style(document.querySelector(".conversation-panel-header [aria-pressed='true']"))) ===
+            JSON.stringify(style(document.querySelector("#latestVersion")));
+        })).toBe(true);
+        const bounds = await destination.boundingBox();
+        const close = await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).boundingBox();
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(close.x);
+        expect(Math.abs(bounds.y - close.y)).toBeLessThan(1);
+        await page.screenshot({ path: info.outputPath(`panel-navigation-${pane.toLowerCase()}-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+      }
+    }
+  }
+});
+
 test("compact inline editing preserves one editor across hosts and waiting hides internal bookkeeping", async ({ page, review }, info) => {
   const ref = await openReview(page, review, writeFile(review, "compact-inline.html", "<h1>Review notes</h1><p id='copy'>A clear passage to discuss.</p>"));
   await waitForSdk(page);
@@ -89,7 +135,7 @@ test("compact inline editing preserves one editor across hosts and waiting hides
       await page.screenshot({ path: info.outputPath(`clean-history-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
     }
   }
-  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   await expect(blockers).toBeHidden();
   expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);
   const work = (await conversation(review, ref, "poll")).submission;
@@ -317,7 +363,7 @@ test("coherence evidence covers the reported conversation, composition and resul
   await card.getByRole("button", { name: "Back to Feedback", exact: true }).click();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await capture("history");
-  await page.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   const latest = page.getByRole("region", { name: "Latest submission result" });
   await expect(latest).toContainText("Agent replied to 2 conversations");
   await latest.getByRole("button", { name: "View replies" }).click();

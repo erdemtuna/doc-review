@@ -15,11 +15,10 @@
   .conversation-panel.is-adjacent .conversation-thread-title { border: 0; padding-left: 0; }
   .conversation-panel [hidden], .conversation-panel[hidden] { display: none !important; }
   .conversation-panel-header, .conversation-thread > header, .conversation-comparison > header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
-  .conversation-panel-header h2, .conversation-comparison h2 { flex: 1; margin: 0; font-size: 16px; }
+  .conversation-comparison h2 { flex: 1; margin: 0; font-size: 16px; }
   .conversation-panel-header { flex-shrink: 0; padding: 12px; }
-  .conversation-panel-header h2 { font-size: 17px; }
+  .conversation-panel-header .segmented-control { margin-right: auto; }
   .conversation-panel.is-adjacent .conversation-panel-header { padding: 8px; }
-  .conversation-panel.is-adjacent .conversation-panel-header h2 { font-size: 16px; }
   .conversation-overview { flex: 0 1 auto; min-height: 0; overflow: auto; }
   .conversation-status { padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
   .conversation-status span { color: var(--muted-foreground); }
@@ -190,11 +189,8 @@
   @media (max-width: 480px) and (max-height: 550px) {
     .durable-review #modeButton { padding-inline: 8px; gap: 4px; }
     .durable-review #modeButton > svg:first-child { display: none; }
-    .conversation-panel:not(.has-focus):not(.is-composing) > .conversation-panel-header {
-      position: absolute; top: 0; right: 0; padding: 0; width: 120px; height: 36px; border: 0; z-index: 2; flex-wrap: nowrap;
-    }
-    .conversation-panel.has-history:not(.has-focus):not(.is-composing) > .conversation-panel-header { position: static; width: auto; flex-shrink: 0; padding-inline: 8px; }
-    .conversation-panel-header h2, .conversation-footer .conversation-composer > label:first-child {
+    .conversation-panel-header { padding: 4px 8px; flex-wrap: nowrap; }
+    .conversation-footer .conversation-composer > label:first-child {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
     }
     .conversation-thread .conversation-composer > label:first-child {
@@ -206,7 +202,7 @@
       position: sticky; top: 0; z-index: 1; background: var(--card);
     }
     .conversation-overview { display: flex; flex-direction: column; flex-shrink: 0; max-height: 32%; }
-    .conversation-filters { order: -1; padding: 4px 124px 4px 8px; gap: 4px; flex-shrink: 0; }
+    .conversation-filters { order: -1; padding: 4px 8px; gap: 4px; flex-shrink: 0; }
     .conversation-filters .segmented-control { gap: 4px; }
     .conversation-inventory { padding: 8px 12px; }
     .conversation-section-toggle { height: 24px; margin-bottom: 4px; }
@@ -220,7 +216,6 @@
 }
 @layer utilities {
   @media (max-width: 480px) and (max-height: 550px) {
-    .conversation-panel-header [aria-controls="conversationHistory"],
     .conversation-filters .segmented-control button { padding-inline: 6px; }
     .conversation-panel-header [data-slot="badge"] { padding-inline: 2px; }
   }

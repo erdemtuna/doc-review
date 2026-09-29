@@ -304,7 +304,9 @@ do not render comparison tools. Summary widths stay readable, while actual diffs
 may expand. Lifecycle status is centered in the desktop toolbar, separate from View/Edit.
 Waiting has one centered toolbar status rather than repeated queued/sent notices.
 Feedback contains no waiting explanation or technical disclosure after Send.
-The header's **History** destination holds submission status, notes and results without
+The panel header uses the same navigation SegmentedControl as **Review | Changes**:
+**Feedback | History** stay visible, and selecting the current destination is a no-op.
+The **History** destination holds submission status, notes and results without
 CLI commands, raw identifiers, receipt JSON or technical disclosures.
 History uses the shared Timeline/TimelineItem components as a newest-first vertical
 list with a continuous connector and Lucide status markers. Amber clock/inbox markers

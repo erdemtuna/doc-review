@@ -37,7 +37,7 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
   }, [state.modeMenuOpen]);
   const destinations = <div className="shell-destinations">
       <Brand />
-      <SegmentedControl aria-label="Review destination">
+      <SegmentedControl variant="navigation" aria-label="Review destination">
         <SegmentedControlItem id="latestVersion" selected={!state.comparing}
           aria-controls="frame" disabled={state.ended && !readOnlyNavigation}
           onClick={() => commands.setComparing(false)}>Review</SegmentedControlItem>

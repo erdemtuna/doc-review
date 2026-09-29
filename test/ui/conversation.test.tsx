@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createConversationController } from "../../src/conversation-controller";
 import { createControllerStore } from "../../src/controller-store";
 import type { ConversationShell } from "../../src/conversation-shell";
@@ -52,6 +52,29 @@ async function fixture() {
   render(<StrictMode><ConversationApp shell={shell} /></StrictMode>);
   return { owner, shell, status, updateChrome };
 }
+it("Feedback and History are stable selected destinations and keep the same reply editor", async () => {
+  const { owner, shell } = await fixture();
+  act(() => owner.commands.reply("thread"));
+  const editor = screen.getByRole("textbox", { name: "Reply" });
+  fireEvent.change(editor, { target: { value: "Retain this reply", selectionStart: 2, selectionEnd: 6 } });
+  const destinations = within(screen.getByRole("group", { name: "Feedback destination" }));
+  const feedback = destinations.getByRole("button", { name: "Feedback" });
+  const history = destinations.getByRole("button", { name: "History" });
+  expect(feedback).toHaveAttribute("aria-pressed", "true");
+  expect(history).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(history); fireEvent.click(history);
+  expect(history).toHaveAttribute("aria-pressed", "true");
+  expect(feedback).toHaveAttribute("aria-pressed", "false");
+  expect(editor).toBeInTheDocument(); expect(editor).not.toBeVisible();
+  expect(screen.getByRole("region", { name: "Submission history" })).toBeVisible();
+  fireEvent.click(feedback); fireEvent.click(feedback);
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  expect(editor).toHaveValue("Retain this reply");
+  expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(2);
+  expect(feedback).toHaveAttribute("aria-pressed", "true");
+  shell.dispose();
+});
+
 it("short reply composition groups the same independent overall note without losing permission, selection or IME", async () => {
   const { owner, shell, updateChrome } = await fixture();
   expect(screen.queryByRole("button", { name: "Choose what to send" })).toBeNull();

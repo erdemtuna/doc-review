@@ -336,7 +336,8 @@ originating workspace locally, even if a comparison request fails or is still
 loading. The toolbar's **Changes** destination selects change results, not
 discussion-only batches. **History** in the Feedback
 header opens earlier submissions without replacing your reply or overall-note
-editors. Use **Back to Feedback** to return to their retained text, permissions and
+editors. The **Feedback | History** segmented switch matches **Review | Changes**;
+choose **Feedback** to return to retained text, permissions and
 reading position. Completed submissions are collapsed in **History**;
 expand one for its note, result, named pages and **Content changes** or
 **Source changes** actions. History is a newest-first vertical timeline with labeled,

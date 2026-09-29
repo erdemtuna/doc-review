@@ -127,7 +127,7 @@ export async function mutate(review, reference, operation, fields = {}) {
 export async function feedback(page) {
   if (await page.locator("#commentsButton").getAttribute("aria-expanded") !== "true") await page.locator("#commentsButton").click();
   await expect(page.getByRole("complementary", { name: "Feedback" })).toBeVisible();
-  const back = page.locator(".conversation-panel-header").getByRole("button", { name: "Back to Feedback", exact: true });
+  const back = page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true });
   if (await back.isVisible()) await back.click();
 }
 
