@@ -91,7 +91,9 @@ reattachment control. A recovered target does not reopen a card automatically.
 | Delete a never-submitted thread | **Conversation actions → Delete thread**, then confirm deletion |
 
 Saving queues a message. Every new message starts with **Request a change**
-unchecked. Saved change requests display **Change requested**; ordinary discussions
+unchecked. Saved change requests display a document-and-pencil icon labelled
+**Change requested** on hover and for assistive technology. Unsent messages show
+a compact **Pending** badge; ordinary discussions
 and answered replies need no status pill. Other response outcomes remain explicit;
 only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a

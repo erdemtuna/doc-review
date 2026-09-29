@@ -51,7 +51,7 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await page.locator("#commentsButton").click();
   await message(page, "Why this wording?");
   await expect(page.getByText("Discussion", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".conversation-exchange").getByText("Not sent yet", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toBeVisible();
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const picked = await call(review, { ...ref, operation: "poll" });
@@ -81,7 +81,8 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await expect(other.getByRole("alertdialog")).toContainText("for every tab");
   await other.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
-  await expect(page.getByText("Not sent · read-only")).toBeVisible();
+  await expect(page.getByText("Pending (read-only)", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pending (read-only)", { exact: true })).toHaveAttribute("title", /review has ended and is read-only/);
   expect(errors).toEqual([]);
 });
 

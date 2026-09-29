@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { createPortal } from "react-dom";
 import type { ConversationShell } from "../../conversation-shell.js";
 import type { ConversationController, ConversationDraft } from "../../conversation-controller.js";
-import { intentBadge } from "../../contracts/feedback.js";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Textarea } from "./ui/textarea";
@@ -13,7 +12,7 @@ import { ChoiceMenu } from "./ui/choice-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { Checkbox } from "./ui/checkbox";
 import { Icon } from "./icon";
-import { ConversationAuthor, ConversationMenu, ConversationTime, ConversationSource } from "./conversation-controls";
+import { ConversationAuthor, ConversationIntent, ConversationMenu, ConversationTime, ConversationSource } from "./conversation-controls";
 import { EditEvidence, ResultActions, editOutcomeSummary, responseOutcomeLabels, resultAvailability, resultHeading } from "./conversation-results";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 
@@ -351,8 +350,11 @@ function ThreadCard({ owner, item, snapshot, shell, chrome }: {
         {item.contextError && <p className="conversation-context-error" role="alert">{item.contextError}</p>}
         {item.exchanges.map(({ reviewer, response }, index) => <section className="conversation-exchange" key={reviewer.messageId} data-message={reviewer.messageId} tabIndex={-1}>
           <div className="conversation-meta inventory-meta"><ConversationAuthor role="You" /><ConversationTime value={reviewer.createdAt} />
-            {reviewer.intent === "request-change" && item.draft?.messageId !== reviewer.messageId && <Badge variant="outline">{intentBadge(reviewer.intent)}</Badge>}
-            {reviewer.submissionId === null && <span className="conversation-pending">{snapshot.review?.state === "ended" ? "Not sent · read-only" : "Not sent yet"}</span>}
+            {reviewer.intent === "request-change" && item.draft?.messageId !== reviewer.messageId && <ConversationIntent />}
+            {reviewer.submissionId === null && <Badge variant="secondary" className="conversation-pending"
+              title={snapshot.review?.state === "ended" ? "Not sent; this review has ended and is read-only" : "Saved feedback waiting to be sent"}>
+              Pending{snapshot.review?.state === "ended" && <span className="sr-only"> (read-only)</span>}
+            </Badge>}
             {item.draft?.messageId === reviewer.messageId && snapshot.review?.state === "open" && <Button variant="ghost" size="icon-xs" className="conversation-close-edit"
               aria-label="Close edit" disabled={disabled || snapshot.savingDraftIds.includes(id) || item.draft.composing}
               onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></Button>}
@@ -398,7 +400,7 @@ function History({ snapshot, shell, visible }: { snapshot: Snapshot; shell: Conv
       const detail = snapshot.submissions.find((entry) => entry.id === item.submissionId)?.value;
       return <details key={item.submissionId} open={item.result ? undefined : true} className="conversation-submission">
         <summary>{item.result ? (detail ? resultHeading(detail) : "Agent response") : item.state === "queued" ? "Waiting for delivery" : item.state === "delivered" ? "Waiting for a response" : "Abandoned batch"} <ConversationTime value={item.createdAt} /></summary>
-        {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <Badge variant="outline">{intentBadge(detail.submission.overallNote.intent)}</Badge>}</h4>
+        {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <ConversationIntent />}</h4>
           <p>{detail.submission.overallNote.body}</p></section>}
         {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
         {detail?.result && <ResultActions detail={detail} shell={shell} />}

@@ -38,6 +38,8 @@ test("identical pending and handled cards retain readable content and record den
         expect(Math.abs(actionsBox.y - titleBox.y)).toBeLessThan(8);
         await expect(card.locator(".conversation-target-quote")).toHaveAttribute("title", `Selected text: "${quote}"`);
         await expect(card.locator(".conversation-source")).toContainText(quote);
+        await expect(card.getByText("Pending", { exact: true })).toHaveCount(state === "pending" ? 1 : 0);
+        if (state === "pending") await expect(card.getByText("Pending", { exact: true })).toHaveAttribute("data-slot", "badge");
         await expect(card.locator(".conversation-meta").getByText(/^(Discussion|answered)$/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -122,12 +124,12 @@ test("only meaningful permission and response outcomes remain attached to their 
     const label = { answered: "Answered", applied: "Change reported", deferred: "Deferred", "clarification-needed": "Needs clarification" }[item.outcome];
     await expect(card.locator(".conversation-response .conversation-meta").getByText(label, { exact: true }))
       .toHaveCount(item.outcome === "answered" ? 0 : 1);
-    await expect(card.locator(".conversation-exchange > .conversation-meta").getByText("Change requested", { exact: true }))
+    await expect(card.locator(".conversation-exchange > .conversation-meta").getByRole("img", { name: "Change requested", exact: true }))
       .toHaveCount(item.intent === "request-change" ? 1 : 0);
   }
 });
 
-test("card filters keep selected paint and defaults; actions are keyboard menus with guarded confirmations and independent permission", async ({ page, review }) => {
+test("card filters keep selected paint and defaults; actions are keyboard menus with guarded confirmations and independent permission", async ({ page, review }, info) => {
   const ref = await openReview(page, review, writeFile(review, "card-actions.html", '<!doctype html><p id="copy">A concise target</p>'));
   await waitForSdk(page);
   const resolved = await seedThread(review, ref, "A handled discussion");
@@ -176,14 +178,25 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await card.getByRole("checkbox", { name: "Request a change" }).check();
   await card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(editor).toHaveCount(0);
-  await expect(card.getByText("Change requested", { exact: true })).toBeVisible();
+  const change = card.getByRole("img", { name: "Change requested", exact: true });
+  await expect(change).toBeVisible();
+  await expect(change).toHaveAttribute("title", "Change requested");
+  await expect(change).toHaveText("");
+  await change.focus(); await expect(change).toBeFocused();
   await expect(card.getByText("Discussion", { exact: true })).toHaveCount(0);
-  await expect(card.locator(".conversation-exchange").first().getByText("Change requested", { exact: true })).toHaveCount(0);
-  await expect(card.locator(".conversation-exchange").first().getByText("Not sent yet", { exact: true })).toBeVisible();
+  await expect(card.locator(".conversation-exchange").first().getByRole("img", { name: "Change requested", exact: true })).toHaveCount(0);
+  await expect(card.locator(".conversation-exchange").first().getByText("Pending", { exact: true })).toBeVisible();
   await feedback(page);
   await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
   await expect(page.locator("#send")).toHaveText("Send to agent (2)");
   await expect(page.locator("#toolbarCount")).toHaveText("2");
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    await expect(card.getByText("Pending", { exact: true })).toHaveCount(2);
+    await expect(card.getByText("Pending", { exact: true }).first()).toHaveAttribute("data-variant", "secondary");
+    await expect(page.locator("#send")).toBeEnabled();
+    await page.screenshot({ path: info.outputPath(`pending-intent-${theme}.png`), caret: "initial", animations: "disabled" });
+  }
 });
 
 test("card timestamp and menu focus handoffs leave real authored input usable and preserve the editor", async ({ page, review }) => {

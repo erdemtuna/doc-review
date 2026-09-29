@@ -7,6 +7,7 @@ const source = JSON.parse(fs.readFileSync(path.join(root, "node_modules", "lucid
 const icons = {
   eye: "eye",
   pencil: "pencil",
+  filePenLine: "file-pen-line",
   plus: "plus",
   minus: "minus",
   locate: "locate",

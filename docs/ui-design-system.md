@@ -20,8 +20,11 @@ are unboxed, share author/avatar/time metadata and retain 13px body text.
 Cards use 8px padding, with only 4px additional inset in the adjacent panel.
 Focused transcripts reserve a 4px horizontal paint gutter for complete textarea
 focus outlines without indenting message content or changing editor identity.
-Ordinary Discussion and answered states have no pill; explicit Change requested,
-non-default response outcomes, pending-unsent and read-only cues remain per-message.
+Ordinary Discussion and answered states have no pill. A document-and-pencil icon
+with a Change requested tooltip and accessible name represents explicit edit
+permission; a secondary Pending badge identifies unsent messages. Ended pending
+messages retain read-only context in their tooltip and screen-reader text.
+Non-default response outcomes remain per-message.
 Shared `ConversationSource` shows a one-line excerpt beside the compact action row,
 without verbose source-type labels. Full source descriptions remain in tooltips.
 Legacy generated location labels use their heading stem without rewriting anchors.
@@ -42,7 +45,7 @@ pages merge by stable identity; reconnect must not leave an unreachable gap.
 Add comment / Add reply / Update comment retain unsent feedback; Send submits all saved pending items across
 authorized review pages. Immutable sent corrections are new messages.
 Each new message/note defaults to Discussion. The change checkbox appears only
-during composition/edit; saved Change requested intent is a badge, not an editable permission.
+during composition/edit; saved Change requested intent is an icon, not an editable permission.
 
 One mounted thread/editor moves across Feedback, Focus and adjacent geometry.
 Editing an unsent message replaces its body inside that exchange, never appending a

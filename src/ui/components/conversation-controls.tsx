@@ -11,6 +11,12 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
   return <span className="conversation-author"><span className="conversation-avatar" aria-hidden="true">{role === "You" ? "Y" : "A"}</span><strong>{role}</strong></span>;
 }
 
+export function ConversationIntent() {
+  return <span className="conversation-intent-icon" role="img" aria-label="Change requested" title="Change requested" tabIndex={0}>
+    <Icon name="filePenLine" size={14} />
+  </span>;
+}
+
 export function ConversationSource({ target }: { target: ConversationTarget }) {
   if (target.kind === "selection") return <div className="conversation-source">
     <span className="conversation-target-quote" title={`Selected text: "${target.anchor.quote}"`}>"{target.anchor.quote}"</span>
