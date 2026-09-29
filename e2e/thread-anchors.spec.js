@@ -58,6 +58,8 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await expect(first).toBeVisible();
   await first.getByRole("button", { name: "Resolve", exact: true }).click();
   await expect(first).toHaveAttribute("data-status", "resolved");
+  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await feedback(page);
   await expect(frame.getByRole("button", { name: "Open 2 conversations", exact: true })).toHaveCount(0);
   await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
   if (kind === "selection") {

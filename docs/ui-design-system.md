@@ -19,6 +19,9 @@ surface. Muted surfaces and the badge distinguish resolution without bright succ
 colors, unread dots, or reduced text/control opacity. Explicit expansion survives
 refreshes; reopening or Undo expands the conversation again. A remote resolution
 never hides an existing local draft.
+An adjacent popup closes on confirmed resolution and returns keyboard focus to
+Feedback. Opening Feedback reveals the collapsed resolved card and version-safe
+Undo; resolution does not close the regular Feedback or Focus sidebar.
 Resolved threads retain target geometry for navigation but do not paint document
 highlights or count toward document badges. Reopen/Undo restores annotations;
 resolving one of several threads at a shared target leaves its open peers marked.

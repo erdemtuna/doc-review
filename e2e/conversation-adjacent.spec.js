@@ -353,9 +353,11 @@ test("loaded exchanges and reading anchor survive host transfers; resolved conve
   await activate(page, id);
   await expect(card(page, id).locator("[data-message]")).toHaveCount(55);
   await mutate(review, ref, "set-thread-status", { threadId: id, status: "resolved" });
+  await expect(page.locator(".conversation-panel")).toBeHidden();
+  await page.locator("#commentsButton").click();
   await expect(await threadAction(page, card(page, id), "Reopen")).toBeEnabled();
   await expect(card(page, id).getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
-  await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
+  await expect(panel(page)).toHaveAttribute("data-host", "feedback");
 });
 
 test("exact repeated source saves through a highlighted block never serialize conversation controls or discard its draft", async ({ page, review }) => {

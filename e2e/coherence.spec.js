@@ -484,6 +484,10 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   for (const [width, height] of [[1024, 768], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (host === "adjacent" && await page.locator(".conversation-panel").getAttribute("data-host") !== "adjacent") {
+      await (await threadAction(page, card, "Beside target")).click();
+    }
+    const popup = await page.locator(".conversation-panel").getAttribute("data-host") === "adjacent";
     const bottomResolve = card.getByRole("button", { name: "Resolve conversation", exact: true });
     const reply = card.getByRole("button", { name: "Reply", exact: true });
     await bottomResolve.scrollIntoViewIfNeeded();
@@ -502,12 +506,20 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
       await bottomResolve.press("Enter");
     }
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    if (popup) {
+      await expect(page.locator(".conversation-panel")).toBeHidden();
+      await expect(page.locator("#commentsButton")).toBeFocused();
+      await expect(page.getByText("Conversation resolved.", { exact: true })).toBeHidden();
+      await page.screenshot({ path: info.outputPath(`dismissed-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+      await feedback(page);
+      await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
+    }
     await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
     await expect(card).toHaveAttribute("data-status", "resolved");
     await expect(card.locator(".conversation-resolved-status")).toHaveText("Resolved");
     await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(card.locator(".conversation-thread-content")).toBeHidden();
-    if (theme === "dark") await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
+    if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
     await expect(card.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
     expect((await card.boundingBox()).height).toBeLessThan(openHeight);
     const undo = page.getByRole("button", { name: "Undo resolve", exact: true });

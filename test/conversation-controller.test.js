@@ -685,12 +685,38 @@ test("Resolve is one accepted mutation with version-bound Undo and no confirmati
   await assert.rejects(c.owner.commands.undoResolve(), /review has changed/i);
 });
 
+test("Resolve dismisses only the adjacent popup and retains Feedback access and Undo", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Ready to finish");
+  await c.owner.commands.send();
+  await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
+  await c.owner.refresh();
+  for (const host of ["feedback", "focus", "adjacent"]) {
+    if (host === "adjacent") {
+      c.owner.commands.filter("resolved");
+      c.owner.commands.adjacent(id);
+    } else c.owner.commands.focus(host === "focus" ? id : null);
+    await c.owner.commands.resolve(id);
+    const state = c.owner.getSnapshot();
+    assert.equal(state.open, host !== "adjacent");
+    assert.equal(state.host, host === "adjacent" ? "feedback" : host);
+    assert.equal(state.focusId, host === "focus" ? id : null);
+    assert.equal(state.threads[0].expanded, false);
+    assert.equal(state.filters.resolved, true);
+    assert.equal(state.resolutionUndo.threadId, id);
+    c.owner.commands.open();
+    await c.owner.commands.undoResolve();
+    assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
+  }
+});
+
 test("uncertain Resolve offers Undo only after its exact receipt is reconciled", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Answered");
   await c.owner.commands.send();
   await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
   await c.owner.refresh();
+  c.owner.commands.adjacent(id);
   let first = true;
   c.intercept(async (body, response) => {
     if (first && body.operation === "set-thread-status") {
@@ -699,12 +725,16 @@ test("uncertain Resolve offers Undo only after its exact receipt is reconciled",
     return response;
   });
   await assert.rejects(c.owner.commands.resolve(id), /Lost accepted/);
+  assert.equal(c.owner.getSnapshot().open, true);
+  assert.equal(c.owner.getSnapshot().host, "adjacent");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
   assert.equal(c.owner.getSnapshot().resolutionUndo, null);
   const requestId = c.owner.getSnapshot().uncertain.requestId;
   await c.owner.commands.reconcile(false);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
+  assert.equal(c.owner.getSnapshot().open, false);
+  assert.equal(c.owner.getSnapshot().host, "feedback");
   assert.equal(c.owner.getSnapshot().resolutionUndo.threadId, id);
   assert.deepEqual(new Set(c.calls.filter(body => body.operation === "set-thread-status").map(body => body.requestId)), new Set([requestId]));
 });
@@ -715,14 +745,17 @@ test("remote resolution collapses once but never hides a local reply draft", asy
   await c.owner.commands.send();
   await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
   await c.owner.refresh();
+  c.owner.commands.adjacent(id);
   await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "resolved" });
   await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().open, false);
   assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
   assert.equal(c.owner.getSnapshot().threads[0].attention, false);
   c.owner.commands.collapse(id);
   await c.owner.refresh();
   assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
   await c.owner.commands.resolve(id);
+  c.owner.commands.adjacent(id);
   c.owner.commands.reply(id);
   c.owner.commands.update(id, { text: "Local draft", selectionStart: 1, selectionEnd: 5 });
   await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "resolved" });
@@ -731,6 +764,8 @@ test("remote resolution collapses once but never hides a local reply draft", asy
   assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
   assert.equal(c.owner.getSnapshot().threads[0].draft.text, "Local draft");
   assert.equal(c.owner.getSnapshot().threads[0].draft.selectionEnd, 5);
+  assert.equal(c.owner.getSnapshot().open, true);
+  assert.equal(c.owner.getSnapshot().host, "adjacent");
 });
 
 test("Resolve pending guards and stale mutations retain the thread and local draft", async (t) => {

@@ -114,6 +114,8 @@ Resolving automatically collapses the conversation into a subdued card with a
 check-circle **Resolved** badge. Expand it anytime to read the discussion without
 reopening it. Reopen and Undo expand the conversation again. Resolution in another
 tab never hides your local reply draft.
+Resolving from the popup beside the document dismisses it automatically. Open
+Feedback to find the resolved conversation or use Undo resolve.
 Resolved threads no longer highlight the document or contribute to its conversation
 badges. Open threads at the same passage keep their highlights. Reopen or Undo
 restores the highlight; Show in document still locates resolved discussions.

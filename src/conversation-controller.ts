@@ -210,7 +210,13 @@ export function createConversationController(options: Options) {
       fingerprints.set(id, fingerprint);
       const previous = threads.find(item => item.thread.threadId === id);
       if (thread.thread.status === "resolved" && previous?.thread.status !== "resolved") {
-        if (!drafts.has(id)) collapsed.add(id);
+        if (!drafts.has(id)) {
+          collapsed.add(id);
+          if (host === "adjacent" && focusId === id) {
+            revealRequest++; open = false; focusId = null; host = "feedback";
+            filters = { ...filters, resolved: true };
+          }
+        }
         attention.delete(id);
       } else if (thread.thread.status === "open" && previous?.thread.status === "resolved") {
         collapsed.delete(id);
