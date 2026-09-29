@@ -184,7 +184,8 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
   await page.frameLocator("#frame").locator("body").evaluate(() => window.scrollTo(0, 1000));
   await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
   await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeEnabled();
-  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toHaveAttribute("title", /offscreen/);
+  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toHaveAttribute("title", "Show the exact passage");
+  await expect(card(page, id).locator(".conversation-target-status")).toHaveCount(0);
   await card(page, id).getByRole("button", { name: "Show in document" }).click();
   await expect(mark(page, id)).toBeInViewport();
   await expect(panel(page)).toBeHidden();

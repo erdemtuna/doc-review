@@ -106,7 +106,11 @@ test("unavailable and ambiguous explanations never claim missing source or offer
     const view = describeConversationAnchor({ threadId: "one", ...state });
     assert.equal(view.canJump, false); assert.ok(view.reason);
   }
-  assert.equal(describeConversationAnchor({ threadId: "one", ...found, relation: "below" }).offscreen, true);
+  for (const relation of ["visible", "above", "below"]) {
+    assert.deepEqual(describeConversationAnchor({ threadId: "one", ...found, relation }), {
+      canJump: true, offscreen: relation !== "visible", reason: "",
+    });
+  }
 });
 test("adjacent placement uses measured local space without a gutter and never covers any selected rectangle", () => {
   const options = { frameRect: { left: 0, top: 48 }, viewport: { left: 0, top: 0, width: 1280, height: 800 } };

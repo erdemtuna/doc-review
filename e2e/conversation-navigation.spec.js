@@ -1,7 +1,7 @@
 import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, conversation, sendPending, handled } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
-test("Jump to reveals the exact passage without an overlay and returns to the same editor and inventory position", async ({ page, review }) => {
+test("Jump to reveals the exact passage without an overlay and returns to the same editor and inventory position", async ({ page, review }, info) => {
   const ref = await openReview(page, review, writeFile(review, "jump.html",
     '<p id="copy">Exact passage for jumping</p><div style="height:1800px"></div><p id="bottom">Offscreen element</p>'));
   const frame = await waitForSdk(page);
@@ -32,7 +32,19 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
       .toEqual([true, "Keep this unsaved reply", 3, 8]);
   }
   const offscreen = await seedThread(review, ref, "Element target", { kind: "element", anchor: { selector: "#bottom", label: "Offscreen element" } });
-  await page.locator(`[data-thread="${offscreen.threadId}"]`).getByRole("button", { name: "Show in document" }).click();
+  const offscreenCard = page.locator(`[data-thread="${offscreen.threadId}"]`);
+  const show = offscreenCard.getByRole("button", { name: "Show in document" });
+  await expect(show).toBeEnabled();
+  await expect(show).toHaveAttribute("title", "Show the exact passage");
+  await expect(offscreenCard.locator(".conversation-target-status")).toHaveCount(0);
+  await expect(show).not.toHaveAttribute("aria-describedby");
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    await offscreenCard.scrollIntoViewIfNeeded();
+    expect(await page.locator(".conversation-panel").innerText()).not.toContain("The target is offscreen");
+    await page.screenshot({ path: info.outputPath(`quiet-offscreen-${theme}.png`), animations: "disabled", caret: "initial" });
+  }
+  await show.click();
   await expect(frame.locator("#bottom")).toBeInViewport();
   await expect(page.locator(".conversation-panel")).toBeHidden();
 });

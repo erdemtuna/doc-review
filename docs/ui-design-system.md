@@ -206,6 +206,9 @@ surface scope so compact controls remain rounded.
 Comment-card and composer-container outlines use the same `--border` color as the
 sidebar dividers in Feedback, Focus, adjacent and edge-pinned presentations.
 Editable field boundaries and keyboard focus rings remain distinct.
+Offscreen comment targets produce no routine status text or tooltip warning.
+Show in document still reveals them; missing, ambiguous or unavailable targets retain
+their actionable explanations.
 
 Tailwind theme/utilities are imported without global Preflight. Baselines and
 tokens are scoped to `.review-ui`, including portals. Never inject shell styles
