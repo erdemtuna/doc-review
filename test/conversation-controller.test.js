@@ -232,6 +232,40 @@ test("new intent is discuss; shared drafts survive collapse, filters and Focus; 
   assert.equal(c.owner.getSnapshot().threads[0].latestExchange.reviewer.body, "Updated without a redundant banner");
 });
 
+test("Send and delivery do not signal new activity, but an agent response does", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Explain this paragraph");
+  assert.equal(c.owner.getSnapshot().attentionCount, 0);
+  await c.owner.commands.send();
+  assert.equal(c.owner.getSnapshot().attentionCount, 0);
+  assert.equal(c.owner.getSnapshot().threads[0].attention, false);
+  const work = (await c.f.read(c.ref, "poll")).submission;
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().attentionCount, 0);
+  await c.f.ok(responseFor(work));
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().threads[0].attention, true);
+  c.owner.commands.markRead(id);
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().attentionCount, 0);
+});
+
+test("another tab's Send is quiet and does not clear existing unread activity", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "First question");
+  const reviewer = c.owner.getSnapshot().threads[0].latestExchange.reviewer;
+  await c.f.send(c.ref, [{ value: { threadId: id, messageId: reviewer.messageId } }]);
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().attentionCount, 0);
+  await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().threads[0].attention, true);
+  await draft(c, "Another question");
+  await c.owner.commands.send();
+  assert.equal(c.owner.getSnapshot().attentionCount, 1);
+  assert.equal(c.owner.getSnapshot().threads.find(item => item.thread.threadId === id).attention, true);
+});
+
 test("pending selection covers every authorized page and preserves independent overall permission", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Discuss without editing");

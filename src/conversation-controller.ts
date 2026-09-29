@@ -202,7 +202,10 @@ export function createConversationController(options: Options) {
     review = nextStatus.review; status = nextStatus; pages = nextPages; edits = nextEdits;
     for (const thread of nextThreads) {
       const id = thread.thread.threadId;
-      const fingerprint = JSON.stringify([thread.thread.version, thread.latestExchange, thread.pendingMessageCount]);
+      const exchange = thread.latestExchange;
+      // Submission bookkeeping is not new conversation content.
+      const fingerprint = JSON.stringify([thread.thread.version, exchange?.reviewer.messageId,
+        exchange?.reviewer.version, exchange?.response]);
       if (fingerprints.has(id) && fingerprints.get(id) !== fingerprint) attention.add(id);
       fingerprints.set(id, fingerprint);
     }

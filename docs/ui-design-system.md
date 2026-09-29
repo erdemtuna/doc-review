@@ -42,6 +42,8 @@ or exclusion controls; Send includes all saved pending messages and edits.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
 pages merge by stable identity; reconnect must not leave an unreachable gap.
+Send and delivery bookkeeping do not create unread activity or clear an existing
+unread indicator. The activity dot is not an agent-working indicator.
 Add comment / Add reply / Update comment retain unsent feedback; Send submits all saved pending items across
 authorized review pages. Immutable sent corrections are new messages.
 Each new message/note defaults to Discussion. The change checkbox appears only

@@ -54,10 +54,16 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toBeVisible();
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
   const picked = await call(review, { ...ref, operation: "poll" });
   expect(picked.submission.messages[0].message.intent).toBe("discuss");
+  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
   await call(review, responseFor(picked.submission, { resultNote: "No source changes were needed." }));
   await expect(page.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "New activity", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New activity", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("No source changes were needed.", { exact: true })).toHaveCount(1);
   expect(fs.readFileSync(file, "utf8")).toBe(original);
   const thread = page.locator(".conversation-thread");
