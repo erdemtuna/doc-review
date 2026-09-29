@@ -46,7 +46,17 @@ test("long inventory and direct actions fit every width without remounting docum
         })).toBe(true);
         const box = await action.boundingBox();
         expect(box.x).toBeGreaterThanOrEqual(bounds.x);
-        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+        const layout = await action.evaluate(element => {
+          const ancestors = [];
+          for (let node = element; node && !node.classList.contains("durable-review"); node = node.parentElement) {
+            const rect = node.getBoundingClientRect();
+            ancestors.push({ class: node.className, x: rect.x, width: rect.width,
+              scrollLeft: node.scrollLeft, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth });
+          }
+          return ancestors;
+        });
+        expect(box.x + box.width, `${theme} ${width}px ${name}: ${JSON.stringify({ bounds, layout })}`)
+          .toBeLessThanOrEqual(bounds.x + bounds.width);
       }
       await (await threadAction(page, first, "Delete thread")).click();
       await expect(button(page.getByRole("alertdialog"), "Cancel")).toBeFocused();
@@ -65,6 +75,19 @@ test("long inventory and direct actions fit every width without remounting docum
   }))).toEqual({ same: true, text: "Keep this overall feedback note", selection: [2, 8] });
   await expect(frame.getByLabel("Page draft")).toHaveValue("Keep this page-owned input");
   expect(errors).toEqual([]);
+});
+
+test("a closing command menu cannot reclaim newer toolbar focus on pointer leave", async ({ page, review }) => {
+  await populated(page, review);
+  await page.addStyleTag({ content: '[data-slot="dropdown-menu-content"][data-state="closed"] { animation-duration: 1s !important; }' });
+  const card = page.locator(".conversation-thread").first();
+  await button(card, "Conversation actions").click();
+  await page.getByRole("menuitem", { name: "Focus", exact: true }).hover();
+  await page.keyboard.press("Escape");
+  await page.locator("#theme").focus();
+  await page.mouse.move(0, 0);
+  await expect(page.locator("#theme")).toBeFocused();
+  await expect(page.getByRole("menu")).toHaveCount(0);
 });
 
 test("textarea and selection survive unrelated updates, a rejected edit, and explicit retry", async ({ page, review }) => {

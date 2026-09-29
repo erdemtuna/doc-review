@@ -2416,6 +2416,10 @@ function boot() {
         event.key.toLowerCase() === "m"
       ) {
         if (selectionIsActive()) settleSelection();
+        else if (event.target !== document.body && event.target !== document.documentElement) {
+          const target = commentTargetFor(event.target);
+          if (target) setElementTarget(target);
+        }
         if (openPendingCompose()) {
           event.preventDefault();
           event.stopPropagation();
@@ -2878,6 +2882,10 @@ function boot() {
       case "eh:cancel":
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
         {
+          // Cancellation can arrive before the new selection's debounced update.
+          const selection = document.getSelection();
+          if (selection?.rangeCount && !selection.isCollapsed &&
+            (pending?.kind !== "selection" || !sameRange(selection.getRangeAt(0), pending.range))) settleSelection();
           const discardThrough = Number(msg.discardThroughGeneration) || Number(msg.targetGeneration) || 0;
           retiredComposeGeneration = Math.max(retiredComposeGeneration, discardThrough);
           if (commentOpenRequestGeneration <= discardThrough) commentOpenRequestGeneration = null;

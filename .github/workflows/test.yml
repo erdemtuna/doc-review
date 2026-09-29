@@ -50,3 +50,9 @@ jobs:
       - run: npm run browser:install:ci
       - run: npm run test:browser
       - run: npm run test:package:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: chromium-failure-evidence
+          path: test-results
+          retention-days: 7

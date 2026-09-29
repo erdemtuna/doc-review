@@ -44,7 +44,7 @@ export function ConversationMenu({ actions }: { actions: ConversationAction[] })
       <IconButton ref={trigger} className="conversation-icon" data-thread-actions
         aria-label="Conversation actions"><Icon name="moreHorizontal" /></IconButton>
     </DropdownMenuTrigger>
-    <DropdownMenuContent ref={content} align="end" collisionPadding={12}
+    {open && <DropdownMenuContent ref={content} align="end" collisionPadding={12}
       onEscapeKeyDown={(event) => { if (current.current) event.stopPropagation(); }}
       onInteractOutside={(event) => {
         if (event.target instanceof Node && trigger.current?.contains(event.target)) event.preventDefault();
@@ -62,7 +62,7 @@ export function ConversationMenu({ actions }: { actions: ConversationAction[] })
           trigger.current?.focus({ preventScroll: true });
           action.run();
         }}>{action.label}</DropdownMenuItem>)}
-    </DropdownMenuContent>
+    </DropdownMenuContent>}
   </DropdownMenu>;
 }
 

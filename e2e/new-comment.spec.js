@@ -18,6 +18,70 @@ async function select(page, frame) {
   await expect(editor(page)).toBeVisible();
 }
 
+async function holdCancellation(page) {
+  await page.addInitScript(() => {
+    window.heldCancellation = null;
+    window.replayingCancellation = false;
+    window.addEventListener("message", event => {
+      if (event.data?.type !== "eh:cancel" || window.replayingCancellation) return;
+      event.stopImmediatePropagation();
+      window.heldCancellation = event;
+    }, true);
+    window.releaseCancellation = () => {
+      const event = window.heldCancellation;
+      window.heldCancellation = null;
+      window.replayingCancellation = true;
+      try {
+        window.dispatchEvent(new MessageEvent("message", { data: event.data, origin: event.origin, source: event.source }));
+      } finally {
+        window.replayingCancellation = false;
+      }
+    };
+  });
+}
+
+test("a keyboard target chosen before cancellation arrives supersedes the retired composition", async ({ page, review }) => {
+  await holdCancellation(page);
+  await openReview(page, review, writeFile(review, "delayed-keyboard-cancel.html",
+    "<h2 id='first' tabindex='0'>First heading</h2><h2 id='second' tabindex='0'>Second heading</h2>"));
+  const frame = await waitForSdk(page);
+  await frame.locator("#first").press("Control+Alt+m");
+  await expect(editor(page)).toBeVisible();
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await expect.poll(() => frame.locator("body").evaluate(() => !!window.heldCancellation)).toBe(true);
+  await frame.locator("#second").press("Control+Alt+m");
+  await expect(editor(page)).toBeVisible();
+  await expect(page.locator(".conversation-new-target")).toContainText("Second heading");
+  await editor(page).fill("Keep the new target");
+  await editor(page).evaluate(node => { window.racingEditor = node; node.setSelectionRange(2, 7); });
+  await frame.locator("body").evaluate(() => window.releaseCancellation());
+  await expect(editor(page)).toBeFocused();
+  expect(await editor(page).evaluate(node => [node === window.racingEditor, node.selectionStart, node.selectionEnd]))
+    .toEqual([true, 2, 7]);
+  await expect(page.locator(".conversation-new-target")).toContainText("Second heading");
+});
+
+test("cancellation preserves a newer selection before its debounced target update", async ({ page, review }) => {
+  await holdCancellation(page);
+  const { frame } = await start(page, review);
+  await select(page, frame);
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await expect.poll(() => frame.locator("body").evaluate(() => !!window.heldCancellation)).toBe(true);
+  const selected = await frame.locator("#other").evaluate(node => {
+    const range = document.createRange(); range.selectNodeContents(node);
+    const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    window.releaseCancellation();
+    return selection.toString();
+  });
+  expect(selected).toBe("A different target that must not steal a draft.");
+  await frame.locator("#commentAction").click();
+  await expect(editor(page)).toBeVisible();
+  await expect(page.locator(".conversation-new-target")).toContainText(selected);
+});
+
 test("empty and whitespace close retire the target; selected headings label themselves without changing selectors", async ({ page, review }, info) => {
   await openReview(page, review, writeFile(review, "heading-label-baseline.html",
     "<!doctype html><style>body{padding:40px}h2{margin:40px 0;width:420px}</style><h2 id='previous'>Previous section</h2><h2 id='chosen' tabindex='0'>Chosen heading itself</h2><p id='other' tabindex='0'>Another precise target</p>"));

@@ -137,12 +137,16 @@ preview implements a parallel workflow or ships in the package.
 | Separate comment capability through End/reload/page changes, while waiting permits discussion | consolidation suite and `test/shell-controllers.test.js` |
 | Stable Abandon/Revert danger ink; neutral recovery across hosts | consolidation suite in both themes |
 | Retained editor/caret/IME, first glyph and 36px editor visibility | coherence, responsive-conversation, new-comment and approved-parity suites |
+| Delayed cancellation cannot retire a newer keyboard target or replace a newer selection | deterministic held-message cases in `e2e/new-comment.spec.js` |
+| Closing command menus cannot steal newer toolbar focus on pointer leave | `e2e/comments-inventory.spec.js` |
 
 Rendered checks supplement palette contrast tests: normal text targets 4.5:1;
 essential input/focus boundaries target 3:1. Decorative card dividers are quieter.
 Evidence screenshots are diagnostic outputs, not automatically accepted pixel
 baselines. The component gallery is useful for state inspection; acceptance uses
 the real isolated shell and installed runtime.
+Failed hosted Chromium runs retain `test-results` as a seven-day artifact, including
+synthetic screenshots and Playwright error contexts.
 
 ## README media
 
