@@ -17,6 +17,9 @@ Their shared segmented controls retain selected paint without hover or focus.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages
 are unboxed, share author/avatar/time metadata and retain 13px body text.
+Cards use 8px padding, with only 4px additional inset in the adjacent panel.
+Focused transcripts reserve a 4px horizontal paint gutter for complete textarea
+focus outlines without indenting message content or changing editor identity.
 Ordinary Discussion and answered states have no pill; explicit Change requested,
 non-default response outcomes, pending-unsent and read-only cues remain per-message.
 Shared `ConversationSource` shows a one-line excerpt beside the compact action row,

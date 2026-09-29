@@ -30,6 +30,19 @@ test("compact inline editing preserves one editor across hosts and waiting hides
         await expect(card.locator(".conversation-source")).toHaveText("Review notes");
         await expect(card.getByRole("button", { name: "Show in document" })).toHaveText("");
         await expect(editor).toBeInViewport();
+        await editor.focus();
+        expect(await editor.evaluate(node => {
+          const style = getComputedStyle(node), box = node.getBoundingClientRect();
+          const ring = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+          const clipped = [];
+          for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+            const css = getComputedStyle(parent), bounds = parent.getBoundingClientRect();
+            if (/(auto|scroll|hidden|clip)/.test(css.overflowX) &&
+              (box.left - ring < bounds.left + parent.clientLeft - 0.5 ||
+                box.right + ring > bounds.left + parent.clientLeft + parent.clientWidth + 0.5)) clipped.push(parent.className);
+          }
+          return { focused: node.matches(":focus-visible"), ring, clipped };
+        })).toEqual({ focused: true, ring: 4, clipped: [] });
         await page.screenshot({ path: info.outputPath(`compact-edit-${host}-${theme}-${width}.png`), caret: "initial" });
       }
     }

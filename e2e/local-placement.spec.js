@@ -76,7 +76,9 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
     await frame.locator(".block-badge").click();
     await expect(panel).toHaveAttribute("data-host", "adjacent");
     await expect(panel.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
-    await expect.poll(async () => (await panel.boundingBox()).height).toBeLessThan(300);
+    await expect.poll(async () => (await panel.boundingBox()).height).toBeLessThan(220);
+    await expect(panel.locator(".conversation-thread")).toHaveCSS("padding", "8px");
+    await expect(panel.locator(".conversation-inventory")).toHaveCSS("padding", "4px");
     const short = await clearTarget(page, frame, panel);
     expect(short.frame).toEqual(before);
     await hit(panel.getByRole("button", { name: "Reply", exact: true }));
