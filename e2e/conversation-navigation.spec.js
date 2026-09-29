@@ -16,7 +16,7 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
   await editor.evaluate(node => { window.jumpEditor = node; node.setSelectionRange(3, 8); node.dispatchEvent(new Event("select", { bubbles: true })); });
   for (const width of [1366, 720]) {
     await page.setViewportSize({ width, height: 800 });
-    const jump = card.getByRole("button", { name: "Jump to", exact: true });
+    const jump = card.getByRole("button", { name: "Show in document", exact: true });
     await jump.scrollIntoViewIfNeeded();
     await page.waitForTimeout(100);
     const position = await inventory.evaluate(node => node.scrollTop);
@@ -32,7 +32,7 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
       .toEqual([true, "Keep this unsaved reply", 3, 8]);
   }
   const offscreen = await seedThread(review, ref, "Element target", { kind: "element", anchor: { selector: "#bottom", label: "Offscreen element" } });
-  await page.locator(`[data-thread="${offscreen.threadId}"]`).getByRole("button", { name: "Jump to" }).click();
+  await page.locator(`[data-thread="${offscreen.threadId}"]`).getByRole("button", { name: "Show in document" }).click();
   await expect(frame.locator("#bottom")).toBeInViewport();
   await expect(page.locator(".conversation-panel")).toBeHidden();
 });
@@ -47,26 +47,26 @@ test("cross-page Jump to verifies membership before revealing and keeps unavaila
   const missing = await seedThread(review, member, "Missing discussion", { kind: "selection", anchor: { quote: "No such passage" } });
   await feedback(page);
   const card = page.locator(`[data-thread="${threadId}"]`);
-  await page.locator(`[data-thread="${missing.threadId}"]`).getByRole("button", { name: "Jump to" }).click();
+  await page.locator(`[data-thread="${missing.threadId}"]`).getByRole("button", { name: "Show in document" }).click();
   await expect(page.locator("#reviewPage")).toHaveAttribute("data-value", joined.value.pageKey);
   await expect(page.locator(".conversation-panel")).toBeVisible();
   const missingCard = page.locator(`[data-thread="${missing.threadId}"]`);
-  await expect(missingCard.getByRole("button", { name: "Jump to" })).toBeDisabled();
+  await expect(missingCard.getByRole("button", { name: "Show in document" })).toBeDisabled();
   await expect(missingCard).toContainText("original target was not found");
-  await card.getByRole("button", { name: "Jump to" }).click();
+  await card.getByRole("button", { name: "Show in document" }).click();
   await expect(page.locator(".conversation-panel")).toBeVisible();
   await expect(page.frameLocator("#frame").locator(`mark[data-eh-mark="${threadId}"]`)).toBeInViewport();
   await sendPending(review, ref); await handled(review, ref);
   await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
   await feedback(page);
-  await expect(card).toContainText("Resolved");
-  await card.getByRole("button", { name: "Jump to" }).click();
+  await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Show in document" }).click();
   await expect(page.locator(".conversation-panel")).toBeVisible();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await feedback(page);
   await expect(page.locator("#send")).toBeDisabled();
   await expect(card.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
-  await card.getByRole("button", { name: "Jump to" }).click();
+  await card.getByRole("button", { name: "Show in document" }).click();
   await expect(page.locator(".conversation-panel")).toBeVisible();
 });
 

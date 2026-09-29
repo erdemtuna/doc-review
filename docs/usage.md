@@ -58,7 +58,7 @@ changed permission prompts **Keep editing / Discard**. Keep editing restores
 your caret. Save or discard dirty work before switching its target.
 Feedback's outer X only hides the panel and preserves drafts.
 
-For saved conversations, **Jump to** (with a location icon) reveals the exact passage.
+For saved conversations, **Show in document** (with a location icon) reveals the exact passage.
 Feedback stays open when the passage can remain visible; a floating panel hides when
 it would cover the target. **Focus**, in Conversation actions, gives one conversation a larger transcript with its
 header and composer reachable. Activate an existing highlight with a click,
@@ -74,7 +74,7 @@ unselected prose. If no usable target-safe placement fits, the conversation stay
 accessible in focused Feedback with an explanation and its editor still reachable. Narrow
 Feedback floats over part of the document without changing its width; the rest of
 the document remains interactive. Reopening Feedback restores the sidebar reading position and drafts.
-An offscreen target offers **Jump to**, not a missing-target warning.
+An offscreen target offers **Show in document**, not a missing-target warning.
 Missing, ambiguous, hidden and unavailable targets have an explanation and no
 false jump. Original anchors and conversations are retained; there is no
 reattachment control. A recovered target does not reopen a card automatically.
@@ -82,11 +82,11 @@ reattachment control. A recovered target does not reopen a card automatically.
 | Action | Control |
 | --- | --- |
 | Comment on the current selection | `Ctrl+Alt+M`, or `Cmd+Option+M` on macOS |
-| Save a pending message, reply or edit | `Enter` or **Save**; this does not dispatch |
+| Queue a comment, reply or correction | `Enter` or **Add comment / Add reply / Update comment**; this does not dispatch |
 | Add a line inside a message | `Shift+Enter` |
 | Cancel a local draft | `Escape` or the editor's X; confirm **Discard** for unsaved changes |
-| Find a thread's target, including another review page | **Jump to** |
-| Return to an offscreen target | **Jump to** |
+| Find a thread's target, including another review page | **Show in document** |
+| Return to an offscreen target | **Show in document** |
 | Dismiss the conversation host | **Close conversation**, or `Escape` from its controls (not a composing editor) |
 | Delete a never-submitted thread | **Conversation actions → Delete thread**, then confirm deletion |
 
@@ -95,12 +95,16 @@ unchecked. Saved change requests display **Change requested**; ordinary discussi
 and answered replies need no status pill. Other response outcomes remain explicit;
 only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a
-thread only hides content. **Resolve** and **Reopen** in **Conversation actions** are separate shared actions; save or cancel a
-local draft first. Pending/outstanding messages prevent Resolve.
+thread only hides content. Each header identifies the selected text or recorded
+location separately from its controls. **Resolve** and **Reopen** are visible in
+every conversation header, not hidden in the menu. Finish or close a local draft
+first; unsent messages (even excluded ones) and outstanding agent work prevent
+Resolve. An accepted resolution offers **Undo resolve** until the review changes.
+Undo never overrides newer changes from another tab or an ended review.
 
-While Save is in flight, typing and selection remain available but another Save
+While adding or updating a comment, typing and selection remain available but another submission of that draft
 and editor cancellation are locked through acceptance or reconciliation. Newer typing is retained.
-Active IME composition never triggers Save or cancellation. The overall note remains
+Active IME composition never triggers a draft submission or cancellation. The overall note remains
 multiline: Enter never sends or saves it independently.
 
 ![An anchored comment beside highlighted Field Notes copy, asking what readers can collect and how it helps them](../assets/doc-review.png)

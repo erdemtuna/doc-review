@@ -149,7 +149,7 @@ export function createConversationShell() {
     composerRelation: newTarget?.geometry?.relation ?? "unavailable", viewport: visibleViewport(window),
     anchorViews: Object.fromEntries(owner.getSnapshot().threads.map(({ thread }) => [thread.threadId,
       thread.pageKey !== frame.state.key
-        ? { canJump: !loading, offscreen: false, reason: "Jump to opens its review page." }
+        ? { canJump: !loading, offscreen: false, reason: "Show in document opens its review page." }
         : describeConversationAnchor(geometry.states.find((state) => state.threadId === thread.threadId) ??
           { threadId: thread.threadId, state: "unavailable", reason: unavailable })])),
     anchorPeers: Object.fromEntries(owner.getSnapshot().threads.map(({ thread }) => [thread.threadId, geometry.peers(thread.threadId)])),

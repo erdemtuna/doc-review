@@ -34,9 +34,10 @@ test("identical pending and handled cards retain readable content and record den
         await expect(card.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "true");
         const title = card.locator(".conversation-thread-title"), actions = card.locator(".conversation-thread-actions");
         const titleBox = await title.boundingBox(), actionsBox = await actions.boundingBox();
-        expect(titleBox.width).toBeGreaterThan(80);
+        expect(titleBox.width).toBeGreaterThanOrEqual(24);
         expect(Math.abs(actionsBox.y - titleBox.y)).toBeLessThan(8);
-        await expect(title).toContainText(quote);
+        await expect(card.locator(".conversation-source")).toContainText("Selected text");
+        await expect(card.locator(".conversation-source")).toContainText(quote);
         await expect(card.locator(".conversation-meta").getByText(/^(Discussion|answered)$/)).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Open (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -49,6 +50,9 @@ test("identical pending and handled cards retain readable content and record den
             element.contains(document.elementFromPoint(rect.left + 2, rect.top + rect.height / 2))) && body.width > 0;
         })).toBe(true);
         if (state === "handled") {
+          const reply = await card.getByRole("button", { name: "Reply", exact: true }).boundingBox();
+          const transcript = await card.locator(".conversation-transcript").boundingBox();
+          expect(Math.abs(reply.x + reply.width - transcript.x - transcript.width)).toBeLessThan(1);
           const response = card.locator(".conversation-response p");
           expect(await card.locator(".conversation-response").evaluate(element => {
             const style = getComputedStyle(element);
@@ -85,9 +89,7 @@ test("narrow resolved cards retain reachable secondary controls when new activit
       await (await threadAction(page, card, "Focus")).click();
       const header = card.locator(":scope > header");
       expect(await header.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-      await card.getByRole("button", { name: "Conversation actions", exact: true }).click();
-      await expect(page.getByRole("menuitem", { name: "Reopen", exact: true })).toBeEnabled();
-      await page.keyboard.press("Escape");
+      await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeEnabled();
       await card.getByRole("button", { name: "Back to Feedback", exact: true }).click();
     }
   }
@@ -154,10 +156,13 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
     await expect.poll(() => open.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(paint);
     await expect(card.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "true");
   }
-  await expect(card.getByRole("button", { name: "Resolve", exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(card.getByRole("status")).toContainText("not been sent");
+  await card.getByRole("button", { name: "Keep reviewing" }).click();
   const more = card.getByRole("button", { name: "Conversation actions", exact: true });
   await more.focus(); await more.press("Enter");
-  await expect(page.getByRole("menuitem", { name: "Resolve", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Resolve", exact: true })).toHaveCount(0);
   await page.keyboard.press("End"); await expect(page.getByRole("menuitem", { name: "Delete thread" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("alertdialog")).toContainText("never-submitted");
@@ -168,12 +173,12 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await editor.fill("My independent reply");
   await expect(card.getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
   await card.getByRole("checkbox", { name: "Request a change" }).check();
-  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(card.getByText("Change requested", { exact: true })).toBeVisible();
   await expect(card.getByText("Discussion", { exact: true })).toHaveCount(0);
   await expect(card.locator(".conversation-exchange").first().getByText("Change requested", { exact: true })).toHaveCount(0);
-  await expect(card.locator(".conversation-exchange").first().getByText("Pending", { exact: true })).toBeVisible();
+  await expect(card.locator(".conversation-exchange").first().getByText("Not sent yet", { exact: true })).toBeVisible();
   await reviewSelection(page);
   const selected = page.getByRole("checkbox", { name: /^Include message:/ });
   await expect(selected).toHaveCount(2);
@@ -190,16 +195,14 @@ test("card timestamp and menu focus handoffs leave real authored input usable an
   const card = page.locator(`[data-thread="${threadId}"]`);
   await (await threadAction(page, card, "Beside target")).click();
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "adjacent");
-  await expect(card.locator(".conversation-thread-title")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Collapse conversation" })).toBeVisible();
   const more = card.getByRole("button", { name: "Conversation actions", exact: true });
-  await more.focus(); await more.press("Enter");
-  const collapse = page.getByRole("menuitem", { name: "Collapse conversation", exact: true });
+  const collapse = card.getByRole("button", { name: "Collapse conversation", exact: true });
   await expect(collapse).toBeVisible();
   await collapse.focus(); await collapse.press("Enter");
   await expect(card.locator(".conversation-thread-content")).toBeHidden();
-  await expect(more).toBeFocused();
-  await more.press("Enter");
-  const expand = page.getByRole("menuitem", { name: "Expand conversation", exact: true });
+  const expand = card.getByRole("button", { name: "Expand conversation", exact: true });
+  await expect(expand).toBeFocused();
   await expand.focus(); await expand.press("Enter");
   await expect(card.locator(".conversation-thread-content")).toBeVisible();
   const timestamp = card.locator(".conversation-time").first();

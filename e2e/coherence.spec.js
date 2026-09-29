@@ -161,6 +161,52 @@ test("coherence evidence covers the reported conversation, composition and resul
   fs.writeFileSync(info.outputPath("surface-metrics.json"), JSON.stringify(metrics, null, 2));
 });
 
+for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and version-safe Undo work in ${host}`, async ({ page, review }, info) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  const ref = await openReview(page, review, writeFile(review, `resolution-${host}.html`, '<p id="copy" tabindex="0">A reviewed passage.</p>'));
+  await waitForSdk(page);
+  const { threadId } = await seedThread(review, ref, "Explain this passage.", {
+    kind: "element", anchor: { selector: "#copy", label: "Purpose · p 2" },
+  });
+  await sendPending(review, ref); await handled(review, ref);
+  await feedback(page);
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  await expect(card.locator(".conversation-response")).toBeVisible();
+  await expect(card.locator(".conversation-source")).toContainText('Paragraph 2 near "Purpose"');
+  if (host !== "feedback") await (await threadAction(page, card, host === "focus" ? "Focus" : "Beside target")).click();
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  const draft = card.getByRole("textbox", { name: "Reply", exact: true });
+  await draft.fill("Preserve my exact unsent reply.");
+  await card.getByRole("checkbox", { name: "Request a change" }).check();
+  await card.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(card.getByRole("status")).toContainText("draft");
+  await expect(draft).toHaveValue("Preserve my exact unsent reply.");
+  await expect(card.getByRole("checkbox", { name: "Request a change" })).toBeChecked();
+  await card.getByRole("button", { name: "Keep reviewing" }).click();
+  await card.getByRole("button", { name: "Close reply" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Discard", exact: true }).click();
+  for (const theme of ["light", "dark"]) {
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    await card.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+    const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
+    await expect(undo).toBeVisible();
+    await undo.scrollIntoViewIfNeeded();
+    await expect(undo).toBeInViewport();
+    await page.screenshot({ path: info.outputPath(`resolved-${host}-${theme}.png`), caret: "initial" });
+    await undo.click();
+    await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+    await expect(undo).toHaveCount(0);
+  }
+  await card.getByRole("button", { name: "Resolve", exact: true }).click();
+  await mutate(review, ref, "set-thread-status", { threadId, status: "open" });
+  await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toHaveCount(0);
+  await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
+  await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeDisabled();
+});
+
 test("transient connection recovery preserves authored runtime and drafts without reloading", async ({ page, context, review }) => {
   await page.addInitScript(() => {
     const NativeEventSource = window.EventSource;

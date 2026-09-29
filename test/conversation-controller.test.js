@@ -580,6 +580,86 @@ test("accepted save with failed verification never publishes a stale hash or ret
   assert.equal(c.calls.filter((body) => body.operation === "save-edit").length, 2);
 });
 
+test("one-click resolution guards drafts, unsent and delivered work without dispatching or discarding", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Not sent yet");
+  await c.owner.commands.resolve(id);
+  assert.match(c.owner.getSnapshot().resolutionGuard.message, /not been sent/);
+  assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, 0);
+  c.owner.commands.reply(id);
+  c.owner.commands.update(id, { text: "Keep exact draft", intent: "request-change", composing: true });
+  await c.owner.commands.resolve(id);
+  assert.match(c.owner.getSnapshot().resolutionGuard.message, /draft/);
+  assert.equal(c.owner.getSnapshot().threads[0].draft.text, "Keep exact draft");
+  c.owner.commands.update(id, { composing: false });
+  c.owner.commands.cancelDraft(id); c.owner.commands.discardDraft();
+  assert.match(c.owner.getSnapshot().resolutionGuard.message, /not been sent/);
+  await c.owner.commands.send();
+  await c.f.read(c.ref, "poll"); await c.owner.refresh();
+  await c.owner.commands.resolve(id);
+  assert.match(c.owner.getSnapshot().resolutionGuard.message, /cannot cancel accepted work/);
+  assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, 0);
+  await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().resolutionGuard, null);
+  c.owner.commands.reply(id);
+  c.owner.commands.update(id, { text: "A draft in this tab", intent: "request-change" });
+  await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "resolved" });
+  await c.owner.refresh();
+  await c.owner.commands.resolve(id);
+  assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
+  assert.equal(c.owner.getSnapshot().threads[0].draft.text, "A draft in this tab");
+});
+
+test("Resolve is one accepted mutation with version-bound Undo and no confirmation dialog", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Ready to resolve");
+  await c.owner.commands.send();
+  await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
+  await c.owner.refresh();
+  await Promise.all([c.owner.commands.resolve(id), c.owner.commands.resolve(id)]);
+  assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
+  assert.equal(c.owner.getSnapshot().confirmation, null);
+  assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, 1);
+  const undo = c.owner.getSnapshot().resolutionUndo;
+  assert.deepEqual(undo, { threadId: id, reviewVersion: c.owner.getSnapshot().review.version });
+  await c.owner.commands.undoResolve();
+  assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
+  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
+  await c.owner.commands.resolve(id);
+  await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "open" });
+  await assert.rejects(c.owner.commands.undoResolve(), /version|changed/i);
+  assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
+  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
+  await c.owner.commands.resolve(id);
+  await c.f.mutate(c.ref, "end", { confirmUnsentReadOnly: true });
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
+  await assert.rejects(c.owner.commands.undoResolve(), /review has changed/i);
+});
+
+test("uncertain Resolve offers Undo only after its exact receipt is reconciled", async (t) => {
+  const c = await controller(t);
+  const id = await draft(c, "Answered");
+  await c.owner.commands.send();
+  await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
+  await c.owner.refresh();
+  let first = true;
+  c.intercept(async (body, response) => {
+    if (first && body.operation === "set-thread-status") {
+      first = false; await response.text(); throw new TypeError("Lost accepted Resolve response");
+    }
+    return response;
+  });
+  await assert.rejects(c.owner.commands.resolve(id), /Lost accepted/);
+  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
+  const requestId = c.owner.getSnapshot().uncertain.requestId;
+  await c.owner.commands.reconcile(false);
+  assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
+  assert.equal(c.owner.getSnapshot().resolutionUndo.threadId, id);
+  assert.deepEqual(new Set(c.calls.filter(body => body.operation === "set-thread-status").map(body => body.requestId)), new Set([requestId]));
+});
+
 test("Resolve pending guards and stale mutations retain the thread and local draft", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Pending message");

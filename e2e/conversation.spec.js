@@ -28,7 +28,7 @@ async function message(page, text, checked = false) {
   await page.getByRole("button", { name: "New message", exact: true }).click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill(text);
   if (checked) await page.locator('[data-composer="new"]').getByLabel("Request a change").check();
-  await page.locator('[data-composer="new"]').getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator('[data-composer="new"]').getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.locator('[data-composer="new"]')).toHaveCount(0);
 }
 async function pasteImage(paragraph) {
@@ -51,7 +51,7 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await page.locator("#commentsButton").click();
   await message(page, "Why this wording?");
   await expect(page.getByText("Discussion", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-exchange").getByText("Not sent yet", { exact: true })).toBeVisible();
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received")).toBeVisible();
   const picked = await call(review, { ...ref, operation: "poll" });
@@ -71,8 +71,8 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await thread.getByRole("button", { name: "Back to Feedback" }).click();
   await expect(draft).toHaveValue("An unsaved follow-up");
   await (await threadAction(page, thread, "Resolve")).click();
-  await expect(page.getByRole("alert").getByText(/Save or cancel/)).toBeVisible();
-  await thread.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(thread.getByRole("status")).toContainText("Finish or close your draft");
+  await thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.getByText("An unsaved follow-up", { exact: true })).toBeVisible();
   const other = await context.newPage();
   await other.goto(page.url()); await waitForSdk(other);
@@ -81,7 +81,7 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await expect(other.getByRole("alertdialog")).toContainText("for every tab");
   await other.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
-  await expect(page.getByText("Saved unsent · read-only")).toBeVisible();
+  await expect(page.getByText("Not sent · read-only")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -117,14 +117,14 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await thread.getByRole("button", { name: "Reply", exact: true }).click();
   const reply = thread.getByRole("textbox", { name: "Reply", exact: true });
   await reply.fill("One saved reply");
-  await thread.getByRole("button", { name: "Save", exact: true }).evaluate((button) => { button.click(); button.click(); });
+  await thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).evaluate((button) => { button.click(); button.click(); });
   await expect.poll(() => replies.length).toBe(1);
-  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await expect(reply).toBeEditable();
   await reply.fill("Newer unsent typing");
   await reply.evaluate((element) => element.setSelectionRange(3, 8));
   release();
-  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   await expect(thread.getByText("One saved reply", { exact: true })).toHaveCount(1);
   await expect(reply).toHaveValue("Newer unsent typing");
   expect(await reply.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([3, 8]);
@@ -246,7 +246,7 @@ test("real cumulative and repeated human HTML saves remain exact at Send", async
   expect(work.edits).toHaveLength(2);
   expect(work.edits.every((edit) => edit.source.state === "saved")).toBe(true);
   await call(review, responseFor(work));
-  await expect(page.getByRole("heading", { name: "What changed", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Latest submission result" })).toContainText("Agent response");
   await page.locator("#commentsButton").click();
   await selectReviewMode(page, "Edit");
   await frame.locator("#first").click();
@@ -266,7 +266,7 @@ test("checked intent editing and ended late results retain read-only observer", 
   await page.getByRole("button", { name: "Edit message", exact: true }).click();
   await expect(page.locator(".conversation-thread").getByLabel("Request a change")).toBeChecked();
   await page.locator(".conversation-thread").getByLabel("Request a change").uncheck();
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await page.locator("#send").click();
   await expect(page.getByText("Queued; not received")).toBeVisible();
   await page.locator("#endReview").click();
@@ -323,7 +323,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   const thread = page.locator(".conversation-thread");
   await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
   await (await threadAction(page, thread, "Resolve")).click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Undo resolve" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Resolved (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
   const collapse = thread.locator(".conversation-thread-title");
@@ -331,22 +331,22 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await expect(collapse).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Enter"); await expect(collapse).toHaveAttribute("aria-expanded", "true");
   await (await threadAction(page, thread, "Reopen")).click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
   await thread.getByRole("button", { name: "Reply", exact: true }).click();
   const input = thread.getByRole("textbox", { name: "Reply", exact: true });
   await input.fill("Composition survives");
   await input.evaluate((element) => { element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "x" })); });
   await (await threadAction(page, thread, "Focus")).click();
-  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await input.evaluate((element) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
-  await expect(thread.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const [width, height] of [[320, 400], [390, 400], [320, 480], [390, 520], [768, 560], [1440, 800]]) {
       await page.setViewportSize({ width, height });
       await expect(page.getByText("Reviewing", { exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      for (const button of [thread.getByRole("button", { name: "Save", exact: true }), thread.getByRole("button", { name: "Back to Feedback" })]) {
+      for (const button of [thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }), thread.getByRole("button", { name: "Back to Feedback" })]) {
         const box = await button.boundingBox();
         expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
       }
@@ -633,7 +633,7 @@ test("source results expose real comparisons and reply-only results never replac
   await feedback(page);
   await page.locator(".conversation-thread").getByRole("button", { name: "Reply", exact: true }).click();
   await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Explain without more changes");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await page.locator("#send").click(); await expect(page.getByText("Queued; not received")).toBeVisible();
   const discussion = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(discussion, { resultNote: "Explanation only, no new version." }));
@@ -656,7 +656,7 @@ test("typed selection projection shares target metadata only and keeps drafts th
   });
   await frame.locator("#commentAction").click();
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Private reviewer body is not frame metadata");
-  await page.locator('[data-composer="new"]').getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator('[data-composer="new"]').getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.locator(".conversation-thread")).toHaveCount(1);
   const anchors = await frame.locator("body").evaluate(() => window.anchorMessages);
   expect(anchors.length).toBeGreaterThan(0);

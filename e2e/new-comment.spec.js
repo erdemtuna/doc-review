@@ -53,7 +53,7 @@ test("empty and whitespace close retire the target; selected headings label them
   await expect(composer(page).getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await editor(page).fill("   ");
-  await expect(composer(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await composer(page).getByRole("button", { name: "Close comment" }).click();
   await frame.locator("#chosen").click({ clickCount: 3 });
   await frame.locator("#chosen").press("Control+Alt+m");
@@ -79,7 +79,7 @@ test("dirty cancellation, IME, saving and uncertain acceptance preserve the exac
   });
   await editor(page).press("Enter"); await editor(page).press("Escape");
   await expect(editor(page)).toHaveValue("Accepted original draft\n");
-  await expect(composer(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await editor(page).evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await editor(page).fill("Accepted original draft");
   await editor(page).evaluate(node => node.setSelectionRange(2, 8));
@@ -202,7 +202,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
     await page.evaluate(() => window.lastOpening));
   await feedback(page);
   await expect(page.getByRole("complementary", { name: "Feedback" })).toBeVisible();
-  await expect(composer(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await reopen();
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "compose");
   expect(await editor(page).evaluate((node) => [node === window.newEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 7, 14]);
@@ -244,13 +244,13 @@ test("one new editor stays readable through toolbar-focused resizing and respect
       });
       await expect.poll(visibleHeight).toBeGreaterThanOrEqual(18);
       await expect(page.locator("#theme")).toBeFocused();
-      await expect(composer(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+      await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
       await page.screenshot({ path: info.outputPath(`new-comment-initial-${theme}-${width}x${height}.png`) });
       const font = await page.locator("#draft-note").evaluate(node => getComputedStyle(node).fontSize);
       // Composition extends the shared editor typography; host styles need not equal the card body's font.
       await expect(editor(page)).toHaveCSS("font-size", font);
       expect(parseFloat(font)).toBeGreaterThanOrEqual(13);
-      const save = composer(page).getByRole("button", { name: "Save", exact: true });
+      const save = composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true });
       const rect = await save.boundingBox();
       expect(rect.x).toBeGreaterThanOrEqual(0);
       expect(rect.x + rect.width).toBeLessThanOrEqual(width);
@@ -262,7 +262,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   const permission = composer(page).getByRole("checkbox", { name: "Request a change" });
   await permission.scrollIntoViewIfNeeded();
   await expect(permission).toBeInViewport();
-  const save = composer(page).getByRole("button", { name: "Save", exact: true });
+  const save = composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true });
   await save.scrollIntoViewIfNeeded();
   await expect(save).toBeInViewport();
   const inventory = page.locator(".conversation-inventory");
@@ -272,7 +272,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(0);
   await page.locator("#theme").click();
   await editor(page).evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
-  await expect(composer(page).getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   expect(await inventory.evaluate(node => node.scrollTop)).toBe(0);
   await expect(page.locator("#theme")).toBeFocused();
   fs.writeFileSync(info.outputPath("new-comment-geometry.json"), JSON.stringify(metrics, null, 2));
@@ -309,7 +309,7 @@ test("new-target boundary rejects stale or foreign intent and keeps exact draft 
   await expect(editor(page)).toHaveValue("Must keep the exact anchor");
   await post({ ...opening, type: "eh:targetGeometry", anchor: { ...opening.anchor, quote: "Wrong target" } });
   await expect(page.getByRole("alert")).toContainText("cannot replace the original anchor");
-  await expect(composer(page).locator("blockquote")).toContainText("A concise selection");
+  await expect(composer(page).locator(".conversation-target-quote")).toHaveText(`"${opening.anchor.quote}"`);
   await post({ ...opening, type: "eh:targetGeometry", viewport: null, clip: null });
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
   expect(await editor(page).evaluate(node => node === window.newEditor)).toBe(true);
@@ -369,5 +369,5 @@ test("nested clipping pins to the effective edge and removed targets or shared E
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(editor(page)).toHaveAttribute("readonly", "");
   expect(await editor(page).evaluate(node => node === window.newEditor)).toBe(true);
-  await expect(composer(page).getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+  await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toHaveCount(0);
 });

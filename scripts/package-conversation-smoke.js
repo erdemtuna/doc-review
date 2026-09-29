@@ -50,6 +50,10 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await tab.keyboard.press("Escape");
   };
   const threadAction = async (tab, thread, name) => {
+    if (["Resolve", "Reopen", "Back to Feedback", "Collapse conversation", "Expand conversation"].includes(name)) {
+      await thread.getByRole("button", { name, exact: true }).click();
+      return;
+    }
     await thread.getByRole("button", { name: "Conversation actions" }).click();
     await tab.getByRole("menuitem", { name, exact: true }).click();
   };
@@ -70,7 +74,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await expect(composer.getByLabel("Request a change")).not.toBeChecked();
     await composer.getByRole("textbox").fill(body);
     if (change) await composer.getByLabel("Request a change").check();
-    await composer.getByRole("button", { name: "Save", exact: true }).click();
+    await composer.getByRole("button", { name: "Add comment", exact: true }).click();
     await expect(composer).toHaveCount(0);
   };
   const pick = (ref) => cli(["poll", ...scopeArgs(ref), "--timeout", "5"], contracts.agentPollSchema);
@@ -397,7 +401,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await threadAction(second, active, "Back to Feedback");
     for (const id of anchorIds.slice(1)) {
       const item = second.locator(`[data-thread="${id}"]`);
-      await expect(item.getByRole("button", { name: "Jump to", exact: true })).toBeDisabled();
+      await expect(item.getByRole("button", { name: "Show in document", exact: true })).toBeDisabled();
       await expect(item.getByRole("button", { name: "Reply", exact: true })).toBeEnabled();
     }
     await second.screenshot({ path: path.join(evidenceDir, "installed-target-safety.png"), animations: "disabled", caret: "initial" });

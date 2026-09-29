@@ -115,7 +115,7 @@ for (const action of ["save", "edit"]) test(`${action} retains editable input an
   await input.fill("Newer typing");
   await input.evaluate((element) => { window.savedComposer = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
   await page.locator("#theme").click(); release();
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   expect(await input.evaluate((element) => element === window.savedComposer)).toBe(true);
   expect(await input.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([2, 7]);
   await expect(input).toHaveValue("Newer typing");
@@ -127,8 +127,8 @@ for (const [width, height] of [[320, 480], [600, 700], [900, 300], [1440, 400]])
   const { frame } = await setup(page, review, `composer-${width}-${height}.html`);
   await begin(page, frame); await draft(page).fill("Preserved text");
   await expect(page.getByRole("textbox", { name: "New message", exact: true })).toHaveCount(1);
-  await page.getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
-  const box = await page.getByRole("button", { name: "Save", exact: true }).boundingBox();
+  await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).scrollIntoViewIfNeeded();
+  const box = await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).boundingBox();
   expect(box.y + box.height).toBeLessThanOrEqual(height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await draft(page).press("Escape");
@@ -144,7 +144,7 @@ test("saved correction remains immutable on handling; a newer pending follow-up 
   await page.getByRole("textbox", { name: "Edit message" }).press("Enter");
   await page.locator("#send").click(); await expect(page.getByText("Queued; not received", { exact: true })).toBeVisible();
   await card(page).getByRole("button", { name: "Reply", exact: true }).click();
-  await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Next round"); await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("textbox", { name: "Reply", exact: true }).fill("Next round"); await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await handled(review, ref);
   await expect(card(page)).toContainText("Corrected before Send");
   await expect(card(page)).toContainText("Next round");
@@ -261,7 +261,7 @@ test("native word and paragraph selections comment in View and Edit", async ({ p
     await expect(frame.locator("#commentAction")).toBeVisible();
     await frame.locator("#commentAction").click();
     await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "selection");
-    await expect(page.locator(".conversation-new-target")).toHaveText("Alpha");
+    await expect(page.locator(".conversation-new-target .conversation-target-quote")).toHaveText(/^"Alpha\s*"$/);
     await page.keyboard.press("Escape");
     await close(page);
 
@@ -269,9 +269,9 @@ test("native word and paragraph selections comment in View and Edit", async ({ p
     await expect(frame.locator("#commentAction")).toBeVisible();
     await frame.locator("#copy").press("Control+Alt+m");
     await expect(page.locator(".conversation-new-target")).toHaveAttribute("data-new-target-kind", "selection");
-    await expect(page.locator(".conversation-new-target")).toHaveText("Alpha beta gamma paragraph with several words to select.");
+    await expect(page.locator(".conversation-new-target .conversation-target-quote")).toHaveText(/^"Alpha beta gamma paragraph with several words to select\.\s*"$/);
     await page.getByRole("textbox", { name: "New message", exact: true }).fill(`Native paragraph in ${mode}`);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
     await expect(frame.locator("#copy mark[data-eh-mark]")).toHaveText("Alpha beta gamma paragraph with several words to select.");
     await expect(frame.locator("#next mark[data-eh-mark]")).toHaveCount(0);
   }
@@ -311,7 +311,7 @@ test("equivalent selection events keep one generation and collapse restores the 
   });
   await expect(frame.locator("#commentAction")).toBeVisible();
   await frame.locator("#commentAction").click();
-  await expect(page.locator(".conversation-new-target")).toHaveText("Alpha bold words and ending.");
+  await expect(page.locator(".conversation-new-target .conversation-target-quote")).toHaveText('"Alpha bold words and ending."');
   expect(await page.evaluate(() => [...new Set(window.selectionGenerations)])).toEqual([generation]);
   await page.keyboard.press("Escape");
   await close(page);
@@ -333,7 +333,7 @@ test("block overlays follow geometry without covering authored controls or leaki
   await frame.locator("#target").focus();
   await frame.locator("#target").press("Control+Alt+m");
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Button feedback");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   const badge = frame.locator(".block-badge");
   await expect(badge).toBeVisible();
   await close(page);

@@ -17,7 +17,8 @@ test("approved Field Notes toolbar and readable card hierarchy survive the accep
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     else await page.locator("#theme").focus();
     await page.mouse.move(0, 0);
-    await expect.poll(() => page.locator(".shell-toolbar").evaluate(node => node.getBoundingClientRect().height)).toBe(size.toolbar);
+    // The lifecycle badge now shares the mode row rather than adding a third row.
+    await expect.poll(() => page.locator(".shell-toolbar").evaluate(node => node.getBoundingClientRect().height)).toBe(size.width <= 760 ? 89 : 49);
     await expect(page.locator("#theme")).toBeFocused();
     const geometry = await body.evaluate(node => {
       const range = document.createRange(); range.selectNodeContents(node);

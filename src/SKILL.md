@@ -28,11 +28,15 @@ the same durable link without launching a browser.
 ## Reviewer interaction
 
 The page starts in View. Feedback is nonmodal: it docks on roomy desktops and
-floats on narrow PC windows, without dimming or disabling the document. Jump to
+floats on narrow PC windows, without dimming or disabling the document. Show in document
 reveals the exact passage, hiding a floating panel only when it would obscure the
-target. Focus and other thread actions are in the conversation menu.
+target. Focus and secondary thread actions are in the conversation menu.
+Resolve/Reopen remain visible in the header. Resolve refuses unfinished drafts,
+unsent messages and outstanding agent work; Undo resolve is available only while
+the accepted review version is still current.
 
-Save queues a message; **Send to agent (N)** dispatches a deliberate batch.
+Add comment / Add reply / Update comment queue a message;
+**Send to agent (N)** dispatches a deliberate batch.
 **Review selection** contains message/edit exclusions, exact human edit evidence,
 and the optional overall note with its own unchecked change permission. Excluded
 messages show **Not included** and remain pending. Unsaved drafts are not sent.

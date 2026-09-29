@@ -69,7 +69,7 @@ it("short reply composition groups the same independent overall note without los
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(document.getElementById("draft-note")).toBe(note);
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(reply);
-  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
   fireEvent.click(toggle);
   expect(screen.getByRole("textbox", { name: "Overall note" })).toBe(note);
   expect(note).toHaveValue("Retained overall note");
@@ -106,7 +106,7 @@ it("new composition uses one editor and unchecked permission across contextual/F
   fireEvent.compositionStart(editor);
   fireEvent.click(screen.getByRole("button", { name: "Feedback" }));
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
   expect(screen.getByRole("complementary", { name: "Feedback" })).toBeVisible();
   act(() => owner.commands.compose());
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
@@ -156,7 +156,7 @@ it("only new-composer host or inventory-size changes reveal clipped input withou
   height = 80; act(resized);
   expect(inventory.scrollTop).toBe(200);
   expect(screen.getByRole("textbox", { name: "New message" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
   expect(theme).toHaveFocus();
   shell.dispose();
 });
@@ -168,27 +168,27 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   fireEvent.compositionStart(editor);
   await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
-  fireEvent.click(screen.getByRole("button", { name: /Paragraph/, expanded: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Collapse conversation", expanded: true }));
   expect(editor).toBeInTheDocument(); expect(editor).not.toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: /Paragraph/, expanded: false }));
+  fireEvent.click(screen.getByRole("button", { name: "Expand conversation", expanded: false }));
   fireEvent.compositionEnd(editor);
   expect(editor).toHaveValue("Keep this exact draft");
   expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(3);
   shell.dispose();
 });
-it("adjacent conversations omit the redundant target control and retain named menu collapse", async () => {
+it("adjacent conversations separate source context, navigation and collapse controls", async () => {
   const { owner, shell, updateChrome } = await fixture();
   act(() => {
     updateChrome({ adjacent: { kind: "attached", left: 800, top: 80, width: 380, height: 600 } });
     owner.commands.adjacent("thread");
   });
-  expect(document.querySelector(".conversation-thread-title")).toBeNull();
-  const menu = screen.getByRole("button", { name: "Conversation actions" });
-  fireEvent.pointerDown(menu, { button: 0, ctrlKey: false, pointerType: "mouse" });
-  await waitFor(() => expect(screen.getByRole("menuitem", { name: "Collapse conversation" })).toBeVisible());
-  fireEvent.click(screen.getByRole("menuitem", { name: "Collapse conversation" }));
+  expect(screen.getByText("Recorded location")).toBeVisible();
+  expect(screen.getByText("Paragraph", { exact: true })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Show in document" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Resolve" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
   expect(document.querySelector(".conversation-thread-content")).not.toBeVisible();
   expect(owner.getSnapshot().threads[0].expanded).toBe(false);
   shell.dispose();
@@ -197,7 +197,7 @@ it("cards extend the former inventory surface and keep both filters visibly sele
   const { shell } = await fixture();
   const card = screen.getByRole("article");
   expect(card).toHaveClass("inventory-card");
-  expect(screen.getByRole("button", { name: /Paragraph/, expanded: true })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Collapse conversation", expanded: true })).toBeVisible();
   const open = screen.getByRole("button", { name: "Open (1)" });
   const resolved = screen.getByRole("button", { name: "Resolved (0)" });
   for (const filter of [open, resolved]) {
@@ -211,7 +211,7 @@ it("cards extend the former inventory surface and keep both filters visibly sele
   fireEvent.click(open);
   expect(card).toBeVisible();
   expect(screen.getByText("Saved discussion")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Resolve" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Resolve" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Conversation actions" })).toHaveAttribute("aria-haspopup", "menu");
   expect(card.querySelector("time")).toHaveAttribute("dateTime", new Date(1).toISOString());
   expect(card.querySelector("time")).toHaveAccessibleName(new Date(1).toLocaleString());
@@ -298,7 +298,7 @@ it("adjacent, Focus and Feedback keep the same composing editor and closing neve
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
-  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
   expect(editor).toBeVisible();
   expect(owner.getSnapshot().filters.open).toBe(true);
@@ -367,7 +367,7 @@ it("overall note keys remain multiline and never save, send or cancel the note",
   shell.dispose();
 });
 
-it.each(["new", "reply", "edit"] as const)("%s has one Save row, protective X, and Keep editing restores the caret", async (mode) => {
+it.each(["new", "reply", "edit"] as const)("%s has a specific queued action, protective X, and Keep editing restores the caret", async (mode) => {
   const { owner, shell } = await fixture();
   act(() => {
     if (mode === "new") owner.commands.begin("page", { kind: "element", anchor: { selector: "h2", label: "Heading" } });
@@ -377,8 +377,8 @@ it.each(["new", "reply", "edit"] as const)("%s has one Save row, protective X, a
   const id = mode === "new" ? "new" : "thread";
   const editor = document.getElementById(`draft-${id}`) as HTMLTextAreaElement;
   fireEvent.change(editor, { target: { value: "Keep this text", selectionStart: 2, selectionEnd: 8 } });
-  const save = screen.getByRole("button", { name: "Save" });
-  expect(save).toHaveAccessibleDescription(/Save does not send/);
+  const save = screen.getByRole("button", { name: mode === "new" ? "Add comment" : mode === "reply" ? "Add reply" : "Update comment" });
+  expect(save).toHaveAccessibleDescription(/Not sent until you choose Send to agent/);
   expect(save.parentElement).toHaveClass("conversation-composer-actions");
   expect(save.parentElement?.querySelector('[data-slot="checkbox"]')).not.toBeNull();
   expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();

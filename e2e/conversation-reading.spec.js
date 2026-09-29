@@ -39,7 +39,7 @@ test("reading fixture retains the four reported conversation states", async ({ p
   expect(pending.inventoryColor).toBe(pending.toolbarColor);
   expect(pending.card.height).toBeLessThan(180);
   const title = await card.locator(".conversation-thread-title").boundingBox();
-  const jump = await card.getByRole("button", { name: "Jump to", exact: true }).boundingBox();
+  const jump = await card.getByRole("button", { name: "Show in document", exact: true }).boundingBox();
   expect(Math.abs(title.y - jump.y)).toBeLessThan(8);
   await expect(card.getByRole("button", { name: "Focus", exact: true })).toHaveCount(0);
   await (await threadAction(page, card, "Focus")).click();

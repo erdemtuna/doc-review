@@ -153,7 +153,7 @@ test("pending and selected cues distinguish exclusions, note-only permission and
   await mutate(review, ref, "create-thread", { pageKey: ref.key, target: { kind: "element", anchor: { selector: "body" } }, body: "Remote pending", intent: "discuss" });
   await expect(page.locator("#toolbarCount")).toHaveText("…");
   await feedback(page); await expect(page.locator("#send")).toBeDisabled();
-  await expect(page.locator("#sendSelectionDescription")).toContainText("unavailable");
+  await expect(page.locator("#sendSelectionDescription")).toHaveText("Couldn't check what's ready to send. Refresh the review.");
   await page.setViewportSize({ width: 320, height: 400 });
   for (const id of ["endReview", "send"]) {
     await expect.poll(async () => {

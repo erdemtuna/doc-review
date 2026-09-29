@@ -19,30 +19,35 @@ inventory background, with clear inter-card gaps. Reviewer and agent messages
 are unboxed, share author/avatar/time metadata and retain 13px body text.
 Ordinary Discussion and answered states have no pill; explicit Change requested,
 non-default response outcomes, pending-unsent and read-only cues remain per-message.
-Sidebar target context occupies its own full-width, up-to-two-line row, above the
-compact Jump to/action/activity row. Adjacent discussions omit the entire repeated
-target control while the verified highlight is visible; named Collapse conversation /
-Expand conversation menu actions retain keyboard access without an empty chevron or border.
+Shared `ConversationSource` identifies Selected text or Recorded location above
+the compact action row, with the quote/description limited to two lines. Legacy
+generated location labels are expanded into readable wording without rewriting anchors.
+Sidebar, Focus and adjacent discussions use the same source, collapse, navigation
+and resolution controls; host styling changes geometry, not message anatomy.
 Readable timestamps expose the full date/time through a keyboard-
 accessible, hoverable tooltip. The thread's Conversation actions menu holds
-Resolve/Reopen, eligible Delete thread and host transfers; this is not a
+eligible Delete thread and host transfers; this is not a
 restoration of the removed global More menu. Focus is a named menu action and Edit
-is a compact icon control; every sidebar card has a visible **Jump to** label with a locate icon.
+is a compact icon control; every card has visible **Show in document** and
+**Resolve/Reopen** actions. Collapse/Expand is a separate named icon button.
 Reply is a quiet visible action, sharing the last pending message's action row.
 Optional Review selection and draft permissions use the
 shared Checkbox primitive; selecting feedback does not change its permission.
 Each exchange associates its original reviewer message with the actual reply.
 New messages signal attention without forcing expansion or scrolling. Earlier
 pages merge by stable identity; reconnect must not leave an unreachable gap.
-Save retains unsent feedback; Send submits the selected saved pending items across
+Add comment / Add reply / Update comment retain unsent feedback; Send submits the selected saved pending items across
 authorized review pages. Immutable sent corrections are new messages.
 Each new message/note defaults to Discussion. The change checkbox appears only
 during composition/edit; saved Change requested intent is a badge, not an editable permission.
 
 One mounted thread/editor moves across Feedback, Focus and adjacent geometry.
 No transfer clones a textarea. Collapse and Close preserve drafts and reading
-state; neither resolves a thread. Explicit Resolve/Reopen is server-guarded
-and refuses to discard a local draft. Enter saves, Shift+Enter inserts a newline,
+state; neither resolves a thread. One-click Resolve/Reopen is server-guarded
+and refuses drafts, pending messages (including excluded ones), and accepted work.
+Undo is bound to the exact accepted review version and disappears after any newer
+review mutation or End; uncertain receipts must reconcile before Undo appears.
+The Undo action remains reachable in all hosts. Enter queues the draft, Shift+Enter inserts a newline,
 Escape cancels; active IME composition is never intercepted. The overall note
 stays multiline and submission-only: Enter must not Send. Comments and Your edits
 collapse independently without unmounting their contents. The optional overall
@@ -86,7 +91,7 @@ the API token. Correlated geometry/status is presentation, not source authority.
 Explicit highlight activation opens one adjacent conversation. Shared targets
 offer a count/chooser. Missing, ambiguous, hidden/not-measurable, loading,
 render-changed and failed/unavailable renders have distinct explanations.
-Offscreen is not missing: Jump to scrolls only a verified target. A successful jump
+Offscreen is not missing: Show in document scrolls only a verified target. A successful jump
 retains Feedback when the target can remain visible, or hides a floating panel
 that would cover it. Feedback
 returns to the retained inventory position and drafts. Cross-page jumps wait for
@@ -112,8 +117,8 @@ Fallback preserves input and never changes thread status. It does not automatica
 jump back to adjacent placement.
 
 New comments extend the former 340px contextual surface with one title, a subdued
-target cue, Textarea, and unchecked Request a change / Save on one horizontal row.
-Save's tooltip and accessible description explain Save versus Send and keyboard
+target cue, Textarea, and unchecked Request a change / Add comment on one horizontal row.
+Each action's tooltip and accessible description explain queuing versus Send and keyboard
 shortcuts without a permanent help row. There is no Element badge, duplicate
 New message heading, permanent Cancel, or host-transfer action.
 New/reply/edit X and Escape use controller-owned cancellation: empty new/reply
@@ -343,7 +348,7 @@ The toolbar is the surface reference for conversation chrome. Feedback inventory
 uses the same card surface, not a large muted-color slab. Discussion boundaries
 remain visible through borders and spacing; messages inside a discussion stay
 unboxed. Target navigation and thread actions share a compact header. Focus is a
-named menu action, while Jump to stays visible. Routine pending/unread state uses
+named menu action, while Show in document and Resolve/Reopen stay visible. Routine pending/unread state uses
 quiet text rather than competing badges. Exceptional outcomes and edit permissions
 remain explicit. In-place element highlights use one restrained edge treatment,
 with separate keyboard focus indication.

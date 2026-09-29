@@ -58,7 +58,7 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
       await clearTarget(page, frame, panel);
       await expect(input).toBeFocused();
       expect(await input.evaluate(node => [node === window.localNewEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 4, 9]);
-      await expect(panel.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+      await expect(panel.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
       await page.setViewportSize({ width, height });
       await clearTarget(page, frame, panel);
       await expect(input).toBeFocused();
@@ -66,7 +66,7 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
     }
     const composer = await clearTarget(page, frame, panel);
     expect(composer.frame).toEqual(before);
-    await hit(panel.getByRole("button", { name: "Save", exact: true }));
+    await hit(panel.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }));
     await hit(panel.getByRole("checkbox", { name: "Request a change" }));
     await page.screenshot({ path: info.outputPath(`compose-${theme}-${width}.png`), caret: "initial" });
     await input.press("Enter");
@@ -89,7 +89,7 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
     await expect(page.locator("#theme")).toBeFocused();
     expect(await reply.evaluate(node => [node === window.localReply, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 8]);
     await clearTarget(page, frame, panel);
-    await hit(panel.getByRole("button", { name: "Save", exact: true }));
+    await hit(panel.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }));
     await (await threadAction(page, page.locator(`[data-thread="${thread.threadId}"]`), "Back to Feedback")).click();
     await expect(panel).toHaveAttribute("data-host", "feedback");
     expect(Math.round((await panel.boundingBox()).width)).toBe(Math.min(380, width));
@@ -128,7 +128,7 @@ test("long local transcript, browser zoom and resize keep controls and deliberat
     await expect(editor).toBeVisible();
     await expect(page.locator("#theme")).toBeFocused();
     expect(await editor.evaluate(node => [node === window.longEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
-    await expect(card.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
     await hit(card.getByRole("checkbox", { name: "Request a change" }));
     samples.push(await clearTarget(page, frame, panel));
     await page.screenshot({ path: info.outputPath(`long-${width}.png`), caret: "initial" });
@@ -154,12 +154,12 @@ test("long local transcript, browser zoom and resize keep controls and deliberat
   await expect(frame.locator('.block-marker[data-active="true"], mark.eh-active')).toHaveCount(0);
   await expect(editor).toBeFocused();
   expect(await editor.evaluate(node => [node === window.longEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
-  await expect(card.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await hit(card.getByRole("checkbox", { name: "Request a change" }));
   await page.screenshot({ path: info.outputPath("measured-fallback.png"), caret: "initial" });
   await editor.evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
-  await hit(card.getByRole("button", { name: "Save", exact: true }));
-  await card.getByRole("button", { name: "Save", exact: true }).focus();
+  await hit(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }));
+  await card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(editor).toHaveCount(0);
   fs.writeFileSync(info.outputPath("long-geometry.json"), JSON.stringify(samples, null, 2));

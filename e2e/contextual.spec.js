@@ -37,7 +37,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     expect(box.y + box.height).toBeLessThanOrEqual(900);
     await expect(panel).not.toHaveAttribute("aria-modal", "true");
     await page.screenshot({ path: info.outputPath(`composer-${theme}-${width}.png`), animations: "disabled" });
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
     await expect(field).toHaveCount(0);
     await feedback(page);
     const card = page.locator(".conversation-thread");
@@ -53,8 +53,8 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
       expect(surface.x >= target.x + target.width || surface.x + surface.width <= target.x ||
         surface.y >= target.y + target.height || surface.y + surface.height <= target.y).toBe(true);
     }
-    if (adjacent) await expect(card.locator(".conversation-jump")).toBeHidden();
-    for (const name of [...(adjacent ? [] : ["Jump to"]), "Edit message", "Conversation actions"]) {
+    await expect(card.locator(".conversation-jump")).toBeVisible();
+    for (const name of ["Show in document", "Resolve", "Edit message", "Conversation actions"]) {
       const action = card.getByRole("button", { name, exact: true });
       await action.focus(); await action.press("Tab"); await page.keyboard.press("Shift+Tab");
       await expect(action).toBeFocused();
@@ -151,7 +151,7 @@ test("late successful save after source reload clears only its captured draft, n
     await expect(page.locator("#frame")).not.toHaveAttribute("src", previous);
     await waitForSdk(page); release();
     await expect(field).toHaveValue("Newer draft retained during reload");
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
     expect((await listed(review, ref, "threads")).totalCount).toBe(1);
     await field.press("Escape");
     await page.getByRole("button", { name: "Discard", exact: true }).click();

@@ -75,7 +75,7 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
   });
   await (await threadAction(page, card(page, one), "Focus")).click();
   await expect(panel(page)).toHaveAttribute("data-host", "focus");
-  await expect(card(page, one).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(card(page, one).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await card(page, one).getByRole("button", { name: "Back to Feedback" }).click();
   await (await threadAction(page, card(page, one), "Beside target")).click();
   expect(await editor.evaluate((node) => [node === window.savedEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
@@ -92,11 +92,11 @@ test("one explicit adjacent host preserves editor, caret, IME, Save lock and sam
     if (route.request().postDataJSON().operation === "reply") { picked(); await hold; }
     await route.continue();
   });
-  await card(page, one).getByRole("button", { name: "Save", exact: true }).click();
+  await card(page, one).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await waiting;
   await editor.fill("Newer text stays in the same editor");
   await (await threadAction(page, card(page, one), "Focus")).click();
-  await expect(card(page, one).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(card(page, one).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   release();
   await expect(card(page, one).getByText("Keep this composition and selected text", { exact: true })).toBeVisible();
   await expect(editor).toHaveValue("Newer text stays in the same editor");
@@ -153,7 +153,7 @@ test("missing, normalized, repeated, hidden and replaced targets retain conversa
   });
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
   await expect(mark(page, id)).toHaveCount(0);
-  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeDisabled();
+  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeDisabled();
   await expect(card(page, id)).toContainText("Multiple targets match");
   await expect(editor).toHaveValue("Retain me through unavailable targets");
   await frame.locator("#repeat").evaluate((node) => node.remove());
@@ -167,10 +167,10 @@ test("missing, normalized, repeated, hidden and replaced targets retain conversa
   await expect(card(page, id)).toContainText("The original target was not found");
   await expect(editor).toHaveValue("Retain me through unavailable targets");
   const block = await seed(review, ref, "Block conversation", { kind: "element", anchor: { selector: "#block", label: "Block" } });
-  await expect(card(page, block).getByRole("button", { name: "Jump to" })).toBeEnabled();
+  await expect(card(page, block).getByRole("button", { name: "Show in document" })).toBeEnabled();
   await frame.locator("#block").evaluate((node) => { node.outerHTML = '<div id="block">Unrelated replacement</div>'; });
   await expect(card(page, block)).toContainText("element identity changed");
-  await expect(card(page, block).getByRole("button", { name: "Jump to" })).toBeDisabled();
+  await expect(card(page, block).getByRole("button", { name: "Show in document" })).toBeDisabled();
 });
 
 test("offscreen pinning and explicit narrow/short Feedback preserve the document and editor", async ({ page, review }, testInfo) => {
@@ -183,8 +183,9 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
   await editor.fill("Viewport-safe draft");
   await page.frameLocator("#frame").locator("body").evaluate(() => window.scrollTo(0, 1000));
   await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
-  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeEnabled();
-  await card(page, id).getByRole("button", { name: "Jump to" }).click();
+  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeEnabled();
+  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toHaveAttribute("title", /offscreen/);
+  await card(page, id).getByRole("button", { name: "Show in document" }).click();
   await expect(mark(page, id)).toBeInViewport();
   await expect(panel(page)).toBeHidden();
   await page.locator("#commentsButton").click();
@@ -197,9 +198,12 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
     const box = await panel(page).boundingBox();
     return box.y + box.height;
   }).toBeLessThanOrEqual(400);
-  await (await threadAction(page, card(page, id), "Focus")).click();
+  if (await panel(page).getAttribute("data-host") !== "focus") {
+    await (await threadAction(page, card(page, id), "Focus")).click();
+  }
+  await expect(panel(page)).toHaveAttribute("data-host", "focus");
   expect((await card(page, id).locator(".conversation-transcript").boundingBox()).height).toBeGreaterThanOrEqual(48);
-  const keyboardSave = await card(page, id).getByRole("button", { name: "Save", exact: true }).boundingBox();
+  const keyboardSave = await card(page, id).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).boundingBox();
   expect(keyboardSave.y + keyboardSave.height).toBeLessThanOrEqual(400);
   await card(page, id).getByRole("button", { name: "Back to Feedback" }).click();
   await page.evaluate(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event("resize")); });
@@ -213,15 +217,15 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
       const box = await panel(page).boundingBox();
       expect(box.y + box.height).toBeLessThanOrEqual(height);
       await (await threadAction(page, card(page, id), "Focus")).click();
-      await card(page, id).getByRole("button", { name: "Save", exact: true }).scrollIntoViewIfNeeded();
-      await expect(card(page, id).getByRole("button", { name: "Save", exact: true })).toBeInViewport();
+      await card(page, id).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).scrollIntoViewIfNeeded();
+      await expect(card(page, id).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeInViewport();
       expect((await card(page, id).locator(".conversation-transcript").boundingBox()).height).toBeGreaterThanOrEqual(48);
       await page.screenshot({ path: testInfo.outputPath(`conversation-${theme}-${width}-${height}.png`), animations: "disabled" });
       await card(page, id).getByRole("button", { name: "Back to Feedback" }).click();
       if (width < 900) {
         await expect(page.locator(".stage")).toBeVisible();
         expect(await page.locator(".stage").evaluate((element) => element.inert)).toBe(false);
-        await card(page, id).getByRole("button", { name: "Jump to" }).click();
+        await card(page, id).getByRole("button", { name: "Show in document" }).click();
         await expect(mark(page, id)).toBeVisible();
         await mark(page, id).press("Enter");
         await expect(editor).toHaveValue("Viewport-safe draft");
@@ -297,7 +301,7 @@ test("reload and failed render fall back without declaring missing source or rep
   fs.appendFileSync(file, "\n<!-- external source change -->");
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
   await expect(editor).toHaveValue("Draft survives a failed renderer");
-  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeDisabled();
+  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeDisabled();
   await expect(card(page, id)).not.toContainText("original target was not found");
   await expect(card(page, id).getByText(/render is unavailable/, { exact: false })).toBeVisible({ timeout: 25_000 });
   expect(await editor.evaluate((node) => node === window.savedEditor)).toBe(true);
@@ -344,7 +348,6 @@ test("loaded exchanges and reading anchor survive host transfers; resolved conve
   await expect(card(page, id).locator("[data-message]")).toHaveCount(55);
   await mutate(review, ref, "set-thread-status", { threadId: id, status: "resolved" });
   await expect(await threadAction(page, card(page, id), "Reopen")).toBeEnabled();
-  await page.keyboard.press("Escape");
   await expect(card(page, id).getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
   await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
 });
@@ -367,7 +370,7 @@ test("exact repeated source saves through a highlighted block never serialize co
     expect(fs.readFileSync(file, "utf8")).not.toMatch(/data-eh-|Open conversation|tabindex|role="button"/);
   }
   await expect(panel(page)).toHaveAttribute("data-host", "feedback");
-  await expect(card(page, id).getByRole("button", { name: "Jump to" })).toBeDisabled();
+  await expect(card(page, id).getByRole("button", { name: "Show in document" })).toBeDisabled();
   await expect(editor).toHaveValue("Conversation survives human source edits");
 });
 

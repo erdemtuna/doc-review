@@ -150,7 +150,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
   await changes.getByRole("button", { name: "Back to review" }).click();
   expect(await draft.evaluate(node => [node === window.resultDraft, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 8]);
-  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
   await draft.evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await draft.press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();

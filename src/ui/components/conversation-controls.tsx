@@ -3,11 +3,27 @@ import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./ui/dropdown-menu";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { Icon } from "./icon";
+import type { ConversationTarget } from "../../contracts/feedback";
 
 type ConversationAction = { label: string; disabled?: boolean; destructive?: boolean; run(): void };
 
 export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
   return <span className="conversation-author"><span className="conversation-avatar" aria-hidden="true">{role === "You" ? "Y" : "A"}</span><strong>{role}</strong></span>;
+}
+
+export function ConversationSource({ target }: { target: ConversationTarget }) {
+  if (target.kind === "selection") return <div className="conversation-source">
+    <span className="conversation-source-label">Selected text</span>
+    <span className="conversation-target-quote" title={target.anchor.quote}>"{target.anchor.quote}"</span>
+  </div>;
+  const label = target.anchor.label ?? "";
+  const generated = /^(.*?) \u00b7 (p|li|h[1-6]|div|section|article|blockquote|table|pre)(?: (\d+))?$/.exec(label);
+  const names: Record<string, string> = { p: "Paragraph", li: "List item", div: "Block", section: "Section", article: "Article", blockquote: "Quotation", table: "Table", pre: "Code block" };
+  const description = generated ? `${names[generated[2]] ?? "Heading"}${generated[3] ? ` ${generated[3]}` : ""} near "${generated[1]}"` : label || "Document element";
+  return <div className="conversation-source">
+    <span className="conversation-source-label">Recorded location</span>
+    <span className="conversation-target-quote" title={label}>{description}</span>
+  </div>;
 }
 
 export function ConversationMenu({ actions }: { actions: ConversationAction[] }) {
