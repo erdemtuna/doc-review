@@ -2,7 +2,7 @@ import { selectPeer } from "./choice-helpers.js";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode } from "./helpers.js";
+import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectFeedbackBounds } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 import { frameAnchorsSchema, validateFrameAnchorStates } from "../lib/contracts/frame.js";
 
@@ -258,6 +258,7 @@ test("offscreen pinning and explicit narrow/short Feedback preserve the document
     for (const [width, height] of [[1280, 400], [390, 600], [320, 400]]) {
       await page.setViewportSize({ width, height });
       await expect(panel(page)).toHaveAttribute("data-host", "feedback");
+      await expectFeedbackBounds(page, { width, height });
       await expect(editor).toHaveValue("Viewport-safe draft");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const box = await panel(page).boundingBox();

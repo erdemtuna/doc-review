@@ -280,6 +280,8 @@ test("checked intent editing and ended late results retain read-only observer", 
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await page.locator("#endReview").click();
   await page.getByRole("button", { name: "End review", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await expect(page.locator("#send")).toBeDisabled();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.messages[0].message.intent).toBe("discuss");
@@ -297,6 +299,8 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await page.locator("#commentsButton").click(); await message(page, "First work");
   await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   const second = await context.newPage();
   const fresh = await open(second, review, file); expect(fresh.reviewId).not.toBe(ref.reviewId);
   await second.locator("#commentsButton").click();
@@ -360,8 +364,10 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
       await expect(page.getByText("Reviewing", { exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       for (const button of [thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }), thread.getByRole("button", { name: "Back to Feedback" })]) {
-        const box = await button.boundingBox();
-        expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
+        await expect(async () => {
+          const box = await button.boundingBox();
+          expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
+        }).toPass({ timeout: 5000 });
       }
       if (theme === "light" && width === 320 && height === 400) {
         const transcript = thread.locator(".conversation-transcript");
@@ -383,8 +389,10 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   }
   await thread.getByRole("button", { name: "Back to Feedback" }).click();
   await page.setViewportSize({ width: 320, height: 400 });
-  const bottom = await page.locator("#send").boundingBox();
-  expect(bottom.y + bottom.height).toBeLessThanOrEqual(400);
+  await expect(async () => {
+    const bottom = await page.locator("#send").boundingBox();
+    expect(bottom.y + bottom.height).toBeLessThanOrEqual(400);
+  }).toPass({ timeout: 5000 });
   await page.screenshot({ path: testInfo.outputPath("conversation-feedback-320.png") });
 });
 

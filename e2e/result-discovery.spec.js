@@ -182,6 +182,8 @@ test("actual saved human edits and captured agent result are discoverable, disti
   }
   fs.writeFileSync(info.outputPath("result-readability.json"), JSON.stringify(measurements, null, 2));
   await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await peek.getByRole("button", { name: "View changes" }).click();
   await expect(changes.locator(".conversation-result-body")).toContainText("Updated the agent target.");
 });

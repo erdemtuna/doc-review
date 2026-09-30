@@ -100,19 +100,22 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await expect(page.locator("#reviewDetails")).toHaveCount(0);
       await expect(page.locator(".conversation-title")).toHaveCount(0);
       await expect(page.locator(".shell-toolbar")).not.toContainText("toolbar-layout.html");
+      await expect(async () => {
+        const toolbar = await page.locator(".shell-toolbar").boundingBox();
+        expect(toolbar.width).toBe(width);
+        for (const control of await page.locator(".shell-toolbar button").all()) {
+          if (!await control.isVisible()) continue;
+          const box = await control.boundingBox();
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+          expect(box.height).toBe(32);
+          if (await control.isEnabled()) expect(await control.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+          })).toBe(true);
+        }
+      }).toPass({ timeout: 5000 });
       const toolbar = await page.locator(".shell-toolbar").boundingBox();
-      expect(toolbar.width).toBe(width);
-      for (const control of await page.locator(".shell-toolbar button").all()) {
-        if (!await control.isVisible()) continue;
-        const box = await control.boundingBox();
-        expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(width);
-        expect(box.height).toBe(32);
-        if (await control.isEnabled()) expect(await control.evaluate((element) => {
-          const rect = element.getBoundingClientRect();
-          return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-        })).toBe(true);
-      }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const brand = page.getByRole("img", { name: "Doc Review", exact: true });
       expect(await brand.evaluate((image) => image.complete && image.naturalWidth === 64)).toBe(true);
@@ -227,13 +230,15 @@ test("waiting and ended badges stay centered with receipt semantics and theme to
       for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400],
         ...[1440, 900, 899, 761, 760, 601, 481, 480, 390, 320].map(width => [width, 450])]) {
         await page.setViewportSize({ width, height });
-        const mode = await page.locator("#modeButton").boundingBox(), box = await badge.boundingBox();
-        if (width > 760) expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
-        if (width > 640) expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
-        expect(box.x + box.width).toBeLessThanOrEqual(width);
-        const toolbarHeight = (await page.locator(".shell-toolbar").boundingBox()).height;
-        expect(toolbarHeight).toBeGreaterThanOrEqual(width > 760 ? 49 : 89);
-        expect(toolbarHeight).toBeLessThanOrEqual(width > 760 ? 49 : 129);
+        await expect(async () => {
+          const mode = await page.locator("#modeButton").boundingBox(), box = await badge.boundingBox();
+          if (width > 760) expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+          if (width > 640) expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+          const toolbarHeight = (await page.locator(".shell-toolbar").boundingBox()).height;
+          expect(toolbarHeight).toBeGreaterThanOrEqual(width > 760 ? 49 : 89);
+          expect(toolbarHeight).toBeLessThanOrEqual(width > 760 ? 49 : 129);
+        }).toPass({ timeout: 5000 });
         await expect(page.locator(".conversation-global-status")).toHaveCount(0);
         await page.screenshot({ path: info.outputPath(`${ended ? "ended" : "waiting"}-${theme}-${width}x${height}.png`) });
         await page.locator("#seeChanges").click();

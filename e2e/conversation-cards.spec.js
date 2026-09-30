@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, sendPending, handled, mutate } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 test("identical pending and handled cards retain readable content and record density across themes and sizes", async ({ page, review }, info) => {
@@ -20,6 +20,7 @@ test("identical pending and handled cards retain readable content and record den
       if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
       for (const [width, height] of [[1440, 900], [900, 700], [899, 700], [390, 480], [320, 400]]) {
         await page.setViewportSize({ width, height });
+        await expectFeedbackBounds(page, { width, height });
         await page.locator(".conversation-inventory").evaluate((element) => { element.scrollTop = 0; });
         const message = card.locator(".conversation-exchange > p").first();
         const box = await card.boundingBox(), body = await message.boundingBox();

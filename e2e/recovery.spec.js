@@ -19,13 +19,15 @@ async function captureWidths(page, info, name) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      const status = await page.locator(".conversation-global-status").count()
-        ? await page.locator(".conversation-global-status").boundingBox()
-        : await page.locator(".conversation-lifecycle").boundingBox();
-      expect(status.x).toBeGreaterThanOrEqual(0);
-      expect(status.x + status.width).toBeLessThanOrEqual(width);
-      expect((await page.locator("#frame").boundingBox()).height).toBeGreaterThan(250);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect(async () => {
+        const status = await page.locator(".conversation-global-status").count()
+          ? await page.locator(".conversation-global-status").boundingBox()
+          : await page.locator(".conversation-lifecycle").boundingBox();
+        expect(status.x).toBeGreaterThanOrEqual(0);
+        expect(status.x + status.width).toBeLessThanOrEqual(width);
+        expect((await page.locator("#frame").boundingBox()).height).toBeGreaterThan(250);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }).toPass({ timeout: 5000 });
       await page.screenshot({ path: info.outputPath(`${name}-${theme}-${width}.png`), animations: "disabled" });
     }
   }

@@ -149,6 +149,15 @@ export async function feedback(page) {
   if (await back.isVisible()) await back.click();
 }
 
+export async function expectFeedbackBounds(page, { width, height }) {
+  await expect(async () => {
+    const box = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
+    expect(box.width).toBe(Math.min(width, 380));
+    expect(box.x + box.width).toBe(width);
+    expect(box.y + box.height).toBe(height);
+  }).toPass({ timeout: 5000 });
+}
+
 export async function submissionHistory(page) {
   const history = page.getByRole("region", { name: "Submission history", exact: true });
   if (!await history.isVisible()) {

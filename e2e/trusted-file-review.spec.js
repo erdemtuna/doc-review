@@ -190,29 +190,31 @@ test("served review layout has accessible controls without overflow across width
     await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 800 });
-      const geometry = await page.evaluate(() => {
-        const bounds = (element) => {
-          const { x, y, width, height } = element.getBoundingClientRect();
-          return { id: element.id || element.tagName, x, y, width, height };
-        };
-        return {
-          overflow: document.documentElement.scrollWidth > innerWidth,
-          controls: [...document.querySelectorAll(".shell-toolbar button, .shell-toolbar select")].filter((element) => element.checkVisibility()).map(bounds),
-          toolbar: bounds(document.querySelector(".shell-toolbar")), frame: bounds(document.querySelector("#frame")),
-        };
-      });
-      expect(geometry.overflow).toBe(false);
-      expect(geometry.frame.y).toBeGreaterThanOrEqual(geometry.toolbar.y + geometry.toolbar.height);
-      for (const [index, control] of geometry.controls.entries()) {
-        expect(control.width, control.id).toBeGreaterThanOrEqual(32);
-        expect(control.height, control.id).toBeGreaterThanOrEqual(32);
-        expect(control.x).toBeGreaterThanOrEqual(0);
-        expect(control.x + control.width).toBeLessThanOrEqual(width);
-        for (const other of geometry.controls.slice(index + 1)) {
-          expect(control.x < other.x + other.width && control.x + control.width > other.x &&
-            control.y < other.y + other.height && control.y + control.height > other.y, `${control.id} overlaps ${other.id}`).toBe(false);
+      await expect(async () => {
+        const geometry = await page.evaluate(() => {
+          const bounds = (element) => {
+            const { x, y, width, height } = element.getBoundingClientRect();
+            return { id: element.id || element.tagName, x, y, width, height };
+          };
+          return {
+            overflow: document.documentElement.scrollWidth > innerWidth,
+            controls: [...document.querySelectorAll(".shell-toolbar button, .shell-toolbar select")].filter((element) => element.checkVisibility()).map(bounds),
+            toolbar: bounds(document.querySelector(".shell-toolbar")), frame: bounds(document.querySelector("#frame")),
+          };
+        });
+        expect(geometry.overflow).toBe(false);
+        expect(geometry.frame.y).toBeGreaterThanOrEqual(geometry.toolbar.y + geometry.toolbar.height);
+        for (const [index, control] of geometry.controls.entries()) {
+          expect(control.width, control.id).toBeGreaterThanOrEqual(32);
+          expect(control.height, control.id).toBeGreaterThanOrEqual(32);
+          expect(control.x).toBeGreaterThanOrEqual(0);
+          expect(control.x + control.width).toBeLessThanOrEqual(width);
+          for (const other of geometry.controls.slice(index + 1)) {
+            expect(control.x < other.x + other.width && control.x + control.width > other.x &&
+              control.y < other.y + other.height && control.y + control.height > other.y, `${control.id} overlaps ${other.id}`).toBe(false);
+          }
         }
-      }
+      }).toPass({ timeout: 5000 });
       await page.screenshot({ path: testInfo.outputPath(`review-${theme}-${width}.png`) });
       await page.locator("#modeButton").click();
       const menu = await page.getByRole("menu").boundingBox();

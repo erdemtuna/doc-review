@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, mutate, intercept, failure, conversation } from "./helpers.js";
 
 const source = '<!doctype html><p id="copy">Feedback overlay target</p><label>Authored input <input aria-label="Authored input"></label>';
 
@@ -62,10 +62,12 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const [width, height] of [[1440, 900], [900, 700], [899, 700], [720, 760], [390, 480], [320, 400]]) {
       await page.setViewportSize({ width, height });
+      await expect(page.locator(".shell-toolbar")).toHaveCSS("width", `${width}px`);
       const before = await page.locator("#frame").boundingBox();
       await feedback(page);
       await overallNote(page);
       const panel = page.getByRole("complementary", { name: "Feedback" });
+      await expectFeedbackBounds(page, { width, height });
       const box = await panel.boundingBox();
       expect(box.width).toBe(Math.min(width, 380));
       expect(box.x + box.width).toBe(width); expect(box.y + box.height).toBe(height);

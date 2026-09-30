@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, intercept, failure, mutate, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, intercept, failure, mutate, listed } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 const source = `<!doctype html><html><head><style>
@@ -30,9 +30,8 @@ test("long inventory and direct actions fit every width without remounting docum
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
+      await expectFeedbackBounds(page, { width, height: 900 });
       const panel = page.getByRole("complementary", { name: "Feedback" });
-      await expect(panel).toHaveCSS("left", `${Math.max(0, width - 380)}px`);
-      await expect(panel).toHaveCSS("width", `${Math.min(380, width)}px`);
       const bounds = await panel.boundingBox();
       expect(bounds.width).toBeLessThanOrEqual(width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

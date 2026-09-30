@@ -124,7 +124,7 @@ test("G1 populated controls and overlays fit both themes at required widths", as
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.evaluate(() => scrollTo(0, 0));
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`g1-${theme}-${width}.png`), fullPage: true, animations: "disabled" });
       await page.getByRole("button", { name: "Open sample menu" }).click();
       const menu = page.getByRole("menu");
