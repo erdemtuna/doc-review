@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import ts from "typescript";
 import { conversationSmoke } from "./package-conversation-smoke.js";
 
@@ -266,6 +267,12 @@ try {
   assert.equal(opaqueSdk.headers.get("access-control-allow-origin"), "null");
   if (browserRequested) {
     const { chromium, expect } = await import("@playwright/test");
+    const browserEnv = { XDG_CACHE_HOME: process.env.XDG_CACHE_HOME || path.join(homedir(), ".cache") };
+    const isolatedBrowser = await run(process.execPath, ["--input-type=module", "-e",
+      "import { chromium } from '@playwright/test'; process.stdout.write(chromium.executablePath());"], {
+      cwd: root, env: { ...env, ...browserEnv }, timeout: 10_000,
+    });
+    assert.equal(isolatedBrowser.stdout, chromium.executablePath(), "Isolated HOME must retain the installed browser cache");
     browser = await chromium.launch();
     await writeFile(path.join(evidenceDir, "browser-engine.json"), JSON.stringify({
       engine: "Chromium", version: browser.version(), executable: chromium.executablePath(),
@@ -277,13 +284,14 @@ try {
       connection: () => ({ base, token: info.token }),
       restart: async () => { const port = info.port; await stopServer(); await startServer(port); },
     });
-    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js";
+    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js|frontend-refinement.spec.js";
     try {
       const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=2",
         `--output=${path.join(evidenceDir, "installed-parity")}`], root, {
         DOC_REVIEW_TEST_RUNTIME: path.join(installed, "lib"),
         DOC_REVIEW_TEST_ROOT: path.join(work, "parity-fixtures"),
         DOC_REVIEW_TEST_KEEP: keep ? "1" : "0",
+        ...browserEnv,
       });
       await writeFile(path.join(evidenceDir, "installed-parity.log"), parity.stdout + parity.stderr);
       console.log(parity.stdout.trim().split("\n").at(-1));

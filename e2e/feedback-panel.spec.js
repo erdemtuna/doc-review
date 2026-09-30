@@ -1,7 +1,7 @@
 import { selectChoice } from "./choice-helpers.js";
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, enterEditMode, openReview, waitForSdk, writeFile, seedThread, mutate, listed, feedback, overallNote, intercept, failure, conversation, beginComment } from "./helpers.js";
+import { test, expect, enterEditMode, openReview, waitForSdk, writeFile, seedThread, mutate, listed, feedback, overallNote, intercept, failure, conversation, beginComment, setReviewTheme } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
 const source = '<!doctype html><html><body><p id="copy">Original paragraph for feedback.</p><label>Authored draft <input aria-label="Authored draft"></label></body></html>';
@@ -12,7 +12,7 @@ async function setup(page, review, name) {
   return { ref, file };
 }
 const note = (page) => page.getByRole("textbox", { name: "Note to agent", exact: true });
-const close = (page) => page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true });
+const close = (page) => page.locator(".conversation-panel-header").getByRole("button", { name: "Close feedback", exact: true });
 
 test("thread disclosure retains DOM and tab-lifetime choices across pages; reload expands and loses only local drafts", async ({ page, review }) => {
   const { ref } = await setup(page, review, "disclosure-first.html");
@@ -29,7 +29,7 @@ test("thread disclosure retains DOM and tab-lifetime choices across pages; reloa
   await toggle.focus(); await toggle.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(thread.locator(".conversation-thread-content")).toBeHidden();
-  await close(page).click(); await page.locator("#theme").click(); await feedback(page);
+  await close(page).click(); await setReviewTheme(page); await feedback(page);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await selectChoice(page, "reviewPage", joined.value.pageKey);
   await waitForSdk(page);
@@ -53,7 +53,7 @@ test("collapse and host transfer preserve the one editable message through valid
   await editor.fill("Retain this draft and caret");
   await editor.evaluate((element) => { window.originalEditor = element; element.setSelectionRange(3, 9); element.dispatchEvent(new Event("select", { bubbles: true })); });
   await toggle.click(); await expect(editor).toBeHidden();
-  await page.locator("#theme").click(); await toggle.click();
+  await setReviewTheme(page); await toggle.click();
   expect(await editor.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
     .toEqual({ same: true, selection: [3, 9] });
   await editor.fill("   "); await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
@@ -76,7 +76,7 @@ test("collapse and host transfer preserve the one editable message through valid
     await expect(thread.locator("textarea")).toHaveCount(1);
   } finally { release(); }
   await expect(editor).toHaveCount(0); await expect(thread).toContainText("Saved revised feedback");
-  await thread.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await (await threadAction(page, thread, "Open in Feedback")).click();
   await (await threadAction(page, thread, "Delete thread")).click();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(thread.getByRole("button", { name: "Conversation actions", exact: true })).toBeFocused();
@@ -90,7 +90,8 @@ test("a source failure stays visible independently of collapsed conversation con
   await intercept(page, "save-edit", (route) => ++attempts === 1 ? failure(route, "Source save unavailable") : route.continue());
   await frame.locator("#copy").click(); await page.keyboard.press("End"); await page.keyboard.type(" changed");
   await feedback(page);
-  await expect(page.getByRole("alert")).toContainText("Source save unavailable");
+  await expect(page.getByRole("alert").filter({ hasText: "Source:" })).toContainText("Source save unavailable");
+  await expect(page.getByRole("alert").filter({ hasText: "acceptance unknown" })).toContainText("Source save unavailable");
   await expect(page.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("#send")).toBeDisabled();
   expect(fs.readFileSync(file, "utf8")).toBe(source);
@@ -122,7 +123,7 @@ test("Send selects all saved items across authorized pages beyond one page of re
   await draft.fill("Unsaved contextual draft is excluded");
   await (await overallNote(page)).fill("A submission-level note, not a conversation");
   await expect(page.locator("#send")).toHaveText("Send to agent (105)");
-  await expect(page.locator("#send")).toHaveAccessibleDescription("Ready to send: 2 comments · 102 edits · 1 note");
+  await expect(page.locator("#send")).toHaveAccessibleDescription("Ready to send: 2 comments · 102 edits · 1 note 1 unfinished draft excluded from Send.");
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await conversation(review, ref, "poll")).submission;

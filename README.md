@@ -116,13 +116,13 @@ Feedback, Focus and the highlight-adjacent host share one mounted editor,
 in-memory drafts, caret, selection and loaded history. Explicit highlight
 activation opens one conversation; ambiguous/unavailable targets and constrained
 viewports fall back safely to Feedback without changing the original anchor.
-Each discussion has its own bordered card and a visible **Show in document**
-action. A successful jump hides Feedback to reveal the passage; reopening it
+Each discussion has its own bordered card. Sidebar headers offer **Show in document**;
+adjacent headers offer **Open in Feedback**. A successful jump hides floating Feedback when needed to reveal the passage; reopening it
 retains drafts and reading position. Comments and Your edits collapse independently.
 Collapse or Close never resolves a thread. Resolve/Reopen is explicit; Resolve
 requires no pending or outstanding messages. Drafts are not stored or synced to
 other tabs. An ended review remains a read-only observer of late results.
-Resolved conversations collapse into subdued cards with a check-circle badge;
+Resolved conversations collapse into subdued cards with a check-circle status icon;
 you can expand them to read, or Reopen to continue the discussion.
 
 ## Learn more

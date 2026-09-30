@@ -50,12 +50,18 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await tab.keyboard.press("Escape");
   };
   const threadAction = async (tab, thread, name) => {
-    if (["Resolve", "Reopen", "Back to Feedback", "Collapse conversation", "Expand conversation"].includes(name)) {
-      await thread.getByRole("button", { name, exact: true }).click();
+    const button = thread.getByRole("button", { name, exact: true });
+    if (await button.isVisible()) {
+      await button.click();
       return;
     }
     await thread.getByRole("button", { name: "Conversation actions" }).click();
     await tab.getByRole("menuitem", { name, exact: true }).click();
+  };
+  const setReviewTheme = async (tab, theme) => {
+    await tab.getByRole("button", { name: "Review options", exact: true }).click();
+    await tab.getByRole("menuitemradio", { name: theme === "dark" ? "Dark" : "Light", exact: true }).click();
+    await expect(tab.locator("html")).toHaveAttribute("data-theme", theme);
   };
   const feedback = async (tab) => {
     if (await tab.locator("#commentsButton").getAttribute("aria-expanded") !== "true") await tab.locator("#commentsButton").click();
@@ -145,7 +151,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     assert.equal(await page.locator("#frame").getAttribute("src"), firstFrame, "reply-only response creates no fake version");
     evidence.push({ phase: "discussion", reviewId: ref.reviewId, submissionId: first.submissionId, unchanged: true });
 
-    await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
     await mode(page, "Edit");
     await type(page, "#copy", "Exact human wording");
     await expect.poll(() => fs.readFileSync(target, "utf8")).toContain("Exact human wording");
@@ -233,10 +239,13 @@ export async function conversationSmoke({ browser, expect, project, state, evide
       responseAttempts: attempts.length, receipt: accepted.receipt.requestId, sourceWrittenOnce: true });
 
     const thread = page.locator(`[data-thread="${first.messages[0].message.threadId}"]`);
-    await threadAction(page, thread, "Resolve");
-    await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
-    await threadAction(page, thread, "Reopen");
-    await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeEnabled();
+    await threadAction(page, thread, "Resolve conversation");
+    await expect(thread).toHaveAttribute("data-status", "resolved");
+    const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
+    await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
+    await resolvedFilter.click();
+    await threadAction(page, thread, "Reopen conversation");
+    await expect(thread.getByRole("button", { name: "Resolve conversation", exact: true })).toBeEnabled();
     const lost = new Map();
     await page.route("**/api/conversation", async (route) => {
       const body = route.request().postDataJSON();
@@ -257,12 +266,16 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await note.fill("This local draft must not be recovered after restart.");
     await page.locator("#endReview").click();
     await expect(page.getByRole("alertdialog")).toContainText("for every tab");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "End review", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toContainText("Acceptance is unknown");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Check receipt", exact: true }).click();
     for (const tab of [page, second]) await expect(tab.locator(".conversation-lifecycle")).toHaveText("Review ended");
-    await expect(page.getByText("Not sent · read-only", { exact: true })).toBeVisible();
+    const unsent = page.getByRole("img", { name: "Not sent", exact: true });
+    await expect(unsent).toBeVisible();
+    await unsent.focus();
+    await expect(page.getByRole("tooltip")).toContainText("this review has ended");
+    await page.keyboard.press("Escape");
     await page.unroute("**/api/conversation");
     const oldUrl = page.url();
     await restart();
@@ -284,7 +297,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     evidence.push({ phase: "late-restart", ended: ref.reviewId, fresh: freshRef.reviewId,
       submissionId: outstanding.submissionId, unsentRetained: true, localDraftRecovered: false });
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page, theme);
       await page.screenshot({ path: path.join(evidenceDir, `installed-ended-${theme}.png`), animations: "disabled", caret: "initial" });
     }
 
@@ -402,7 +415,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await threadAction(second, active, "Beside target");
     assert.deepEqual(await editor.evaluate((node) => [node === window.installedEditor, node.selectionStart, node.selectionEnd]), [true, 2, 8]);
     await expect(second.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(1);
-    await threadAction(second, active, "Back to Feedback");
+    await threadAction(second, active, "Open in Feedback");
     for (const id of anchorIds.slice(1)) {
       const item = second.locator(`[data-thread="${id}"]`);
       await expect(item.getByRole("button", { name: "Show in document", exact: true })).toBeDisabled();

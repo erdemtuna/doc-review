@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, intercept, failure, mutate, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, intercept, failure, mutate, listed, setReviewTheme } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 const source = `<!doctype html><html><head><style>
@@ -27,10 +27,12 @@ test("long inventory and direct actions fit every width without remounting docum
   });
   const inventory = page.locator(".conversation-inventory");
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      const bounds = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
+      await expectFeedbackBounds(page, { width, height: 900 });
+      const panel = page.getByRole("complementary", { name: "Feedback" });
+      const bounds = await panel.boundingBox();
       expect(bounds.width).toBeLessThanOrEqual(width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(await inventory.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -46,7 +48,17 @@ test("long inventory and direct actions fit every width without remounting docum
         })).toBe(true);
         const box = await action.boundingBox();
         expect(box.x).toBeGreaterThanOrEqual(bounds.x);
-        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+        const layout = await action.evaluate(element => {
+          const ancestors = [];
+          for (let node = element; node && !node.classList.contains("durable-review"); node = node.parentElement) {
+            const rect = node.getBoundingClientRect();
+            ancestors.push({ class: node.className, x: rect.x, width: rect.width,
+              scrollLeft: node.scrollLeft, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth });
+          }
+          return ancestors;
+        });
+        expect(box.x + box.width, `${theme} ${width}px ${name}: ${JSON.stringify({ bounds, layout })}`)
+          .toBeLessThanOrEqual(bounds.x + bounds.width);
       }
       await (await threadAction(page, first, "Delete thread")).click();
       await expect(button(page.getByRole("alertdialog"), "Cancel")).toBeFocused();
@@ -67,6 +79,19 @@ test("long inventory and direct actions fit every width without remounting docum
   expect(errors).toEqual([]);
 });
 
+test("a closing command menu cannot reclaim newer toolbar focus on pointer leave", async ({ page, review }) => {
+  await populated(page, review);
+  await page.addStyleTag({ content: '[data-slot="dropdown-menu-content"][data-state="closed"] { animation-duration: 1s !important; }' });
+  const card = page.locator(".conversation-thread").first();
+  await button(card, "Conversation actions").click();
+  await page.getByRole("menuitem", { name: "Focus", exact: true }).hover();
+  await page.keyboard.press("Escape");
+  await page.locator("#reviewOptions").focus();
+  await page.mouse.move(0, 0);
+  await expect(page.locator("#reviewOptions")).toBeFocused();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+});
+
 test("textarea and selection survive unrelated updates, a rejected edit, and explicit retry", async ({ page, review }) => {
   const { ref } = await populated(page, review);
   const id = await page.locator(".conversation-thread").first().getAttribute("data-thread");
@@ -80,7 +105,7 @@ test("textarea and selection survive unrelated updates, a rejected edit, and exp
   });
   await (await overallNote(page)).fill("Unrelated overall note");
   await seedThread(review, ref, "Another browser saved this");
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   expect(await input.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
     .toEqual({ same: true, selection: [3, 9] });
   let attempts = 0;
@@ -121,8 +146,8 @@ test("confirmed deletion is single-flight and leaves a reachable keyboard target
   const first = page.locator(".conversation-thread").first();
   await (await threadAction(page, first, "Delete thread")).click();
   try {
-    await button(page.getByRole("alertdialog"), "Confirm").evaluate((element) => { element.click(); element.click(); });
-    await expect(button(page.getByRole("alertdialog"), "Confirm")).toBeDisabled();
+    await button(page.getByRole("alertdialog"), "Delete thread").evaluate((element) => { element.click(); element.click(); });
+    await expect(button(page.getByRole("alertdialog"), "Delete thread")).toBeDisabled();
     await expect(button(page.getByRole("alertdialog"), "Cancel")).toBeDisabled();
     await page.keyboard.press("Escape"); await expect(page.getByRole("alertdialog")).toBeVisible();
     await expect.poll(() => deletes).toBe(1);
@@ -130,7 +155,7 @@ test("confirmed deletion is single-flight and leaves a reachable keyboard target
   await expect(page.locator(".conversation-thread")).toHaveCount(1);
   await expect(page.locator(".conversation-thread-title")).toBeFocused();
   await (await threadAction(page, page.locator(".conversation-thread"), "Delete thread")).click();
-  await button(page.getByRole("alertdialog"), "Confirm").click();
+  await button(page.getByRole("alertdialog"), "Delete thread").click();
   await expect(page.locator(".conversation-thread")).toHaveCount(0);
   await expect(page.getByText("Select text or a passage in the document to add a comment.", { exact: true })).toBeVisible();
   await expect(page.locator("#commentsButton")).toBeFocused();

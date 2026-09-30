@@ -31,13 +31,20 @@ The page starts in View. Feedback is nonmodal: it docks on roomy desktops and
 floats on narrow PC windows, without dimming or disabling the document. Show in document
 reveals the exact passage, hiding a floating panel only when it would obscure the
 target. Focus and secondary thread actions are in the conversation menu.
-Resolve/Reopen remain visible in the header. Resolve refuses unfinished drafts,
-unsent messages and outstanding agent work; Undo resolve is available only while
-the accepted review version is still current.
-Resolve is a check-circle icon; Reopen is a return-arrow icon, both with named
-tooltips. Collapse is the last header control. Resolved conversations automatically
-collapse and show a subdued check-circle **Resolved** badge; they remain expandable
-for reading. Reopen and Undo expand them again. Resolution from another tab never
+Resolve/Reopen sits opposite Reply below an expanded conversation and remains in
+Conversation actions when collapsed or a local draft is open. Resolve refuses unfinished drafts,
+unsent messages and outstanding agent work. Resolve/Reopen do not show notifications.
+Review-state transitions, especially receipt of an agent response, appear for five
+seconds at the top left below the toolbar. Hover, notification focus or a hidden
+tab pauses expiry; reading the document iframe does not. Focus includes a visible
+Back to Feedback action; Open/Resolved are separate independent filters.
+Sidebar headers end with Locate, More and Collapse; adjacent headers use Open in
+Feedback (a right-pointing arrow), More and Close. Edit belongs beside each eligible
+message's timestamp. The far-right delivery icon changes from Not sent to Sent,
+then Received when the agent picks up the message or replies.
+Resolved conversations automatically collapse and show a subdued check-circle
+**Resolved** informational icon with a keyboard-visible explanation; they remain expandable
+for reading. Reopen expands them again. Resolution from another tab never
 hides a local draft.
 
 Add comment / Add reply / Update comment queue a message;

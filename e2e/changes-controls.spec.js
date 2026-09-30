@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate, beginComment } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate, beginComment, setReviewTheme } from "./helpers.js";
 import { choiceItem, selectChoice } from "./choice-helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
 
@@ -106,13 +106,13 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
     }
     await page.screenshot({ path: testInfo.outputPath(`toolbar-${width}-${theme}.png`), animations: "disabled" });
     await page.locator("#frame").evaluate((element) => { window.savedFrame = element; });
-    await region.locator(".comparison-expand").first().click();
+    await region.locator(".comparison-context-row").first().click();
     const expanded = region.locator('[data-row-id="row-10"]');
     await expect(expanded).toBeVisible();
     await expanded.evaluate((element) => { window.savedRow = element; });
     await expect(region).toContainText("Historical image");
     expect(await region.locator("script,img,iframe,a,[src]").count()).toBe(0);
-    await page.locator("#theme").click(); await page.locator("#theme").click();
+    await setReviewTheme(page); await setReviewTheme(page);
     await region.getByRole("button", { name: "Back to review" }).click();
     await expect(page.frameLocator("#frame").getByLabel("Live draft")).toHaveValue("Preserved");
     await page.locator(".conversation-submission").first().getByRole("button", { name: "Content changes" }).click();
@@ -157,7 +157,7 @@ for (const [width, height] of [[320, 400], [768, 430], [1440, 400]]) {
   test(`sticky comparison tools leave the selected change reachable at ${width}x${height}`, async ({ page, review }, testInfo) => {
     await page.setViewportSize({ width, height });
     const { region } = await setup(page, review);
-    await region.locator(".comparison-expand").first().click();
+    await region.locator(".comparison-context-row").first().click();
     await region.evaluate(node => { node.scrollTop = 700; });
     const pinnedTitle = await region.locator(".conversation-comparison-title").boundingBox();
     const pinnedTools = await region.locator("header").boundingBox();
@@ -233,7 +233,8 @@ test("loading, malformed response, unavailable capture and retry remain independ
     await route.fulfill({ json: comparison(route.request().postDataJSON().mode) });
   });
   await region.getByRole("button", { name: "Source", exact: true }).click();
-  await expect(region.getByRole("alert")).toContainText("Invalid comparison response");
+  await expect(region.getByRole("alert").filter({ hasText: "Invalid comparison response" }))
+    .toContainText("Invalid comparison response");
   await region.getByRole("button", { name: "Retry comparison" }).click();
   await region.getByText("About this comparison", { exact: true }).click();
   await expect(region).toContainText("Content exceeded processing limits");

@@ -4,33 +4,15 @@ import path from "node:path";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const aliases = {
-  canvas: "background", panel: "card", "card-border": "border",
-  hair: "border", "hair-2": "border", dash: "border", "strong-border": "input",
-  txt: "foreground", "strong-txt": "foreground", mute: "muted-foreground",
-  "mute-2": "muted-foreground", faint: "muted-foreground", "faint-2": "muted-foreground",
-  soft: "muted", chip: "secondary", "input-bg": "card", focus: "ring",
-  danger: "destructive", "danger-soft": "review-removed", amber: "annotation-border",
-  green: "review-added-foreground", "btn-bg": "primary", "btn-fg": "primary-foreground",
-  "diff-paper": "card", "diff-ink": "foreground", "diff-muted": "muted-foreground",
-  "diff-line": "border", "diff-removed": "review-removed", "diff-added": "review-added",
-  "diff-delete": "review-delete", "diff-insert": "review-insert",
-  "diff-delete-ink": "review-removed-foreground", "diff-insert-ink": "review-added-foreground",
-  "diff-gap": "muted", "diff-accent": "review-modified-foreground",
-};
-
 export function validatePalette(palette) {
   if (!palette || Object.keys(palette).join(",") !== "light,dark") throw new Error("Palette must define light and dark themes");
-  const roles = Object.keys(palette.light);
-  if (!roles.length || roles.join(",") !== Object.keys(palette.dark).join(",")) throw new Error("Palette themes must define matching roles");
+  const roles = Object.keys(REVIEW_PALETTE.light).join(",");
+  if (roles !== Object.keys(palette.light).join(",") || roles !== Object.keys(palette.dark).join(",")) throw new Error("Palette themes must define matching roles from the canonical vocabulary");
   for (const [theme, colors] of Object.entries(palette)) {
     for (const [role, color] of Object.entries(colors)) {
       if (!/^[a-z][a-z0-9-]*$/.test(role) || !/^#[0-9A-F]{6}([0-9A-F]{2})?$/.test(color)) {
         throw new Error(`Invalid palette entry: ${theme}.${role}`);
       }
-    }
-    for (const role of Object.values(aliases)) {
-      if (!colors[role]) throw new Error(`Unresolved palette role: ${theme}.${role}`);
     }
   }
 }
@@ -63,12 +45,6 @@ ${Object.entries(palette).map(([theme, colors]) => `${theme === "light" ? ":root
   color-scheme: ${theme};
 ${declarations(colors)}
 }`).join("\n\n")}
-
-:root, .review-ui {
-${Object.entries(aliases).map(([alias, role]) => `  --${alias}: var(--${role});`).join("\n")}
-  --focus-ring: 0 0 0 3px var(--ring);
-  --review-shadow: 0 8px 24px var(--review-shadow-color), 0 1px 3px var(--review-shadow-color);
-}
 `;
   const shadow = Object.entries(palette).map(([theme, colors]) =>
     `    :host([data-review-theme="${theme}"]) {\n      color-scheme: ${theme};\n${declarations(colors, "review-").split("\n").map((line) => `    ${line}`).join("\n")}\n    }`).join("\n");

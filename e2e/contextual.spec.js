@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, writeFile, selectText, intercept, failure, listed, feedback } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, selectText, intercept, failure, listed, feedback, setReviewTheme } from "./helpers.js";
 
 const source = fs.readFileSync(new URL("../test/fixtures/contextual-review.html", import.meta.url), "utf8");
 async function select(frame) {
+  await frame.locator("#detail").click();
   await selectText(frame, "#detail");
   await frame.locator("#commentAction").click();
 }
@@ -12,7 +13,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     await page.setViewportSize({ width, height: 900 });
     await openReview(page, review, writeFile(review, `context-${theme}-${width}.html`, source));
     const frame = await waitForSdk(page);
-    if (theme === "dark") await page.locator("#theme").click();
+    if (theme === "dark") await setReviewTheme(page);
     await frame.getByLabel("Page-owned draft").fill("Authored input stays");
     await page.locator("#frame").evaluate((element) => { window.originalFrame = element; });
     await select(frame);
@@ -22,7 +23,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
       window.originalComposer = element; element.setSelectionRange(5, 9);
       element.dispatchEvent(new Event("select", { bubbles: true }));
     });
-    await page.locator("#theme").click(); await page.locator("#theme").click();
+    await setReviewTheme(page); await setReviewTheme(page);
     expect(await field.evaluate((element) => ({ same: element === window.originalComposer, selection: [element.selectionStart, element.selectionEnd] })))
       .toEqual({ same: true, selection: [5, 9] });
     await field.focus();
@@ -31,10 +32,12 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
       return style.boxShadow !== "none" || (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 2);
     })).toBe(true);
     const panel = page.locator(".conversation-panel");
-    const box = await panel.boundingBox();
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(width);
-    expect(box.y + box.height).toBeLessThanOrEqual(900);
+    await expect(async () => {
+      const box = await panel.boundingBox();
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y + box.height).toBeLessThanOrEqual(900);
+    }).toPass({ timeout: 5000 });
     await expect(panel).not.toHaveAttribute("aria-modal", "true");
     await page.screenshot({ path: info.outputPath(`composer-${theme}-${width}.png`), animations: "disabled" });
     await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
@@ -43,18 +46,21 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
     const card = page.locator(".conversation-thread");
     await expect(card).toHaveCount(1);
     // Closing does not activate an adjacent conversation; activation is explicit.
-    await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).click();
+    await page.locator(".conversation-panel-header").getByRole("button", { name: "Close feedback", exact: true }).click();
     await frame.locator("mark[data-eh-mark]").first().click();
     await expect(card).toBeVisible();
     const adjacent = await panel.getAttribute("data-host") === "adjacent";
     if (!adjacent) await expect(page.getByText(/not enough room beside, above or below/)).toBeVisible();
-    else {
+    else await expect(async () => {
       const surface = await panel.boundingBox(), target = await frame.locator("mark[data-eh-mark]").first().boundingBox();
       expect(surface.x >= target.x + target.width || surface.x + surface.width <= target.x ||
         surface.y >= target.y + target.height || surface.y + surface.height <= target.y).toBe(true);
-    }
-    await expect(card.locator(".conversation-jump")).toBeVisible();
-    for (const name of ["Show in document", "Resolve", "Edit message", "Conversation actions"]) {
+    }).toPass({ timeout: 5000 });
+    const navigation = adjacent ? "Open in Feedback" : "Show in document";
+    const disclosure = adjacent ? "Close conversation" : "Collapse conversation";
+    await expect.poll(() => card.locator(".conversation-thread-actions button").evaluateAll(nodes =>
+      nodes.map(node => node.getAttribute("aria-label")))).toEqual([navigation, "Conversation actions", disclosure]);
+    for (const name of [navigation, "Resolve conversation", "Edit message", "Conversation actions", disclosure]) {
       const action = card.getByRole("button", { name, exact: true });
       await action.focus(); await action.press("Tab"); await page.keyboard.press("Shift+Tab");
       await expect(action).toBeFocused();
@@ -70,7 +76,7 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390, 768, 1440]
       window.originalEditor = element; element.setSelectionRange(2, 7);
       element.dispatchEvent(new Event("select", { bubbles: true }));
     });
-    await page.locator("#theme").click(); await page.locator("#theme").click();
+    await setReviewTheme(page); await setReviewTheme(page);
     expect(await edit.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
       .toEqual({ same: true, selection: [2, 7] });
     await edit.press("Escape");

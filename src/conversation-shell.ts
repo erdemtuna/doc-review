@@ -123,7 +123,7 @@ export function createConversationShell() {
         if (limited.truncated) {
           save.markDynamic();
           reportSource("Incomplete edit capture retained as source-pending. No truncated content will be saved to source.");
-          void frame.configure(mode, "feedback-only").catch(reportSource);
+          void configure().catch(reportSource);
         }
         return owner.recordEdit(key, directEditContentSchema.parse({
           ...content, ...limited.fields, truncated: limited.truncated || content.truncated === true,
@@ -158,11 +158,18 @@ export function createConversationShell() {
   const stopSave = save.subscribe(publish);
   let stopFrame = frame.subscribe(frameChanged);
   let priorEdits = owner.getSnapshot().edits;
+  let priorCanComment = owner.getSnapshot().canComment;
+  let configurationRequest = 0;
   const stopOwner = owner.subscribe(() => {
+    let modeChanged = false;
     if (blocked() && mode === "edit") {
-      mode = "view"; frame.send({ type: "eh:abortSave" }); void configure().catch(reportSource);
+      mode = "view"; frame.send({ type: "eh:abortSave" }); modeChanged = true;
     }
     const current = owner.getSnapshot();
+    if (modeChanged || priorCanComment !== current.canComment) {
+      priorCanComment = current.canComment;
+      void configure().catch(reportSource);
+    }
     if (hadNewMessage && !current.newMessage && pendingTarget !== null) {
       retiredTarget = Math.max(retiredTarget, targetHighWater, pendingTarget);
       frame.send({ type: "eh:cancel", targetGeneration: pendingTarget, discardThroughGeneration: retiredTarget, restoreFocus: true });
@@ -312,7 +319,9 @@ export function createConversationShell() {
   }
   async function configure() {
     if (loading) return;
-    if (!await frame.configure(blocked() ? "view" : mode, policy())) throw new Error("The page did not confirm its review mode.");
+    const request = ++configurationRequest, identity = frame.identity();
+    const applied = await frame.configure(blocked() ? "view" : mode, policy(), owner.getSnapshot().canComment);
+    if (!applied && request === configurationRequest && frame.matches(identity)) throw new Error("The page did not confirm its review mode and comment availability.");
     publish();
   }
   async function activate() {
@@ -484,7 +493,7 @@ export function createConversationShell() {
     void (async () => {
       switch (message.type) {
         case "eh:ready": await frame.ready(); break;
-        case "eh:configurationApplied": frame.configured(message.mode, message.savePolicy); break;
+        case "eh:configurationApplied": frame.configured(message.mode, message.savePolicy, message.canComment); break;
         case "eh:openComment": {
           let accepted = false;
           try {
@@ -712,8 +721,9 @@ export function createConversationShell() {
         catch (cause) { mode = previous; throw cause; }
         finally { publish(); }
       },
-      theme() {
-        theme = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; frame.setTheme(theme);
+      theme(next: "light" | "dark") {
+        if (next === theme) return;
+        theme = next; document.documentElement.dataset.theme = theme; frame.setTheme(theme);
         try { localStorage.setItem("doc-review:theme", theme); } catch (cause) { owner.report(`Theme preference not saved: ${String(cause)}`); }
         publish();
       },

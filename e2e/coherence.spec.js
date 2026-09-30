@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, beginComment, conversation } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, beginComment, conversation, setReviewTheme } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 test("Feedback and History share Review and Changes navigation styling and stay reachable at every size", async ({ page, review }, info) => {
@@ -18,7 +18,7 @@ test("Feedback and History share Review and Changes navigation styling and stay 
   for (const [width, height] of [[1280, 720], [900, 600], [390, 480], [320, 400]]) {
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       for (const pane of ["Feedback", "History"]) {
         const selected = pane === "Feedback" ? feedbackButton : historyButton;
         const inactive = pane === "Feedback" ? historyButton : feedbackButton;
@@ -39,7 +39,7 @@ test("Feedback and History share Review and Changes navigation styling and stay 
             JSON.stringify(style(document.querySelector("#latestVersion")));
         })).toBe(true);
         const bounds = await destination.boundingBox();
-        const close = await page.locator(".conversation-panel-header").getByRole("button", { name: "Close", exact: true }).boundingBox();
+        const close = await page.locator(".conversation-panel-header").getByRole("button", { name: "Close feedback", exact: true }).boundingBox();
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(close.x);
         expect(Math.abs(bounds.y - close.y)).toBeLessThan(1);
         await page.screenshot({ path: info.outputPath(`panel-navigation-${pane.toLowerCase()}-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
@@ -67,14 +67,14 @@ test("compact inline editing preserves one editor across hosts and waiting hides
     for (const [width, height] of [[1280, 720], [900, 600]]) {
       await page.setViewportSize({ width, height });
       for (const theme of ["light", "dark"]) {
-        if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+        if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
         await expect(card.locator(".conversation-exchange textarea")).toHaveCount(1);
         await expect(card.locator(".conversation-body")).toHaveCount(0);
         await expect(card.getByText("Original saved comment", { exact: true })).toHaveCount(0);
         expect(await editor.evaluate(node => [node === window.inlineEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
         await expect(card.getByRole("button", { name: "Update comment", exact: true })).toBeDisabled();
         await expect(card.locator(".conversation-source")).toHaveText("Review notes");
-        await expect(card.getByRole("button", { name: "Show in document" })).toHaveText("");
+        await expect(card.getByRole("button", { name: host === "adjacent" ? "Open in Feedback" : "Show in document" })).toHaveText("");
         await expect(editor).toBeInViewport();
         await editor.focus();
         expect(await editor.evaluate(node => {
@@ -97,7 +97,7 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   await card.getByRole("button", { name: "Update comment", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(card.locator(".conversation-body")).toHaveText("An inline correction, not a duplicate comment.");
-  await card.getByRole("button", { name: "Back to Feedback" }).click();
+  await (await threadAction(page, card, "Open in Feedback")).click();
   await card.getByRole("button", { name: "Edit message", exact: true }).click();
   await editor.fill("Discard this correction.");
   await card.getByRole("button", { name: "Close edit" }).click();
@@ -105,13 +105,13 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   await expect(card.locator(".conversation-body")).toHaveText("An inline correction, not a duplicate comment.");
   await page.locator("#send").click();
   const lifecycle = page.getByRole("status", { name: "Waiting for agent", exact: true });
-  await expect(lifecycle).toHaveAccessibleDescription(/Waiting to be picked up/);
+  await expect(lifecycle).toHaveAccessibleDescription(/Your feedback is waiting for the agent/);
   await expect(page.locator(".conversation-status")).toBeHidden();
   const blockers = page.locator(".conversation-blockers");
   await expect(blockers).toBeHidden();
   await expect(page.locator("#send")).toBeDisabled();
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);
     await page.screenshot({ path: info.outputPath(`compact-waiting-${theme}.png`), animations: "disabled", caret: "initial" });
   }
@@ -131,7 +131,7 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   for (const [width, height] of [[1280, 720], [720, 480]]) {
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await page.screenshot({ path: info.outputPath(`clean-history-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
     }
   }
@@ -140,8 +140,8 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);
   const work = (await conversation(review, ref, "poll")).submission;
   expect(work.messages[0].message.body).toBe("An inline correction, not a duplicate comment.");
-  await expect(lifecycle).toHaveAccessibleDescription(/Feedback received; no response yet/);
-  await expect(lifecycle).toHaveAccessibleDescription(/does not confirm an agent is currently working/);
+  await expect(lifecycle).toHaveAccessibleDescription(/The agent has your feedback\. Waiting for a response\./);
+  await expect(lifecycle).not.toHaveAccessibleDescription(/proof|read receipt|currently working/);
   await expect(blockers).toBeHidden();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(history).toContainText("Waiting for a response");
@@ -171,7 +171,7 @@ test("History timeline has connected status icons and visible confirmed abandonm
   await expect(abandon).toBeFocused();
   await expect(history.locator("[data-state='queued']")).toHaveCount(1);
   await abandon.click();
-  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await dialog.getByRole("button", { name: "Abandon submission", exact: true }).click();
   await expect(history.locator("[data-state='abandoned']")).toHaveCount(1);
   await history.locator("[data-state='abandoned'] summary").click();
   await sendPending(review, ref, { body: "The next review request.", intent: "discuss" });
@@ -190,7 +190,7 @@ test("History timeline has connected status icons and visible confirmed abandonm
   for (const [width, height] of [[1280, 720], [720, 480]]) {
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await expect(abandon).toBeInViewport();
       const geometry = await entries.evaluateAll(nodes => nodes.map(node => {
         const marker = node.querySelector("[data-slot='timeline-marker']");
@@ -334,7 +334,7 @@ test("coherence evidence covers the reported conversation, composition and resul
   async function capture(name) {
     for (const [theme, width, height] of [["light", 1366, 800], ["dark", 720, 760]]) {
       await page.setViewportSize({ width, height });
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await page.screenshot({ path: info.outputPath(`${name}-${theme}.png`), animations: "disabled", caret: "initial" });
       metrics.push(await page.evaluate(({ name, theme }) => {
         const properties = selector => {
@@ -366,7 +366,7 @@ test("coherence evidence covers the reported conversation, composition and resul
   await capture("reply");
   await card.getByRole("textbox").press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();
-  await card.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await (await threadAction(page, card, "Open in Feedback")).click();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await capture("history");
   await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
@@ -414,18 +414,18 @@ test("shared composer styles and exact draft survive every desktop host in both 
   for (const [width, height] of [[1366, 800], [1024, 768], [900, 700], [720, 760], [1100, 550]]) {
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       let expectedStyles;
       for (const host of ["feedback", "focus", "adjacent"]) {
         if (host === "feedback") {
-          const back = card.getByRole("button", { name: "Back to Feedback", exact: true });
+          const back = (await threadAction(page, card, "Open in Feedback"));
           if (await back.isVisible()) await back.click();
         } else await (await threadAction(page, card, host === "focus" ? "Focus" : "Beside target")).click();
         await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", host);
         // Feedback restores reading position rather than forcing a draft into view.
         if (host === "feedback") await editor.scrollIntoViewIfNeeded();
         await expect(editor).toBeInViewport();
-        await page.locator("#theme").focus();
+        await page.locator("#reviewOptions").focus();
         await page.mouse.move(0, 0);
         await expect.poll(() => card.evaluate(node => node.getAnimations({ subtree: true })
           .some(animation => animation.playState === "running"))).toBe(false);
@@ -460,7 +460,7 @@ test("shared composer styles and exact draft survive every desktop host in both 
   fs.writeFileSync(info.outputPath("shared-style-parity.json"), JSON.stringify(samples, null, 2));
 });
 
-for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and version-safe Undo work in ${host}`, async ({ page, review }, info) => {
+for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and explicit Reopen work in ${host}`, async ({ page, review }, info) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   const ref = await openReview(page, review, writeFile(review, `resolution-${host}.html`, '<p id="copy" tabindex="0">A reviewed passage.</p>'));
   await waitForSdk(page);
@@ -479,7 +479,7 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   const draft = card.getByRole("textbox", { name: "Reply", exact: true });
   await draft.fill("Preserve my exact unsent reply.");
   await card.getByRole("checkbox", { name: "Request a change" }).check();
-  await card.getByRole("button", { name: "Resolve", exact: true }).click();
+  await (await threadAction(page, card, "Resolve conversation")).click();
   await expect(card.getByRole("status")).toContainText("draft");
   await expect(draft).toHaveValue("Preserve my exact unsent reply.");
   await expect(card.getByRole("checkbox", { name: "Request a change" })).toBeChecked();
@@ -488,7 +488,7 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await page.getByRole("alertdialog").getByRole("button", { name: "Discard", exact: true }).click();
   for (const [width, height] of [[1024, 768], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     if (host === "adjacent" && await page.locator(".conversation-panel").getAttribute("data-host") !== "adjacent") {
       await (await threadAction(page, card, "Beside target")).click();
     }
@@ -505,7 +505,7 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     expect(left.y + left.height).toBeLessThanOrEqual(height);
     await page.screenshot({ path: info.outputPath(`bottom-actions-${host}-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
     const openHeight = (await card.boundingBox()).height;
-    if (theme === "light") await card.getByRole("button", { name: "Resolve", exact: true }).click();
+    if (theme === "light") await card.getByRole("button", { name: "Resolve conversation", exact: true }).click();
     else {
       await bottomResolve.focus();
       await bottomResolve.press("Enter");
@@ -514,8 +514,10 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     if (popup) {
       await expect(page.locator(".conversation-panel")).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();
-      await expect(page.getByText("Conversation resolved.", { exact: true })).toBeHidden();
       await page.screenshot({ path: info.outputPath(`dismissed-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+    }
+    if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
+    if (popup) {
       await feedback(page);
       await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
     }
@@ -523,41 +525,36 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
       const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
       if (await resolvedFilter.getAttribute("aria-pressed") === "false") {
         await expect(card).toBeHidden();
-        await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
         await resolvedFilter.click();
       }
     }
-    await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
     await expect(card).toHaveAttribute("data-status", "resolved");
-    await expect(card.locator(".conversation-resolved-status")).toHaveText("Resolved");
+    await expect(card.getByRole("img", { name: "Resolved", exact: true })).toHaveAccessibleName("Resolved");
     await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(card.locator(".conversation-thread-content")).toBeHidden();
-    if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
-    await expect(card.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+    await expect(await threadAction(page, card, "Reopen conversation")).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(card.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
     expect((await card.boundingBox()).height).toBeLessThan(openHeight);
-    const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
-    await expect(undo).toBeVisible();
-    await undo.scrollIntoViewIfNeeded();
-    await expect(undo).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`resolved-${host}-${theme}-${width}.png`), caret: "initial" });
     await card.getByRole("button", { name: "Expand conversation", exact: true }).click();
     await expect(card.locator(".conversation-response")).toBeVisible();
-    await expect(card.locator(".conversation-resolved-status")).toBeVisible();
+    await expect(card.getByRole("img", { name: "Resolved", exact: true })).toBeVisible();
     await expect(card.getByRole("button", { name: "Reopen conversation", exact: true })).toBeVisible();
-    if (theme === "light") await undo.click();
-    else await card.getByRole("button", { name: "Reopen conversation", exact: true }).click();
-    await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
-    await expect(card.locator(".conversation-resolved-status")).toHaveCount(0);
+    await card.getByRole("button", { name: "Reopen conversation", exact: true }).click();
+    await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
+    await expect(card.getByRole("img", { name: "Resolved", exact: true })).toHaveCount(0);
     await expect(card.locator(".conversation-response")).toBeVisible();
-    await expect(undo).toHaveCount(0);
   }
-  await card.getByRole("button", { name: "Resolve", exact: true }).click();
+  await card.getByRole("button", { name: "Resolve conversation", exact: true }).click();
   await mutate(review, ref, "set-thread-status", { threadId, status: "open" });
-  await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toHaveCount(0);
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
-  await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeDisabled();
+  await expect(page.getByText("Review ended", { exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toHaveCount(0);
+  await card.getByRole("button", { name: "Conversation actions" }).click();
+  await expect(page.getByRole("menuitem", { name: /^(Resolve|Reopen) conversation$/ })).toHaveCount(0);
 });
 
 test("resolved headers stay compact and readable on reload and narrow screens", async ({ page, review }, info) => {
@@ -574,11 +571,11 @@ test("resolved headers stay compact and readable on reload and narrow screens", 
   await page.getByRole("button", { name: "Resolved (1)", exact: true }).click();
   for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height: 600 });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await card.scrollIntoViewIfNeeded();
     await expect(card.locator(".conversation-thread-content")).toBeHidden();
     const source = await card.locator(".conversation-source").boundingBox();
-    const badge = await card.locator(".conversation-resolved-status").boundingBox();
+    const badge = await card.getByRole("img", { name: "Resolved", exact: true }).boundingBox();
     const actions = await card.locator(".conversation-thread-actions").boundingBox();
     expect(source.width).toBeGreaterThan(20);
     expect(source.x + source.width).toBeLessThanOrEqual(badge.x);
@@ -586,8 +583,8 @@ test("resolved headers stay compact and readable on reload and narrow screens", 
     expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`resolved-compact-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
   }
-  await card.getByRole("button", { name: "Reopen", exact: true }).click();
-  await expect(card.locator(".conversation-resolved-status")).toHaveCount(0);
+  await (await threadAction(page, card, "Reopen conversation")).click();
+  await expect(card.getByRole("img", { name: "Resolved", exact: true })).toHaveCount(0);
   await expect(card.locator(".conversation-response")).toBeVisible();
 });
 

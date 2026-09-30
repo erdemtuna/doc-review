@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, enterEditMode, selectText, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, enterEditMode, selectText, selectReviewMode, setReviewTheme } from "./helpers.js";
 import { fieldNotes, summaryFeedback, actionFeedback } from "../test/fixtures/readme-review.js";
 import { threadAction } from "./conversation-actions.js";
 
@@ -85,8 +85,8 @@ test("saved and source-pending edit evidence is reachable and included in Send a
         const preview = edits.locator(".conversation-edit-preview dd").first();
         for (const [width, height] of matrix) for (const theme of ["light", "dark"]) {
           await page.setViewportSize({ width, height });
-          if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-          else await page.locator("#theme").focus();
+          if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
+          else await page.locator("#reviewOptions").focus();
           await page.waitForTimeout(100);
           await preview.scrollIntoViewIfNeeded();
           const text = await textGeometry(preview);
@@ -122,7 +122,7 @@ test("saved and source-pending edit evidence is reachable and included in Send a
       await note.evaluate(node => { window.responsiveNote = node; });
       await toggle.click();
       await page.setViewportSize({ width: 320, height: 400 });
-      await page.locator("#theme").click();
+      await setReviewTheme(page);
       await expect(toggle).toHaveAttribute("aria-expanded", "false");
       await toggle.focus(); await page.keyboard.press("Enter");
       await expect(note).toHaveValue("Separate note permission and text");
@@ -135,15 +135,15 @@ test("saved and source-pending edit evidence is reachable and included in Send a
       await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
       await page.waitForTimeout(200);
       const position = await inventory.evaluate(node => node.scrollTop);
-      await page.locator("#theme").click();
+      await setReviewTheme(page);
       await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(position);
       const filter = page.getByRole("button", { name: "Open (8)", exact: true });
       await filter.click(); await expect(card).toBeHidden();
       await filter.click(); await expect(card).toBeVisible();
       expect(await editor.evaluate(node => [node === window.responsiveEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 9]);
       await expect(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
-      await expect(card.getByRole("button", { name: "Resolve", exact: true })).toBeEnabled();
       await card.getByRole("button", { name: "Conversation actions" }).click();
+      await expect(page.getByRole("menuitem", { name: "Resolve conversation", exact: true })).toBeEnabled();
       await expect(page.getByRole("menuitem", { name: "Focus", exact: true })).toBeEnabled();
       await page.keyboard.press("Escape");
       await expect(card.getByRole("button", { name: "Conversation actions" })).toBeFocused();
@@ -171,8 +171,8 @@ async function auditHost(page, card, message, editor, host, info) {
   const samples = [];
   for (const [width, height] of matrix) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-    else await page.locator("#theme").focus();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
+    else await page.locator("#reviewOptions").focus();
     await page.waitForTimeout(100);
     const text = await textGeometry(message), field = editor && await fieldGeometry(editor);
     samples.push({ width, height, theme, host, text, field,
@@ -187,7 +187,7 @@ async function auditHost(page, card, message, editor, host, info) {
       expect.soft(field.visible + 0.1, `draft initially readable at ${width}x${height}`).toBeGreaterThanOrEqual(Math.min(36, field.height));
       await expect.soft(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
     }
-    await expect.soft(page.locator("#theme")).toBeFocused();
+    await expect.soft(page.locator("#reviewOptions")).toBeFocused();
   }
   fs.writeFileSync(info.outputPath(`${host}-geometry.json`), JSON.stringify(samples, null, 2));
   if (editor) {
