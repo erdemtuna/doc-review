@@ -16,7 +16,7 @@ import {
   comparisonReferenceSchema, contextWindow, conversationListRequestSchema, latestExchange,
   paginate, submissionHistoryItemSchema, threadSummarySchema, validatePageOutput,
 } from "./contracts/history.js";
-import { canonicalJson, reject, object, id, integer, nullable, timestamp, optional } from "./contracts/validation.js";
+import { canonicalJson, reject, rejectSave, object, id, integer, nullable, timestamp, optional } from "./contracts/validation.js";
 import { compareCapturedViews } from "./view-identity.js";
 import { canonicalTarget, targetKey } from "./paths.js";
 import { atomicWrite } from "./atomic-write.js";
@@ -387,7 +387,7 @@ export class Conversations {
     const base = record.editBases[edit.editId];
     const previousWrite = own(data.conversations.writes, page.key);
     if (base.sourceHash !== source.hash && !(previousWrite?.reviewId === request.reviewId && previousWrite.hash === source.hash)) {
-      reject("SAVE_EVIDENCE_CONFLICT", "Source changed after this edit was recorded; record a new version against current source.");
+      rejectSave("source-changed", "Source changed after this edit was recorded; record a new version against current source.");
     }
     let html = request.html;
     const pending = values(record.edits).filter((item) => item.pageKey === page.key && !submittedEdit(record, item) && item.source.state === "pending");
@@ -398,11 +398,11 @@ export class Conversations {
       for (const asset of item.assets) html = html.replaceAll(asset.preview_src, `assets/${asset.id}`);
     }
     const included = pending.filter((item) => item.editId === edit.editId || (!item.content.truncated && editIncluded(html, sourceEditContent(item))));
-    if (!included.some((item) => item.editId === edit.editId)) reject("SAVE_EVIDENCE_CONFLICT", "Save requires a pending recorded transition.");
+    if (!included.some((item) => item.editId === edit.editId)) rejectSave("evidence-mismatch", "Save requires a pending recorded transition.");
     for (const item of included) {
       const itemBase = record.editBases[item.editId];
       if (itemBase.sourceHash !== source.hash && !(previousWrite?.reviewId === request.reviewId && previousWrite.hash === source.hash)) {
-        reject("SAVE_EVIDENCE_CONFLICT", "An included edit was recorded against a different source.");
+        rejectSave("source-changed", "An included edit was recorded against a different source.");
       }
     }
     proveSave(source.text, html, included.sort((a, b) => a.sequence - b.sequence).map((item) => ({

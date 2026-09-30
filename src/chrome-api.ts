@@ -1,4 +1,13 @@
-import { failureSchema } from "./contracts/validation.js";
+import { failureSchema, type SaveFailureReason } from "./contracts/validation.js";
+
+export function saveFailureMessage(reason?: SaveFailureReason) {
+  const cause = reason === "source-changed" ? "The source changed since this edit was recorded."
+    : reason === "source-unavailable" ? "The source is unavailable or no longer writable."
+    : reason === "evidence-mismatch" ? "The page contains changes that do not match the recorded edits."
+    : reason === "unsafe-content" ? "The edit includes executable content or review markup that cannot be saved."
+    : "The server rejected this save; the cause could not be determined.";
+  return `${cause} These page changes were not saved by this request. Inspect them before reloading; conversation drafts are kept.`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -6,10 +15,13 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string | undefined,
     readonly targets: unknown[],
+    readonly saveReason?: SaveFailureReason,
   ) {
-    super(message);
+    super(code === "SAVE_EVIDENCE_CONFLICT" ? saveFailureMessage(saveReason) : message);
+    this.diagnosticMessage = message;
     this.name = "ApiError";
   }
+  readonly diagnosticMessage: string;
 }
 
 export function record(value: unknown): Record<string, unknown> {
@@ -53,6 +65,7 @@ export function createReviewApi({
           response.status,
           failure?.error.code ?? (typeof detail.code === "string" ? detail.code : undefined),
           Array.isArray(detail.targets) ? detail.targets : [],
+          failure?.error.saveReason,
         );
       }
       return await response.json();

@@ -45,7 +45,7 @@ async function fixture() {
     contentTop: 80, adjacent: null, anchorNotice: "", anchorThread: null, composer: null, composerNotice: "", canComposeBeside: false, composerRelation: "unavailable",
     viewport: { left: 0, top: 0, width: 1280, height: 800 },
     anchorViews: { thread: { canJump: true, offscreen: false, reason: "" } }, anchorPeers: { thread: ["thread"] },
-    save: { status: "idle" as const, savedAt: "", baseHash: "hash", conflict: false, dirty: false, dynamic: false },
+    save: { status: "idle" as const, savedAt: "", baseHash: "hash", conflict: false, conflictMessage: "", dirty: false, dynamic: false },
   };
   const chrome = createControllerStore(() => chromeState);
   const updateChrome = (patch: Partial<typeof chromeState>) => { chromeState = { ...chromeState, ...patch }; chrome.publish(); };

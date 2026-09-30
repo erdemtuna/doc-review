@@ -5,7 +5,7 @@ import {
 import { pagedSchema } from "./history.js";
 import {
   array, booleanValue, enumeration, id, integer, literal, nullable, object, refine,
-  reject, text, timestamp, union, version, type Infer,
+  reject, rejectSave, text, timestamp, union, version, type Infer,
 } from "./validation.js";
 
 export const CONVERSATION_STATE_FILE = "conversation-state.json";
@@ -175,9 +175,8 @@ export function validateReviewerMutation(
     if (request.operation === "save-edit" || request.operation === "revert") {
       const source = items.sources.find((item) => item.pageKey === request.pageKey);
       if (source && source.reviewId !== request.reviewId) reject("SCOPE_MISMATCH", "Source/revert ownership belongs to another review.");
-      if (!source?.writable || source.sourceHash !== request.expectedSourceHash) {
-        reject("SAVE_EVIDENCE_CONFLICT", "Writable source changed or is unavailable.");
-      }
+      if (!source?.writable) rejectSave("source-unavailable", "Source is unavailable or no longer writable.");
+      if (source.sourceHash !== request.expectedSourceHash) rejectSave("source-changed", "Writable source changed.");
       if (request.operation === "revert" && (source.revert?.baselineRevisionId !== request.baselineRevisionId ||
           source.revert.sourceHash !== source.sourceHash)) {
         reject("SAVE_EVIDENCE_CONFLICT", "Revert baseline/write ownership does not belong to this review.");

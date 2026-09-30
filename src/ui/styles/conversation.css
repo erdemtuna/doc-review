@@ -72,6 +72,22 @@
   .conversation-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 11px; color: var(--muted-foreground); }
   .conversation-panel p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; line-height: 1.5; }
   .conversation-panel .conversation-body { margin: 4px 0 6px; font-size: 13px; }
+  .conversation-text { min-width: 0; overflow-wrap: anywhere; }
+  .conversation-panel .conversation-text p { white-space: normal; }
+  .conversation-text > :first-child { margin-top: 0; }
+  .conversation-text > :last-child { margin-bottom: 0; }
+  .conversation-text ul, .conversation-text ol { padding-left: 22px; margin: 6px 0; }
+  .conversation-text ul { list-style: disc; }
+  .conversation-text ol { list-style: decimal; }
+  .conversation-text li { margin: 3px 0; }
+  .conversation-text code { font-family: var(--review-font-mono); font-size: .92em; background: var(--muted); border-radius: 3px; padding: 1px 3px; white-space: pre-wrap; }
+  .conversation-text pre { max-width: 100%; overflow: auto; padding: 8px; background: var(--muted); border-radius: 5px; }
+  .conversation-text pre code { padding: 0; white-space: pre; }
+  .conversation-text blockquote { border-left: 2px solid var(--border); padding-left: 10px; margin: 8px 0; }
+  .conversation-text a { text-decoration: underline; }
+  .conversation-text-table { max-width: 100%; overflow: auto; }
+  .conversation-text table { border-collapse: collapse; }
+  .conversation-text th, .conversation-text td { border: 1px solid var(--border); padding: 4px 6px; text-align: left; }
   .conversation-thread .conversation-actions { gap: 4px; font-size: 12px; }
   .conversation-thread [data-reply] { padding-inline: 8px; height: var(--review-control-height-sm); }
   .conversation-thread .conversation-actions [data-reply] { margin-left: auto; }

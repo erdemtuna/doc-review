@@ -29,6 +29,26 @@ async function controller(t, configure = {}) {
   return { f, ref, target, owner, calls, intercept(value) { intercept = value; } };
 }
 const target = { kind: "element", anchor: { selector: "p", label: "Paragraph" } };
+test("unchanged refreshes reuse submission bodies across delivery and completion", async (t) => {
+  const c = await controller(t);
+  await c.f.send(c.ref, [], [], { overallNote: { body: "Discuss only", intent: "discuss" } });
+  await c.owner.refresh();
+  const reads = () => c.calls.filter(body => body?.operation === "submission").length;
+  assert.equal(reads(), 1);
+  await c.owner.refresh(); await c.owner.refresh();
+  assert.equal(reads(), 1);
+  const work = (await c.f.read(c.ref, "poll")).submission;
+  await c.owner.refresh();
+  assert.equal(reads(), 2);
+  await c.owner.refresh();
+  assert.equal(reads(), 2);
+  await c.f.ok(responseFor(work));
+  await c.owner.refresh();
+  assert.equal(reads(), 3);
+  await c.owner.refresh(); await c.owner.refresh();
+  assert.equal(reads(), 3);
+  assert.equal(c.owner.getSnapshot().history[0].state, "handled");
+});
 test("empty and whitespace-only drafts retarget and reset permission consistently with Save eligibility", async (t) => {
   const c = await controller(t);
   const other = { kind: "element", anchor: { selector: "h2", label: "Second heading" } };

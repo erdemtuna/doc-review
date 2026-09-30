@@ -586,7 +586,9 @@ test("source changes invalidate saved evidence; fake saved content and broad unr
   const page = await f.read(ref, "read-page", { pageKey: ref.entryKey });
   const request = await f.request(ref, "save-edit", { pageKey: ref.entryKey, editId: a.value.editId, editVersion: 1,
     expectedSourceHash: page.page.sourceHash, html: "<p>A</p><p>B</p>" });
-  rejected(await f.call(request), "SAVE_EVIDENCE_CONFLICT");
+  const mismatched = await f.call(request);
+  rejected(mismatched, "SAVE_EVIDENCE_CONFLICT");
+  assert.equal(mismatched.body.error.saveReason, "evidence-mismatch");
   rejected(await f.call({ ...request, html: "x".repeat(8 * 1024 * 1024 + 1) }), "SNAPSHOT_TOO_LARGE");
   rejected(await f.call({ ...request, html: "<p>AA</p><p>Unrecorded</p>" }), "SAVE_EVIDENCE_CONFLICT");
   await f.ok({ ...request, html: "<p>AA</p><p>B</p>" });

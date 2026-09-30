@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createReviewApi, ApiError } from "../lib/chrome-api.js";
+import { createReviewApi, ApiError, saveFailureMessage } from "../lib/chrome-api.js";
+import { contractFailure, rejectSave, failureSchema } from "../lib/contracts/validation.js";
 import { createFrameController } from "../lib/frame-controller.js";
 import { createSaveController } from "../lib/save-controller.js";
 import { createFeedbackController } from "../lib/feedback-controller.js";
@@ -685,6 +686,34 @@ test("source conflict blocks the save barrier without retries or losing dirty ed
   await assert.rejects(f.controller.barrier(), /save conflict/);
   assert.equal(calls, 1);
   f.controller.dispose();
+});
+
+for (const reason of ["source-changed", "source-unavailable", "evidence-mismatch", "unsafe-content"]) {
+  test(`save recovery carries ${reason} through the API, notice and barrier`, async () => {
+    let failure;
+    try { rejectSave(reason, "Detailed diagnostic"); } catch (error) { failure = contractFailure(error); }
+    const api = createReviewApi({ token: "test", fetch: async () => new Response(JSON.stringify(failure), { status: 409 }) });
+    let reported;
+    const f = saveFixture({ request: api.request, conflict: message => { reported = message; } });
+    assert.equal(await f.controller.save("unsaved"), false);
+    assert.equal(reported, saveFailureMessage(reason));
+    assert.equal(f.controller.state.dirty, true);
+    assert.doesNotMatch(reported, /\$:/);
+    await assert.rejects(f.controller.barrier(), error => error.message.includes(reported));
+    await assert.rejects(api.request("/save"), error => error.diagnosticMessage === "$: Detailed diagnostic" && error.saveReason === reason);
+    f.controller.reset();
+    assert.equal(f.controller.state.conflictMessage, "");
+    f.controller.dispose(); api.dispose();
+  });
+}
+
+test("save reasons reject invalid combinations and unknown legacy conflicts stay honest", () => {
+  assert.throws(() => failureSchema.parse({ ok: false, error: {
+    code: "VERSION_CONFLICT", status: 409, retryable: false, message: "changed", saveReason: "source-changed",
+  } }), /Save reason/);
+  const error = new ApiError("$: old server detail", 409, "SAVE_EVIDENCE_CONFLICT", []);
+  assert.match(error.message, /could not be determined/);
+  assert.doesNotMatch(error.message, /source changed|\$:/);
 });
 
 test("revert waits for queued saves and retains frame/hash identity", async () => {

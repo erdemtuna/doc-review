@@ -6,7 +6,7 @@ import { documentExecutionPolicy } from "./document-execution.js";
 import { isMarkdown } from "./markdown.js";
 import { stripSdk } from "./html-transform.js";
 import { stateDir } from "./paths.js";
-import { reject } from "./contracts/validation.js";
+import { reject, rejectSave } from "./contracts/validation.js";
 import { REVISION_LIMITS } from "./revision-schema.js";
 
 export const sourceHash = (text) => crypto.createHash("sha1").update(text).digest("hex");
@@ -49,10 +49,10 @@ function matches(root, html, text) {
 }
 function one(root, html, text) {
   const found = matches(root, html, text);
-  if (found.length !== 1) reject("SAVE_EVIDENCE_CONFLICT", "Edit source is absent or ambiguous; preserve it as source-pending.");
+  if (found.length !== 1) rejectSave("evidence-mismatch", "Edit source is absent or ambiguous; preserve it as source-pending.");
   return found[0];
 }
-const conflict = (message) => reject("SAVE_EVIDENCE_CONFLICT", message);
+const conflict = (message) => rejectSave("evidence-mismatch", message);
 function neighborMatches(node, label) {
   const text = textOf(node || {});
   const flat = text.replace(/\s+/g, " ").trim();
@@ -108,9 +108,9 @@ function applyEdit(document, edit, priorContent) {
 /** Every saved delta must be explained by exact, recorded transitions. */
 export function proveSave(current, candidate, transitions) {
   if (Buffer.byteLength(candidate) > REVISION_LIMITS.sourceBytes) reject("SNAPSHOT_TOO_LARGE", "Saved source exceeds snapshot safety bound.");
-  if (candidate !== stripSdk(candidate)) conflict("Injected review markup cannot be saved as source.");
+  if (candidate !== stripSdk(candidate)) rejectSave("unsafe-content", "Injected review markup cannot be saved as source.");
   if (documentExecutionPolicy({ kind: "file", markdown: false }, candidate).savePolicy !== "writable") {
-    conflict("This change introduces executable content; retain it as source-pending for source-directed handling.");
+    rejectSave("unsafe-content", "This change introduces executable content; retain it as source-pending for source-directed handling.");
   }
   const document = parse(current);
   for (const { content, priorContent } of transitions) applyEdit(document, content, priorContent);

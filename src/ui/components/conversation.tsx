@@ -22,6 +22,7 @@ import { EditEvidence, ResultActions, ResultPreview, type ResultDetail, type Rev
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import { FilterButton } from "./ui/filter-button";
 import { Timeline, TimelineItem } from "./ui/timeline";
+import { ConversationText } from "./conversation-text";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 type Thread = Snapshot["threads"][number];
@@ -416,10 +417,10 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, openInventory }: {
                 ? "received" : "sent"} />
           </div>
           {item.draft?.messageId === reviewer.messageId ? draftView : <>
-          <p className="conversation-body">{reviewer.body}</p>
+          <ConversationText className="conversation-body">{reviewer.body}</ConversationText>
           </>}
           {response && <div className="conversation-response"><div className="conversation-meta inventory-meta"><ConversationAuthor role="Agent" /><ConversationTime value={response.createdAt} />
-            <ConversationStatus kind={response.outcome} /></div><p className="conversation-body">{response.body}</p></div>}
+            <ConversationStatus kind={response.outcome} /></div><ConversationText className="conversation-body">{response.body}</ConversationText></div>}
         </section>)}
         {!focus && resolutionControl &&
           <div className="conversation-reply conversation-actions">{resolutionControl}{replyControl}</div>}
@@ -471,8 +472,8 @@ function History({ snapshot, shell, visible, onReveal }: { snapshot: Snapshot; s
           <ConversationTime value={item.createdAt} /></span><Icon className="conversation-submission-chevron" name="chevronRight" size={14} /></summary>
         <div className="conversation-submission-content">
         {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <ConversationIntent />}</h4>
-          <p>{detail.submission.overallNote.body}</p></section>}
-        {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
+          <ConversationText>{detail.submission.overallNote.body}</ConversationText></section>}
+        {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><ConversationText>{item.result.body}</ConversationText></section>}
         {detail?.result && <ResultActions detail={detail} shell={shell} onReveal={onReveal} />}
         {detail?.result?.editOutcomes.map((outcome) => <p key={outcome.editId}>{editOutcomeSummary(outcome.outcome)} {outcome.reason}</p>)}
         {item.state === "abandoned" && <p role="status">Abandoned. External source work may still have happened; check the source. No undo or cancellation is guaranteed.</p>}

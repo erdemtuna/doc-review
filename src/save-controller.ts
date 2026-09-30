@@ -1,4 +1,4 @@
-import { decodePage, record } from "./chrome-api.js";
+import { ApiError, decodePage, record, saveFailureMessage } from "./chrome-api.js";
 import { createControllerStore } from "./controller-store.js";
 import type { RenderIdentity } from "./frame-controller.js";
 import type { PageResponse, SavePolicy } from "./contracts/page.js";
@@ -8,6 +8,7 @@ interface SaveState {
   savedAt: string;
   baseHash: string | null;
   conflict: boolean;
+  conflictMessage: string;
   dirty: boolean;
   dynamic: boolean;
 }
@@ -21,7 +22,7 @@ interface Options {
   send: (message: Record<string, unknown>) => void;
   sourceHash: (hash: string | null) => void;
   pageChanged: (page: PageResponse) => void;
-  conflict: () => void;
+  conflict: (message: string) => void;
   failed: (message: string) => void;
   diagnostic: (event: string) => void;
   sending: () => boolean;
@@ -41,7 +42,7 @@ export function createSaveController({
   setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout,
 }: Options) {
   const state: SaveState = {
-    status: "idle", savedAt: "", baseHash: null, conflict: false, dirty: false, dynamic: false,
+    status: "idle", savedAt: "", baseHash: null, conflict: false, conflictMessage: "", dirty: false, dynamic: false,
   };
   const store = createControllerStore(() => state);
   const pipelines = new Map<string, Promise<boolean>>();
@@ -164,8 +165,9 @@ export function createSaveController({
         state.baseHash = null;
         state.status = "idle";
         state.conflict = true;
+        state.conflictMessage = saveFailureMessage(error instanceof ApiError ? error.saveReason : undefined);
         publish();
-        conflict();
+        conflict(state.conflictMessage);
         diagnostic("save-conflict");
         return false;
       }
@@ -207,7 +209,7 @@ export function createSaveController({
     await settleEdits(identity.key);
     applyClean();
     if (!matches(identity)) throw new Error("The page changed while saving. Retry on the latest page.");
-    if (state.conflict) throw new Error("Resolve the save conflict: the source changed outside this review. Reload latest; your comment drafts will be kept.");
+    if (state.conflict) throw new Error(`Resolve the save conflict: ${state.conflictMessage || saveFailureMessage()}`);
     if (state.status === "failed" || (policy() === "writable" && !state.dynamic && state.dirty)) {
       throw new Error("Your page edits have not finished saving. They have not been sent.");
     }
@@ -263,7 +265,7 @@ export function createSaveController({
       clean = null;
       lastSave = null;
       sequence++;
-      Object.assign(state, { status: "idle", savedAt: "", baseHash: null, conflict: false, dirty: false, dynamic: false });
+      Object.assign(state, { status: "idle", savedAt: "", baseHash: null, conflict: false, conflictMessage: "", dirty: false, dynamic: false });
       publish();
     },
     async revert() {

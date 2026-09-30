@@ -6,6 +6,7 @@ import type { ConversationShell } from "../../conversation-shell";
 import { Button } from "./ui/button";
 import { DisclosureTrigger } from "./ui/disclosure-trigger";
 import { Icon } from "./icon";
+import { ConversationText } from "./conversation-text";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 export type ResultDetail = Snapshot["submissions"][number]["value"];
@@ -23,7 +24,7 @@ export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>[
 }
 
 export function ResultPreview({ body, actions }: { body: string; actions: (expandControl: ReactNode) => ReactNode }) {
-  const id = useId(), preview = useRef<HTMLParagraphElement>(null);
+  const id = useId(), preview = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false), [overflow, setOverflow] = useState(false);
   useLayoutEffect(() => {
     const node = preview.current;
@@ -37,7 +38,7 @@ export function ResultPreview({ body, actions }: { body: string; actions: (expan
     return () => observer.disconnect();
   }, [body]);
   return <>
-    <p ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}>{body}</p>
+    <div ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}><ConversationText>{body}</ConversationText></div>
     {actions(overflow && <DisclosureTrigger expanded={expanded}
       controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</DisclosureTrigger>)}
   </>;
