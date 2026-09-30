@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode, setReviewTheme } from "./helpers.js";
 
 async function setup(page, review, name, source = "<p id='copy'>First paragraph to review.</p><p id='other'>Second paragraph to review.</p><button id='action'>Authored control</button>") {
   const file = writeFile(review, name, source);
@@ -14,7 +14,7 @@ const card = (page) => page.locator(".conversation-thread").first();
 async function begin(page, frame, selector = "#copy") { await selectText(frame, selector); await frame.locator("#commentAction").click(); await expect(draft(page)).toBeVisible(); }
 async function close(page) {
   if (await page.locator(".conversation-panel").isVisible()) {
-    await page.locator(".conversation-panel").getByRole("button", { name: /^(Close|Close comment)$/, exact: true }).click();
+    await page.locator(".conversation-panel").getByRole("button", { name: /^(Close feedback|Close comment)$/, exact: true }).click();
   } else await expect(page.locator(".conversation-panel")).toBeHidden(); // Save closes contextual composition.
 }
 
@@ -40,7 +40,7 @@ test("Save and Cancel restore the exact authored control, and later renders do n
   await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
   await compose(page, "Review control");
   await expect(frame.locator("#action")).toBeFocused();
-  await page.locator("#theme").click(); await expect(draft(page)).toHaveCount(0);
+  await setReviewTheme(page); await expect(draft(page)).toHaveCount(0);
   await close(page);
   await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
   await draft(page).fill("Discard local"); await draft(page).press("Escape");
@@ -55,7 +55,7 @@ test("only confirmed deletion removes a never-submitted thread and returns reach
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   expect((await listed(review, ref, "threads")).items).toHaveLength(1);
   await (await threadAction(page, card(page), "Delete thread")).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete thread" }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(page.locator("#commentsButton")).toBeFocused();
   await expect(frame.locator("mark[data-eh-mark]")).toHaveCount(0);
@@ -70,8 +70,20 @@ test("Escape cancels only the current draft; closing a host never resolves its t
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(reply).toHaveCount(0); await expect(panel(page)).toBeVisible();
   await (await threadAction(page, card(page), "Focus")).click();
-  await card(page).getByRole("button", { name: "Close conversation" }).press("Escape");
+  const close = panel(page).getByRole("button", { name: "Close feedback", exact: true });
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.mouse.move(0, 0);
+  await close.scrollIntoViewIfNeeded();
+  await close.focus();
+  await close.press("Tab"); await page.keyboard.press("Shift+Tab");
+  await expect(close).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: "Close feedback", exact: true })).toBeVisible();
+  await close.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(panel(page)).toBeVisible();
+  await close.press("Escape");
   await expect(panel(page)).toBeHidden();
+  await expect(page.locator("#commentsButton")).toBeFocused();
   expect((await listed(review, ref, "threads")).items[0].thread.status).toBe("open");
 });
 
@@ -81,7 +93,7 @@ test("another explicit target cannot steal a nonempty new-message draft, includi
   await close(page);
   await page.getByRole("button", { name: "Keep editing" }).click();
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await selectText(frame, "#other"); await frame.locator("#commentAction").click();
   await feedback(page);
   await expect(draft(page)).toHaveValue("Keep original owner");
@@ -114,7 +126,7 @@ for (const action of ["save", "edit"]) test(`${action} retains editable input an
   await expect.poll(() => requests).toBe(1);
   await input.fill("Newer typing");
   await input.evaluate((element) => { window.savedComposer = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
-  await page.locator("#theme").click(); release();
+  await setReviewTheme(page); release();
   await expect(page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   expect(await input.evaluate((element) => element === window.savedComposer)).toBe(true);
   expect(await input.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([2, 7]);
@@ -174,15 +186,19 @@ test("multiple same-block conversations preserve authored dark styles and expose
   const badge = frame.getByRole("button", { name: "Open 2 conversations", exact: true });
   await expect(badge).toBeVisible();
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", theme);
     await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(23, 23, 15)");
     expect(await frame.locator("body").innerHTML()).toBe(authored);
     await badge.focus(); await badge.press("Enter");
-    const chooser = page.getByRole("combobox", { name: "Conversation at this target" });
+    const chooser = page.getByRole("button", { name: /^Conversation at this target:/ });
     await expect(chooser).toBeVisible();
-    const values = await chooser.locator("option").evaluateAll((nodes) => nodes.map((node) => node.value));
-    await chooser.selectOption(values[1]);
+    await expect(chooser).toHaveCSS("height", "28px");
+    await expect(chooser).toHaveCSS("font-size", "13px");
+    await expect(chooser).toHaveAttribute("aria-haspopup", "menu");
+    await expect(chooser).toHaveAttribute("data-size", "sm");
+    await chooser.click();
+    await page.getByRole("menuitemradio").nth(1).click();
     await expect(panel(page)).toContainText("Second block feedback");
     await page.screenshot({ path: testInfo.outputPath(`block-conversations-${theme}.png`), animations: "disabled" });
     await panel(page).getByRole("button", { name: "Close conversation" }).click();
@@ -206,7 +222,7 @@ test("Markdown direct changes stay source-pending through View and immutable com
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
   await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
-  await expect(page.getByText(/Deferred; no application reported for this edit\. Preserved/)).toBeVisible();
+  await expect(page.getByText(/The agent left this edit for later\. Preserved/)).toBeVisible();
   expect(fs.readFileSync(file, "utf8")).toBe(source);
 });
 

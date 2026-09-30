@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Gallery, initialTheme } from "./gallery";
-import "@/styles/index.css";
+import "@/styles/shell.css";
+import "@/styles/conversation.css";
 import "./preview.css";
 
 const root = document.getElementById("root");

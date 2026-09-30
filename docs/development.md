@@ -78,9 +78,14 @@ Only contextual error recovery adds a full-width row; the normal More menu is re
 Feedback, Focus and adjacent conversations share one mounted conversation tree,
 draft owner and editor. Changes controls and both comparison representations
 also use React; there is no alternate legacy shell entry.
-Legacy styles occupy a lower cascade layer; new tokens and baselines apply only
-inside `.review-ui` surfaces and their portals, with generated legacy aliases
-sharing the same palette. The component gallery stays separate.
+`styles/shell.css` owns shell geometry and shared control layouts,
+`styles/conversation.css` owns the current conversation/recovery hosts, and
+`styles/comparison.css` owns inert comparison presentation. The obsolete
+`src/chrome.css` and retired Changes/Comments/Contextual/Feedback/Recovery React
+implementations are removed; `ComparisonView`, projection helpers and
+`ToolbarControls` remain shared production code. Component baselines apply inside
+`.review-ui` surfaces and portals. Unreferenced legacy color aliases are removed;
+shell and SDK consume canonical palette roles. The component gallery stays separate.
 React, Tailwind, Radix-backed shadcn controls, and browser-only dependencies are
 build-time dependencies; installed packages require no Vite or UI tooling.
 Vite emits bundled dependency licenses in `lib/ui/THIRD_PARTY_NOTICES.md`;
@@ -111,6 +116,58 @@ and clean up without leaving a process. See [the checklist](migration-review.md)
 The component gallery uses simulated state; these shell previews use the real
 durable server. The installed-package browser smoke below exercises the complete
 HTML/Markdown/scripted/URL lifecycle and retained comparisons.
+
+The foundations gallery composes the current brand, all six Button roles,
+ChoiceMenu, single-choice SegmentedControl, independent FilterButton, permission Checkbox, informational
+hints, conversation metadata, results, timeline, recovery and rich comparisons.
+The recovery gallery renders `RecoveryNotice`/`ReceiptRecovery` with explicitly
+synthetic states; its native selector chooses fixtures, not review data. Neither
+preview implements a parallel workflow or ships in the package.
+
+### Frontend consolidation regression map
+
+| Contract | Main proof |
+| --- | --- |
+| Rich comparison style ownership, including real tables | `e2e/frontend-consolidation.spec.js`, `test/ui/comparison.test.tsx` |
+| Typed confirmation verbs/intent; async failure stays open | `test/ui/control-contracts.test.tsx`, consolidation and conversation browser suites |
+| Keyboard intent/action hints; layered Escape | control-contracts, consolidation and conversation-adjacent suites |
+| Six shared pickers, peer density, async focus, disabled/typeahead/handoff | choice-menu, toolbar, changes-controls, commenting and conversation-adjacent suites |
+| Intentional deterministic icon vocabulary | `test/icons.test.js` |
+| Visible new/edit draft exclusion at 390x480 and 320x400; exact Send payload | consolidation suite in both themes |
+| Separate comment capability through End/reload/page changes, while waiting permits discussion | consolidation suite and `test/shell-controllers.test.js` |
+| Stable Abandon/Revert danger ink; neutral recovery across hosts | consolidation suite in both themes |
+| Retained editor/caret/IME, first glyph and 36px editor visibility | coherence, responsive-conversation, new-comment and approved-parity suites |
+| Delayed cancellation cannot retire a newer keyboard target or replace a newer selection | deterministic held-message cases in `e2e/new-comment.spec.js` |
+| Closing command menus cannot steal newer toolbar focus on pointer leave | `e2e/comments-inventory.spec.js` |
+
+### Conversation/toolbar refinement regression map
+
+| Contract | Main proof |
+| --- | --- |
+| Six shared rails and symmetric card/header insets within 1px; real transcript scrolling and fully reachable footers | `e2e/frontend-refinement.spec.js`: measured classic and overlay Chromium scrollbar modes, expanded/collapsed and overflow/no-overflow, both themes, desktop and short 390/320px screens |
+| Exact three-action headers; annotation entry, nondestructive Close, temporary filtered reveal, Changes expiry and fallback | refinement browser suite and `test/conversation-controller.test.js` |
+| Every editable message owns Edit/Close edit beside its timestamp; exact retained editor and selection | refinement, coherence, conversation-adjacent and responsive-conversation browser suites |
+| All nine informational status meanings, honest Sent/Received evidence, right-aligned delivery, simultaneous request/unsent, keyboard hints and layered Escape | `test/ui/review-options.test.tsx`, refinement, conversation-cards and consolidation browser suites |
+| Settled neutral expansion and readable 0/1/11/99+/unavailable counts | refinement browser suite; color checks wait for actual transitions to finish |
+| Decorative picker outlines with readable labels/icons/focus; essential field borders unchanged | `e2e/ui-foundations.spec.js`, choice-menu and existing six-picker browser coverage |
+| Canonical original file copy, explicit theme choices, failure/retry, stale completion and loading | review-options component tests and refinement browser suite |
+| Menu focus return versus retained SDK editor state; later acknowledgment/retry cannot steal resumed editor focus | theme-sync/theme-recovery browser suites |
+| Five-second lifecycle notifications below the toolbar, no thread-status notifications, completion vs abandonment, hover/focus/hidden-page pause, expiry during iframe reading, exact identity and retained recovery information | `test/ui/conversation-notification.test.tsx`, conversation-controller tests, `e2e/usability-feedback.spec.js` |
+| Separate independent checked filters, far-right utilities and visible Focus return retaining the same IME editor | usability-feedback and refinement browser suites; conversation and toolbar component tests |
+
+The refinement suite does not change the browser engine. Its two isolated
+scrollbar configurations toggle Chromium's native overlay feature and record
+the **observed** gutter in `rails.json`; no CSS hides or fakes a scrollbar.
+Theme helpers interact with the actual Review options menu. They never inject
+theme state or retain an invisible compatibility button.
+
+Rendered checks supplement palette contrast tests: normal text targets 4.5:1;
+essential input/focus boundaries target 3:1. Decorative card dividers are quieter.
+Evidence screenshots are diagnostic outputs, not automatically accepted pixel
+baselines. The component gallery is useful for state inspection; acceptance uses
+the real isolated shell and installed runtime.
+Failed hosted Chromium runs retain `test-results` as a seven-day artifact, including
+synthetic screenshots and Playwright error contexts.
 
 ## README media
 
@@ -726,7 +783,10 @@ starts the installed server, verifies the actual self-contained UI bundle and
 CSS, and traverses SDK module imports. It also checks opaque-origin SDK CORS,
 asset headers, notices, and the absence of UI tooling in the installation.
 The browser variant checks SDK readiness without external CDN or development
-servers. `package-conversation-smoke.js` runs two-tab open/join, discussion with
+servers. Its parity subprocess keeps an isolated home and state while preserving
+the original Linux `XDG_CACHE_HOME` for the already installed browser. It uses
+Playwright's default Chromium engine without downloading a second browser.
+`package-conversation-smoke.js` runs two-tab open/join, discussion with
 unchanged source, exact text/format/move/delete/image edits, mixed permissions,
 identity-bound CLI context/respond, invalid-response rejection, lost Send/End/
 response reconciliation, Resolve/Reopen, shared End with late completion,

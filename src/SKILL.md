@@ -43,7 +43,7 @@ Load only the relevant reference:
   Use `handoff.templateCommand` to create the complete inventory in a new file.
   Its blank outcomes/prose intentionally fail validation. Fill them truthfully.
 - Before any source work, read [source-edits](references/source-edits.md).
-- For follow-ups, large content, paging, compaction, uncertainty or restart, read
+- For reviewer UI, follow-ups, large content, paging, compaction or recovery, read
   [context-and-recovery](references/context-and-recovery.md). Start with the
   closest relevant previous exchange or `handoff.historyCommand` (`--limit 1`).
   Do not eagerly load every thread or all history. Agent context excludes current,

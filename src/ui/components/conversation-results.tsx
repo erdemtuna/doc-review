@@ -4,6 +4,7 @@ import { ConversationSource, ConversationTime } from "./conversation-controls";
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ConversationShell } from "../../conversation-shell";
 import { Button } from "./ui/button";
+import { DisclosureTrigger } from "./ui/disclosure-trigger";
 import { Icon } from "./icon";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
@@ -16,9 +17,9 @@ export const responseOutcomeLabels = {
 };
 
 export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>["editOutcomes"][number]["outcome"] | undefined) {
-  return outcome === "already-saved" ? "Saved by you before Send; no additional agent edit reported."
-    : outcome === "applied" ? "Agent reported applying this source-pending edit."
-    : outcome === "deferred" ? "Deferred; no application reported for this edit." : "Edit outcome unavailable.";
+  return outcome === "already-saved" ? "You saved this edit before sending."
+    : outcome === "applied" ? "The agent says this edit has been applied."
+    : outcome === "deferred" ? "The agent left this edit for later." : "No update is available for this edit.";
 }
 
 export function ResultPreview({ body, actions }: { body: string; actions: (expandControl: ReactNode) => ReactNode }) {
@@ -37,8 +38,8 @@ export function ResultPreview({ body, actions }: { body: string; actions: (expan
   }, [body]);
   return <>
     <p ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}>{body}</p>
-    {actions(overflow && <Button size="sm" variant="ghost" aria-expanded={expanded}
-      aria-controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</Button>)}
+    {actions(overflow && <DisclosureTrigger expanded={expanded}
+      controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</DisclosureTrigger>)}
   </>;
 }
 
@@ -65,10 +66,10 @@ export function ResultActions({ detail, shell, onReveal, leadingAction }: {
           ? shell.getSnapshot().pageKey! : detail.submission.pageKeys[0];
         void shell.commands.comparison(detail.submission.submissionId, key, "content").catch(shell.owner.report);
       }}>{changes ? "View changes" : "View response"}</Button>}
-      {!!replies.length && <Button className="ml-auto" size="sm" variant={changes ? "ghost" : "outline"} disabled={busy}
-        aria-expanded={expanded} aria-controls={repliesId} onClick={() => setExpanded(value => !value)}>
-        <Icon name={expanded ? "chevronDown" : "chevronRight"} size={14} />Replies ({replies.length})
-      </Button>}
+      {!!replies.length && <DisclosureTrigger className="ml-auto" variant={changes ? "ghost" : "outline"} disabled={busy}
+        expanded={expanded} controls={repliesId} onClick={() => setExpanded(value => !value)}>
+        Replies ({replies.length})
+      </DisclosureTrigger>}
     </div>
     <ul id={repliesId} hidden={!expanded} className="conversation-result-replies">{replies.map((reply, index) => {
       const submitted = detail.submission.messages.find(item => item.message.messageId === reply.replyToMessageId);
@@ -111,10 +112,10 @@ export function EditEvidence({ edit }: { edit: Snapshot["edits"][number] }) {
       {content.kind === "deleted" && <div><dt>After</dt><dd>Removed by you</dd></div>}
       {content.kind === "moved" && <div><dt>Position</dt><dd>After: {content.moved_after} · Before: {content.moved_before}</dd></div>}
     </dl>
-    {content.truncated && <p>Incomplete capture. The agent must identify the source or clarify; it cannot apply truncated content.</p>}
+    {content.truncated && <p>This preview is incomplete. The agent needs the full text before applying the edit.</p>}
     <details className="conversation-edit-details"><summary>Exact edit details</summary>
       <pre>{JSON.stringify(content, null, 2)}</pre>
-      <p>{edit.source.state === "saved" ? "Already saved by you before Send." : "Source pending; recording this edit does not save it to source."}</p>
+      <p>{edit.source.state === "saved" ? "Saved directly to the document." : "Recorded for the agent to apply."}</p>
       <details><summary>Source evidence and identity</summary><pre>{JSON.stringify({ editId: edit.editId, version: edit.version, pageKey: edit.pageKey, source: edit.source }, null, 2)}</pre></details>
     </details>
   </>;
@@ -135,7 +136,7 @@ export function SubmissionResultNote({ detail }: { detail: ResultDetail }) {
         const outcome = result.editOutcomes.find((item) => item.editId === edit.editId && item.editVersion === edit.version);
         return <li key={edit.editId}>
           <div className="conversation-edit-heading"><strong className="feedback-edit-label">{edit.content.label}</strong>
-            <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Source pending at Send"}</Badge></div>
+            <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Sent for the agent to apply"}</Badge></div>
           <p>{editOutcomeSummary(outcome?.outcome)}</p>
           {outcome && <p>{outcome.reason}</p>}
           <EditEvidence edit={edit} />

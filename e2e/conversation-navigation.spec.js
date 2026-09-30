@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, conversation, sendPending, handled } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, overallNote, mutate, conversation, sendPending, handled, setReviewTheme } from "./helpers.js";
 import { content } from "../test/fixtures/review.js";
 
 test("Jump to reveals the exact passage without an overlay and returns to the same editor and inventory position", async ({ page, review }, info) => {
@@ -35,11 +35,18 @@ test("Jump to reveals the exact passage without an overlay and returns to the sa
   const offscreenCard = page.locator(`[data-thread="${offscreen.threadId}"]`);
   const show = offscreenCard.getByRole("button", { name: "Show in document" });
   await expect(show).toBeEnabled();
-  await expect(show).toHaveAttribute("title", "Show the exact passage");
+  await expect(show).not.toHaveAttribute("title");
+  await page.mouse.move(0, 0);
+  await show.scrollIntoViewIfNeeded();
+  await show.focus();
+  await show.press("Tab"); await page.keyboard.press("Shift+Tab");
+  await expect(show).toBeFocused();
+  await expect(page.getByRole("tooltip", { name: "Show the exact passage", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(offscreenCard.locator(".conversation-target-status")).toHaveCount(0);
   await expect(show).not.toHaveAttribute("aria-describedby");
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await offscreenCard.scrollIntoViewIfNeeded();
     expect(await page.locator(".conversation-panel").innerText()).not.toContain("The target is offscreen");
     await page.screenshot({ path: info.outputPath(`quiet-offscreen-${theme}.png`), animations: "disabled", caret: "initial" });
@@ -71,7 +78,11 @@ test("cross-page Jump to verifies membership before revealing and keeps unavaila
   await sendPending(review, ref); await handled(review, ref);
   await mutate(review, ref, "set-thread-status", { threadId, status: "resolved" });
   await feedback(page);
-  await expect(card.getByRole("button", { name: "Reopen", exact: true })).toBeEnabled();
+  const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
+  await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
+  await resolvedFilter.click();
+  await expect(await threadAction(page, card, "Reopen conversation")).toBeEnabled();
+  await page.keyboard.press("Escape");
   await card.getByRole("button", { name: "Show in document" }).click();
   await expect(page.locator(".conversation-panel")).toBeVisible();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
@@ -127,3 +138,4 @@ test("Comments, Your edits and optional note are independent disclosures with au
   expect(work.messages).toHaveLength(2); expect(work.edits).toHaveLength(1);
   expect(work.overallNote).toEqual({ body: "Only this note grants permission", intent: "request-change" });
 });
+import { threadAction } from "./conversation-actions.js";

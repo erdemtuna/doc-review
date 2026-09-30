@@ -1,7 +1,7 @@
 import { record } from "./chrome-api.js";
 import type { FrameHost, HostPolicy } from "./frame-host.js";
 import type { FrameRenderState, RenderExecution, ReviewMode, SavePolicy } from "./contracts/page.js";
-import { isThemePayload, type ReviewTheme, type ThemePayload } from "./contracts/frame.js";
+import { isThemePayload, type FrameReviewConfiguration, type ReviewTheme, type ThemePayload } from "./contracts/frame.js";
 export type RenderIdentity = FrameRenderState;
 export type { RenderExecution } from "./contracts/page.js";
 
@@ -82,10 +82,8 @@ export function createFrameController({
   let readyGeneration: number | null = null;
   let sourceRevision = 0;
   let flushSequence = 0;
-  let configuration: {
-    mode: string; savePolicy: string; settle: (applied: boolean) => void;
-  } | null = null;
-  let expectedConfiguration: { mode: string; savePolicy: string } | null = null;
+  let configuration: (FrameReviewConfiguration & { settle: (applied: boolean) => void }) | null = null;
+  let expectedConfiguration: FrameReviewConfiguration | null = null;
   let desired: ThemePayload = { theme: "light", themeRevision: 1 };
   let currentTheme: ThemeChannel | null = null;
   let previousTheme: ThemeChannel | null = null;
@@ -357,14 +355,14 @@ export function createFrameController({
       }
     }, 5000);
   }
-  function configure(mode: ReviewMode, savePolicy: SavePolicy, wait = true): Promise<boolean> {
+  function configure(mode: ReviewMode, savePolicy: SavePolicy, canComment: boolean, wait = true): Promise<boolean> {
     if (loading() || !state.capability || !state.execution) return Promise.resolve(false);
     configuration?.settle(false);
-    expectedConfiguration = { mode, savePolicy };
+    expectedConfiguration = { mode, savePolicy, canComment };
     state.configurationGeneration = null;
     configurationTimeout();
     if (!wait) {
-      send({ type: "eh:configureReview", mode, savePolicy });
+      send({ type: "eh:configureReview", mode, savePolicy, canComment });
       return Promise.resolve(true);
     }
     return new Promise((resolve) => {
@@ -375,8 +373,8 @@ export function createFrameController({
         cancelTimer(timer);
         resolve(applied);
       };
-      configuration = { mode, savePolicy, settle };
-      send({ type: "eh:configureReview", mode, savePolicy });
+      configuration = { mode, savePolicy, canComment, settle };
+      send({ type: "eh:configureReview", mode, savePolicy, canComment });
     });
   }
   function flush(strict = false): Promise<void> {
@@ -454,15 +452,15 @@ export function createFrameController({
             isThemePayload(value) && value.theme === currentTheme?.pending?.theme &&
             value.themeRevision === currentTheme.pending.themeRevision));
     },
-    configured(mode: unknown, savePolicy: unknown) {
+    configured(mode: unknown, savePolicy: unknown, canComment: unknown) {
       if (!expectedConfiguration || expectedConfiguration.mode !== mode ||
-        expectedConfiguration.savePolicy !== savePolicy || loading()) return false;
+        expectedConfiguration.savePolicy !== savePolicy || expectedConfiguration.canComment !== canComment || loading()) return false;
       // Confirmation is complete even when background tabs pause the visual handoff.
       cancelTimer(configurationTimer);
       configurationTimer = null;
       state.configurationGeneration = state.generation;
       handoff();
-      if (configuration && configuration.mode === mode && configuration.savePolicy === savePolicy) {
+      if (configuration && configuration.mode === mode && configuration.savePolicy === savePolicy && configuration.canComment === canComment) {
         configuration.settle(true);
       }
       return true;

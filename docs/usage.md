@@ -64,11 +64,17 @@ it would cover the target. **Focus**, in Conversation actions, gives one convers
 header and composer reachable. Activate an existing highlight with a click,
 Enter or Space to open one conversation beside it. A shared-target count and
 chooser expose other conversations at that highlight. **Beside target**,
-**Focus** and **Back to Feedback** move the same mounted editor, preserving text,
+**Focus** and **Open in Feedback** move the same mounted editor, preserving text,
 selection, caret, composition, loaded exchanges and reading position.
-Headers group the section title and unread dot before Locate, the check-circle
-**Resolve** icon (return-arrow **Reopen** when resolved), More and Collapse.
-Resolve/Reopen have named tooltips and accessible labels.
+Sidebar headers group source and state before Locate, More and Collapse.
+Adjacent popups instead offer Open in Feedback, More and Close. Popup Close only
+hides the conversation; Collapse is in More. Focus has a visible **Back to Feedback**
+action above the conversation. Returning reveals the original card without changing your filters;
+an excluded card has a dismissible explanation. Edit sits beside each eligible
+message's timestamp. Informational icons explain unsent messages, change requests,
+resolution and agent outcomes on hover or keyboard focus.
+Labelled Resolve/Reopen sits opposite Reply below the conversation; it remains
+available in More when collapsed or a draft is open, with the same safety guards.
 
 The card never covers its highlighted target. Short discussions fit their contents;
 long transcripts scroll with Reply or the active editor kept reachable. No host
@@ -94,30 +100,38 @@ reattachment control. A recovered target does not reopen a card automatically.
 | Delete a never-submitted thread | **Conversation actions → Delete thread**, then confirm deletion |
 
 Saving queues a message. Every new message starts with **Request a change**
-unchecked. Saved change requests display a document-and-pencil icon labelled
+unchecked. Saved change requests display a message-diff icon labelled
 **Change requested** on hover and for assistive technology. Unsent messages show
-a compact **Pending** badge; ordinary discussions
-and answered replies need no status pill. Other response outcomes remain explicit;
-only unsent messages have Edit controls. Correct sent instructions with a new
+a dashed-circle **Not sent** icon at the far right of the message metadata.
+After submission this becomes a paper-plane **Sent** icon, then double ticks without
+a circle for **Received** when the agent has picked up the message or replied.
+Agent replies show their informational outcome
+icon, including **Answered**; request and reported-change icons remain distinct.
+Only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a
 thread only hides content. Editing an unsent message replaces its body in place,
 without appending a second editor. Each header shows a compact source excerpt
-beside an icon-only **Show in document** control; tooltips retain the full source description.
-**Resolve** and **Reopen** are visible in
-every conversation header, not hidden in the menu. Finish or close a local draft
+and its host-specific actions. **Resolve** and **Reopen** sit below an expanded
+conversation, opposite **Reply**; collapsed cards and cards with local drafts
+keep the guarded action in **Conversation actions**. Finish or close a local draft
 first; unsent messages and outstanding agent work prevent
-Resolve. An accepted resolution offers **Undo resolve** until the review changes.
-You can also **Resolve** from the bottom-left of the conversation, opposite
-**Reply** on the right, without scrolling back to the header.
-Undo never overrides newer changes from another tab or an ended review.
+Resolve. Resolve and Reopen do not show notifications.
+Review-state transitions instead appear for five seconds at the top left,
+below the toolbar: **Waiting for agent**, **Agent response received. Ready to review**,
+or **Review ended**. Resuming after abandonment is not labelled as agent completion.
+Hover, notification focus or a hidden browser tab pauses the timer; reading the
+document iframe does not. F8 moves keyboard focus to notifications.
+Important warnings and recovery messages stay visible.
 Resolving automatically collapses the conversation into a subdued card with a
-check-circle **Resolved** badge. Expand it anytime to read the discussion without
-reopening it. Reopen and Undo expand the conversation again. Resolution in another
+check-circle **Resolved** informational icon. Expand it anytime to read the discussion without
+reopening it. Reopen expands the conversation again. Resolution in another
 tab never hides your local reply draft.
-Resolving from the popup beside the document dismisses it automatically. Open
-Feedback to use Undo resolve, or enable the Resolved filter to find the conversation.
+Resolving from the popup beside the document dismisses it automatically. Use
+the Resolved filter to find the conversation and reopen it explicitly.
+Open and Resolved are separate independent filter buttons: enable either, both,
+or neither. Selected color, not checkmarks, identifies enabled filters. Only Open is enabled initially.
 Resolved threads no longer highlight the document or contribute to its conversation
-badges. Open threads at the same passage keep their highlights. Reopen or Undo
+badges. Open threads at the same passage keep their highlights. Reopen
 restores the highlight; Show in document still locates resolved discussions.
 Click a document highlight or conversation badge to open its discussion; click
 the same target again to dismiss it. Unsaved replies survive dismissal. Enter and
@@ -190,10 +204,18 @@ input, not a thread, and its permission applies only to itself.
 
 ## Appearance
 
-The theme button switches the review shell and in-page annotation tools
-together. It remembers the light/dark preference in this browser; it does not
+**Review options**, the toolbar's three-dot button, offers explicit **Light** and
+**Dark** choices for the review shell and in-page annotation tools
+together. It remembers the preference in this browser; it does not
 change the document's own colors or saved source. The rounded teal brand tile
 stays the same in both themes.
+
+The menu also identifies the current document. For a file review, **Copy full
+path** copies the original file location, including when reviewing another page
+or its saved comparison. It never copies the local review-server address. URL
+reviews explain that no original local file path is available. Clipboard failures
+stay visible with the path available for manual copying. These utilities remain
+available after the review ends.
 
 If annotation tools cannot confirm a theme change, an explicit notice offers
 **Retry theme**. This retries the latest preference without reloading the page,

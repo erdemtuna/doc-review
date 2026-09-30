@@ -6,10 +6,10 @@ import { EditEvidence, editOutcomeSummary, responseOutcomeLabels, resultAvailabi
 
 afterEach(cleanup);
 it("History and result surfaces share readable outcome wording without leaking wire enums", () => {
-  expect(editOutcomeSummary("already-saved")).toBe("Saved by you before Send; no additional agent edit reported.");
-  expect(editOutcomeSummary("applied")).toBe("Agent reported applying this source-pending edit.");
-  expect(editOutcomeSummary("deferred")).toBe("Deferred; no application reported for this edit.");
-  expect(editOutcomeSummary(undefined)).toBe("Edit outcome unavailable.");
+  expect(editOutcomeSummary("already-saved")).toBe("You saved this edit before sending.");
+  expect(editOutcomeSummary("applied")).toBe("The agent says this edit has been applied.");
+  expect(editOutcomeSummary("deferred")).toBe("The agent left this edit for later.");
+  expect(editOutcomeSummary(undefined)).toBe("No update is available for this edit.");
   expect(responseOutcomeLabels["clarification-needed"]).toBe("Needs clarification");
   expect(responseOutcomeLabels.applied).toBe("Change reported");
 });
@@ -22,17 +22,22 @@ it("pending edit previews retain exact full evidence as text and do not claim so
   render(<EditEvidence edit={pending} />);
   expect(screen.getByText("Exact before", { exact: true })).toBeVisible();
   expect(screen.getByText("Exact after", { exact: true })).toBeVisible();
-  expect(screen.getByText(/Source pending; recording/)).not.toBeVisible();
+  expect(screen.getByText("Recorded for the agent to apply.")).not.toBeVisible();
   expect(document.querySelector("b")).toBeNull();
   expect(document.querySelector("pre")).toHaveTextContent("<b>Exact before</b>");
   expect(screen.getByText("Exact edit details")).toBeVisible();
+});
+it("keeps incomplete edit warnings clear and visible", () => {
+  const truncated = directEditSchema.parse({ ...pending, content: { ...pending.content, truncated: true, truncated_fields: ["after"] } });
+  render(<EditEvidence edit={truncated} />);
+  expect(screen.getByText("This preview is incomplete. The agent needs the full text before applying the edit.")).toBeVisible();
 });
 it("saved human edit evidence is independent of any agent outcome", () => {
   const saved = directEditSchema.parse({ ...pending, source: { state: "saved", evidence: {
     evidenceId: "evidence", reviewId: "review", pageKey: "page", editId: "edit", editVersion: 1, sourceHash: "source", savedAt: 2,
   } } });
   render(<EditEvidence edit={saved} />);
-  expect(screen.getByText("Already saved by you before Send.")).toBeInTheDocument();
+  expect(screen.getByText("Saved directly to the document.")).toBeInTheDocument();
   expect(document.querySelector(".conversation-edit-details pre")).toHaveTextContent('"after": "Exact after"');
 });
 it("result discovery distinguishes reply-only from every capture state without treating handling as capture success", () => {
@@ -64,8 +69,8 @@ it.each(["applied", "deferred"] as const)("full result notes retain exact %s att
   render(<SubmissionResultNote detail={detail} />);
   expect(screen.getByRole("region", { name: "Full submission result note" })).toBeVisible();
   expect(screen.getByText("Independent agent note.")).toBeVisible();
-  expect(screen.getByText("Source pending at Send")).toBeVisible();
-  expect(screen.getByText(outcome === "applied" ? "Agent reported applying this source-pending edit." : "Deferred; no application reported for this edit.")).toBeVisible();
+  expect(screen.getByText("Sent for the agent to apply")).toBeVisible();
+  expect(screen.getByText(outcome === "applied" ? "The agent says this edit has been applied." : "The agent left this edit for later.")).toBeVisible();
   expect(screen.getByText("Exact outcome explanation.")).toBeVisible();
   expect(screen.queryByText("No changes detected.")).not.toBeInTheDocument();
 });

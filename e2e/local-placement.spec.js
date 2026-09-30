@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, writeFile, waitForSdk, listed, seedThread } from "./helpers.js";
+import { test, expect, openReview, writeFile, waitForSdk, listed, seedThread, setReviewTheme } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 const sizes = [[1366, 800], [1024, 768], [900, 700], [720, 760], [1100, 550]];
@@ -77,8 +77,21 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
     await expect(panel).toHaveAttribute("data-host", "adjacent");
     await expect(panel.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
     await expect.poll(async () => (await panel.boundingBox()).height).toBeLessThan(220);
-    await expect(panel.locator(".conversation-thread")).toHaveCSS("padding", "8px");
-    await expect(panel.locator(".conversation-inventory")).toHaveCSS("padding", "4px");
+    await expect(panel.locator(".conversation-thread")).toHaveCSS("padding-top", "8px");
+    await expect(panel.locator(".conversation-thread")).toHaveCSS("padding-bottom", "8px");
+    await expect(panel.locator(".conversation-inventory")).toHaveCSS("padding", "0px");
+    await expect(async () => {
+      const measured = await panel.evaluate(node => {
+        const transcript = node.querySelector(".conversation-transcript"), inventory = node.querySelector(".conversation-inventory");
+        const style = getComputedStyle(node.querySelector(".conversation-thread"));
+        return { gutter: (transcript.offsetWidth - transcript.clientWidth) / 2,
+          left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight),
+          inventoryGutter: inventory.offsetWidth - inventory.clientWidth };
+      });
+      expect(measured.left).toBe(Math.max(8, measured.gutter + 4));
+      expect(measured.right).toBe(measured.left);
+      expect(measured.inventoryGutter).toBe(0);
+    }).toPass({ timeout: 5000 });
     const short = await clearTarget(page, frame, panel);
     expect(short.frame).toEqual(before);
     await hit(panel.getByRole("button", { name: "Reply", exact: true }));
@@ -87,12 +100,12 @@ for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
     const reply = panel.getByRole("textbox", { name: "Reply", exact: true });
     await reply.fill("A retained local reply");
     await reply.evaluate(node => { window.localReply = node; node.setSelectionRange(2, 8); node.dispatchEvent(new Event("select", { bubbles: true })); });
-    await page.locator("#theme").click();
-    await expect(page.locator("#theme")).toBeFocused();
+    await setReviewTheme(page);
+    await expect(page.locator("#reviewOptions")).toBeFocused();
     expect(await reply.evaluate(node => [node === window.localReply, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 8]);
     await clearTarget(page, frame, panel);
     await hit(panel.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }));
-    await (await threadAction(page, page.locator(`[data-thread="${thread.threadId}"]`), "Back to Feedback")).click();
+    await (await threadAction(page, page.locator(`[data-thread="${thread.threadId}"]`), "Open in Feedback")).click();
     await expect(panel).toHaveAttribute("data-host", "feedback");
     expect(Math.round((await panel.boundingBox()).width)).toBe(Math.min(380, width));
     expect(await page.locator(".stage").evaluate(node => node.inert)).toBe(false);
@@ -121,14 +134,14 @@ test("long local transcript, browser zoom and resize keep controls and deliberat
     node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); });
   await transcript.evaluate(node => { node.scrollTop = 160; });
   await expect.poll(() => transcript.evaluate(node => node.scrollTop)).toBe(160);
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   await expect.poll(() => transcript.evaluate(node => node.scrollTop)).toBe(160);
   const samples = [];
   for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height });
     await expect(panel).toHaveAttribute("data-host", "adjacent");
     await expect(editor).toBeVisible();
-    await expect(page.locator("#theme")).toBeFocused();
+    await expect(page.locator("#reviewOptions")).toBeFocused();
     expect(await editor.evaluate(node => [node === window.longEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 3, 9]);
     await expect(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
     await hit(card.getByRole("checkbox", { name: "Request a change" }));

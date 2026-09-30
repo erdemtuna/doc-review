@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, setReviewTheme } from "./helpers.js";
 
 for (const changes of [false, true]) test(`an earlier SDK report arriving after a newer projection cannot corrupt current membership (${changes ? "Changes" : "Review"})`, async ({ page, review }, info) => {
   await page.addInitScript(() => {
@@ -41,7 +41,7 @@ for (const changes of [false, true]) test(`an earlier SDK report arriving after 
     await expect.poll(() => frame.locator("body").evaluate(() => window.anchorOrdering.held.length)).toBeGreaterThan(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
     if (changes) {
-      await page.locator("#theme").click();
+      await setReviewTheme(page);
       await page.locator("#seeChanges").click();
     }
     await page.evaluate(() => window.anchorOrdering.release());

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, feedback, enterEditMode, selectText, selectReviewMode, listed, conversation, handled, seedThread, reviewApi, mutate, sendPending, beginComment } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, enterEditMode, selectText, selectReviewMode, listed, conversation, handled, seedThread, reviewApi, mutate, sendPending, beginComment, setReviewTheme } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 const visibleTextHeight = (locator) => locator.evaluate(node => {
@@ -132,7 +132,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await peek.getByRole("button", { name: "View changes" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes.getByRole("region", { name: "Full submission result note" })).toContainText("Updated the agent target.");
-  await expect(changes).toContainText("Saved by you before Send; no additional agent edit reported.");
+  await expect(changes).toContainText("You saved this edit before sending.");
   await expect.poll(async () => (await listed(review, ref, "history")).items[0].comparisonStatus).toBe("ready");
   if (await changes.getByRole("button", { name: "Refresh comparison" }).count()) await changes.getByRole("button", { name: "Refresh comparison" }).click();
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
@@ -156,13 +156,13 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await page.getByRole("button", { name: "History", exact: true }).click();
   const submission = page.locator(".conversation-submission").first();
   await submission.locator(":scope > summary").click();
-  await expect(submission).toContainText("Saved by you before Send; no additional agent edit reported.");
+  await expect(submission).toContainText("You saved this edit before sending.");
   await expect(submission.getByText(/^already-saved:/)).toHaveCount(0);
   await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   const measurements = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await page.locator(".conversation-inventory").evaluate(node => { node.scrollTop = 0; });
     const preview = peek.locator(".conversation-result-preview");
     const requiredPreview = await readableTextHeight(preview);
@@ -181,7 +181,9 @@ test("actual saved human edits and captured agent result are discoverable, disti
     await changes.getByRole("button", { name: "Back to review" }).click();
   }
   fs.writeFileSync(info.outputPath("result-readability.json"), JSON.stringify(measurements, null, 2));
-  await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await peek.getByRole("button", { name: "View changes" }).click();
   await expect(changes.locator(".conversation-result-body")).toContainText("Updated the agent target.");
 });
@@ -235,14 +237,15 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await expect(peek).toBeVisible();
   const firstCard = page.locator(`[data-thread="${work.messages[0].message.threadId}"]`);
-  expect(await firstCard.locator(".conversation-thread-toolbar button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))))
-    .toEqual(["New activity", "Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
+  await expect.poll(() => firstCard.locator(".conversation-thread-toolbar button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))))
+    .toEqual(["Mark conversation as read", "Show in document", "Conversation actions", "Collapse conversation"]);
+  await expect(firstCard.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
   const inventory = page.locator(".conversation-inventory");
   const tabs = page.getByRole("group", { name: "Feedback destination" });
   let draftCreated = false;
   for (const [width, height] of [[1440, 900], [720, 600], [390, 600], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await tabs.getByRole("button", { name: "Feedback", exact: true }).click();
     await inventory.evaluate(node => { node.scrollTop = 0; });
     await peek.getByRole("button", { name: "Read more", exact: true }).click();
@@ -351,7 +354,8 @@ test("invalid comparison modes remain explicit and retry keeps the result summar
     available: false, mode: "content", reason: "Wrong mode", changes: [], limitations: [],
   } }));
   await changes.getByRole("button", { name: "Source", exact: true }).click();
-  await expect(changes.getByRole("alert")).toContainText("Invalid comparison response");
+  await expect(changes.getByRole("alert").filter({ hasText: "Invalid comparison response" }))
+    .toContainText("Invalid comparison response");
   await expect(changes.locator(".conversation-result-body")).toHaveText("Reported change; comparison validation stays independent.");
   await page.unroute("**/api/conversation/comparison");
   await changes.getByRole("button", { name: "Retry comparison" }).click();
@@ -394,9 +398,10 @@ test("header History preserves mounted reply/note permissions and full results w
     .not.toMatch(/Receipt details|Agent command|Technical details|review_|submission_|doc-review poll/);
   await page.setViewportSize({ width: 720, height: 480 });
   const inventory = page.locator(".conversation-inventory");
+  await expect.poll(() => inventory.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThanOrEqual(100);
   await inventory.evaluate(node => { node.scrollTop = 100; });
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await page.locator("#commentsButton").click();
   await expect(page.getByRole("region", { name: "Submission history" })).toBeVisible();
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(100);
@@ -435,8 +440,8 @@ test("deferred source-pending edits retain complete evidence and selected Send i
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await peek.getByRole("button", { name: "View response" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
-  await expect(changes).toContainText("Source pending at Send");
-  await expect(changes).toContainText("Deferred; no application reported for this edit.");
+  await expect(changes).toContainText("Sent for the agent to apply");
+  await expect(changes).toContainText("The agent left this edit for later.");
   await expect(changes.locator(".conversation-result-body")).toHaveText("Deferred the recorded paragraph pending clarification.");
   await expect(changes.locator(".comparison-surface")).toHaveCount(0);
   await expect(changes.getByRole("group", { name: "Comparison tools" })).toHaveCount(0);

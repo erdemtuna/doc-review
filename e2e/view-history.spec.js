@@ -36,7 +36,7 @@ test("returning to the captured live tab retries without reloading or auto-click
     await page.locator('[data-composer="note"]').getByLabel("Request a change").check();
     await page.locator("#send").click();
     await expect(page.getByRole("textbox", { name: "Note to agent" })).toHaveValue("");
-    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Close feedback", exact: true }).click();
     const work = (await conversation(review, session, "poll")).submission;
     version = "After";
     await page.reload();

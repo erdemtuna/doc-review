@@ -87,7 +87,7 @@ try {
   await mode("View");
   await comment("#summary", summaryFeedback, true);
   if (await page.getByRole("complementary", { name: "Feedback", exact: true }).isVisible()) {
-    await page.getByRole("complementary", { name: "Feedback", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("complementary", { name: "Feedback", exact: true }).getByRole("button", { name: "Close feedback", exact: true }).click();
   }
   await frame.locator('mark[data-eh-mark]').first().click();
   await expect(page.getByRole("button", { name: "Close conversation" })).toBeVisible();

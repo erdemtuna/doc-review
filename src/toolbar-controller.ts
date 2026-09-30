@@ -18,7 +18,7 @@ interface ToolbarCommands {
   setMode(mode: "view" | "edit"): void;
   setModeMenu(open: boolean): void;
   openComments(): void;
-  toggleTheme(): void;
+  setTheme(theme: "light" | "dark"): void;
 }
 
 export function createToolbarController(read: () => ToolbarState, commands: ToolbarCommands) {
@@ -41,8 +41,8 @@ export function createToolbarController(read: () => ToolbarState, commands: Tool
         const state = read();
         if (!state.ended && !state.comparing) commands.openComments();
       },
-      toggleTheme() {
-        if (!read().ended) commands.toggleTheme();
+      setTheme(theme: "light" | "dark") {
+        if (!read().ended && read().theme !== theme) commands.setTheme(theme);
       },
     },
   };

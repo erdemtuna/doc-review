@@ -88,3 +88,43 @@ after End/restart; keep polling that review until `ended`. Saved-unsent content
 does not transfer to a new review. Abandonment releases work exclusion but does
 not cancel the external handler or undo source writes. `SUBMISSION_ABANDONED`
 means stop handling, never retry as a new completion.
+
+## Reviewer interaction
+
+The page starts in View. Feedback is nonmodal: it docks on roomy desktops and
+floats on narrow PC windows, without dimming or disabling the document. Show in document
+reveals the exact passage, hiding a floating panel only when it would obscure the
+target. Focus and secondary thread actions are in the conversation menu.
+Resolve/Reopen sits opposite Reply below an expanded conversation and remains in
+Conversation actions when collapsed or a local draft is open. Resolve refuses unfinished drafts,
+unsent messages and outstanding agent work. Resolve/Reopen do not show notifications.
+Review-state transitions, especially receipt of an agent response, appear for five
+seconds at the top left below the toolbar. Hover, notification focus or a hidden
+tab pauses expiry; reading the document iframe does not. Focus includes a visible
+Back to Feedback action; Open/Resolved are separate independent filters.
+Sidebar headers end with Locate, More and Collapse; adjacent headers use Open in
+Feedback (a right-pointing arrow), More and Close. Edit belongs beside each eligible
+message's timestamp. The far-right delivery icon changes from Not sent to Sent,
+then Received when the agent picks up the message or replies.
+Resolved conversations automatically collapse and show a subdued check-circle
+**Resolved** informational icon with a keyboard-visible explanation; they remain expandable
+for reading. Reopen expands them again. Resolution from another tab never
+hides a local draft.
+
+Add comment / Add reply / Update comment queue a message;
+**Send to agent (N)** dispatches a deliberate batch.
+Send includes all saved pending messages and edits. **Your edits** contains exact
+human edit evidence. **Note to agent** opens separately with its own unchecked
+change permission. Unsaved comment drafts are not sent.
+Send freezes the selected versions and note at activation; feedback arriving
+during preparation stays pending. A changed selected version requires reviewing
+the selection again.
+
+Expanded conversations retain two recent sent exchanges and all unsent replies.
+The preceding answer remains visible while composing a follow-up; **Show earlier
+replies** loads older context. Closing Feedback or changing hosts preserves the
+mounted editor and its local draft, but reloading a tab loses unsaved drafts.
+Long result summaries expand with **Read more / Show less**. **Replies (N)**
+lists source labels and comment excerpts. The reply reader retains the
+Feedback/History tabs, **Previous/Next** and **Back to replies**, restoring the
+originating list, scroll and keyboard focus without discarding drafts.

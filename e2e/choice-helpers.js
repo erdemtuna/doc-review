@@ -18,6 +18,12 @@ export async function selectChoice(page, id, value) {
   await expect(trigger).toHaveAttribute("data-value", String(value));
 }
 
+export async function selectPeer(page, host, value) {
+  await host.getByRole("button", { name: /^Conversation at this target:/ }).click();
+  await choiceItem(page, value).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+
 export async function expectCounts(page, added, modified, removed) {
   const counts = page.locator("#historyCounts");
   await expect(counts).toBeVisible();

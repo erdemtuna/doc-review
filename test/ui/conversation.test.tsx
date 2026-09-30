@@ -12,6 +12,10 @@ async function focusConversation() {
   fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
   fireEvent.click(await screen.findByRole("menuitem", { name: "Focus" }));
 }
+async function openInventory() {
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Feedback" }));
+}
 async function fixture() {
   if (typeof ResizeObserver === "undefined") vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const review: ReviewStatus["review"] = { reviewId: "review", entryKey: "page", version: 1, state: "open", createdAt: 1, endedAt: null };
@@ -75,15 +79,49 @@ it("Feedback and History are stable selected destinations and keep the same repl
   shell.dispose();
 });
 
-it("conversation actions follow Locate, icon Resolve, More, Collapse and Focus retains destination tabs", async () => {
+it("toolbar Feedback tracks the sidebar, not an adjacent popup, and preserves its reply on transfer", async () => {
+  const { owner, shell } = await fixture();
+  const feedback = document.getElementById("commentsButton")!;
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  act(() => owner.commands.reply("thread"));
+  const editor = screen.getByRole("textbox", { name: "Reply" });
+  fireEvent.change(editor, { target: { value: "Retain this popup reply", selectionStart: 2, selectionEnd: 7 } });
+  fireEvent.compositionStart(editor);
+  act(() => owner.commands.adjacent("thread"));
+  expect(feedback).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  fireEvent.click(feedback);
+  expect(owner.getSnapshot().host).toBe("feedback");
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  expect(editor).toHaveValue("Retain this popup reply");
+  expect(owner.getSnapshot().threads[0].draft).toMatchObject({ selectionStart: 2, selectionEnd: 7, composing: true });
+  act(() => owner.commands.focus("thread"));
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(feedback);
+  expect(owner.getSnapshot().host).toBe("feedback");
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(feedback);
+  expect(feedback).toHaveAttribute("aria-expanded", "false");
+  expect(editor).toBeInTheDocument();
+  fireEvent.click(feedback);
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  shell.dispose();
+});
+
+it("conversation headers use Locate, More, Collapse and Focus retains destination tabs", async () => {
   const { owner, shell } = await fixture();
   const toolbar = document.querySelector(".conversation-thread-toolbar")!;
   expect([...toolbar.querySelectorAll("button")].map(button => button.getAttribute("aria-label")))
-    .toEqual(["Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
-  const resolve = screen.getByRole("button", { name: "Resolve" });
-  expect(resolve).toHaveAttribute("title", "Resolve conversation");
-  expect(resolve.querySelector("svg")).not.toBeNull();
-  expect(resolve.textContent).toBe("");
+    .toEqual(["Show in document", "Conversation actions", "Collapse conversation"]);
+  const locate = screen.getByRole("button", { name: "Show in document" });
+  expect(locate).not.toHaveAttribute("title");
+  fireEvent.focus(locate);
+  expect(await screen.findByRole("tooltip", { name: "Show the exact passage" })).toBeVisible();
+  fireEvent.blur(locate);
+  expect(locate.querySelector("svg")).not.toBeNull();
+  expect(locate.textContent).toBe("");
   act(() => { owner.commands.reply("thread"); owner.commands.focus("thread"); });
   const draft = screen.getByRole("textbox", { name: "Reply" });
   fireEvent.change(draft, { target: { value: "Retained while navigating", selectionStart: 2, selectionEnd: 6 } });
@@ -152,7 +190,8 @@ it("bottom Resolve shares the guarded command across hosts and makes room for th
   act(() => owner.commands.focus("thread"));
   fireEvent.click(screen.getByRole("button", { name: "Reply" }));
   expect(screen.queryByRole("button", { name: "Resolve conversation" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Resolve" })).toBeVisible();
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  expect(await screen.findByRole("menuitem", { name: "Resolve conversation" })).toBeVisible();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBeVisible();
   shell.dispose();
 });
@@ -208,7 +247,7 @@ it("only new-composer host or inventory-size changes reveal clipped input withou
   act(() => owner.commands.begin("page", { kind: "element", anchor: { selector: "p" } }));
   const editor = screen.getByRole("textbox", { name: "New message" });
   vi.spyOn(editor, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 300 - inventory.scrollTop, 340, 40));
-  const theme = document.getElementById("theme")!;
+  const theme = document.getElementById("reviewOptions")!;
   theme.focus();
   height = 100; act(resized);
   expect(inventory.scrollTop).toBe(200);
@@ -237,7 +276,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
+  await openInventory();
   fireEvent.click(screen.getByRole("button", { name: "Collapse conversation", expanded: true }));
   expect(editor).toBeInTheDocument(); expect(editor).not.toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Expand conversation", expanded: false }));
@@ -246,7 +285,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(3);
   shell.dispose();
 });
-it("adjacent conversations separate source context, navigation and collapse controls", async () => {
+it("adjacent conversations use Open in Feedback, More and Close with collapse in the menu", async () => {
   const { owner, shell, updateChrome } = await fixture();
   act(() => {
     updateChrome({ adjacent: { kind: "attached", left: 800, top: 80, width: 380, height: 600 } });
@@ -254,32 +293,40 @@ it("adjacent conversations separate source context, navigation and collapse cont
   });
   expect(screen.queryByText("Recorded location")).toBeNull();
   expect(screen.getByText("Paragraph", { exact: true })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Show in document" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Resolve" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+  expect(screen.queryByRole("button", { name: "Show in document" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Open in Feedback" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Resolve conversation" })).toBeEnabled();
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Collapse conversation" }));
   expect(document.querySelector(".conversation-thread-content")).not.toBeVisible();
   expect(owner.getSnapshot().threads[0].expanded).toBe(false);
   shell.dispose();
 });
-it("cards extend the former inventory surface and keep both filters visibly selected by default", async () => {
+it("cards default to Open only and filters independently allow both or neither", async () => {
   const { shell } = await fixture();
   const card = screen.getByRole("article");
   expect(card).toHaveClass("inventory-card");
   expect(screen.getByRole("button", { name: "Collapse conversation", expanded: true })).toBeVisible();
   const open = screen.getByRole("button", { name: "Open (1)" });
   const resolved = screen.getByRole("button", { name: "Resolved (0)" });
-  for (const filter of [open, resolved]) {
-    expect(filter).toHaveAttribute("aria-pressed", "true");
-    expect(filter).toHaveAttribute("data-variant", "secondary");
-  }
+  expect(screen.getByRole("group", { name: "Conversation filters" })).not.toHaveClass("segmented-control");
+  expect(open).toHaveClass("filter-button");
+  expect(open).toHaveAttribute("aria-pressed", "true");
+  expect(resolved).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(resolved);
+  expect(resolved).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(open);
   expect(card).not.toBeVisible();
-  expect(open).toHaveAttribute("data-variant", "ghost");
+  expect(open).toHaveAttribute("data-variant", "outline");
+  expect(open).toHaveAttribute("aria-pressed", "false");
   expect(resolved).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(resolved);
+  expect(resolved).toHaveAttribute("aria-pressed", "false");
+  expect(open).toHaveAttribute("aria-pressed", "false");
   fireEvent.click(open);
   expect(card).toBeVisible();
   expect(screen.getByText("Saved discussion")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Resolve" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Resolve conversation" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Conversation actions" })).toHaveAttribute("aria-haspopup", "menu");
   expect(card.querySelector("time")).toHaveAttribute("dateTime", new Date(1).toISOString());
   expect(card.querySelector("time")).toHaveAccessibleName(new Date(1).toLocaleString());
@@ -334,7 +381,7 @@ it("Feedback is nonmodal and docks only with room for the document", async () =>
     expect(stage.inert).not.toBe(true);
     expect(document.body.dataset.conversationDocked).toBe("true");
     expect(document.querySelector(".conversation-backdrop")).toBeNull();
-    expect(screen.getByRole("button", { name: "Switch review tools to dark" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review options" })).toBeEnabled();
     act(() => owner.commands.adjacent("thread"));
     expect(stage.inert).not.toBe(true);
     expect(document.body.dataset.conversationDocked).toBe("false");
@@ -344,7 +391,7 @@ it("Feedback is nonmodal and docks only with room for the document", async () =>
     act(() => updateChrome({ viewport: { left: 0, top: 0, width: 720, height: 760 } }));
     expect(document.body.dataset.conversationDocked).toBe("false");
     expect(stage.inert).not.toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close feedback" }));
     expect(stage.inert).not.toBe(true);
     expect(screen.getByRole("button", { name: "Feedback" })).toHaveFocus();
     shell.dispose();
@@ -366,10 +413,11 @@ it("adjacent, Focus and Feedback keep the same composing editor and closing neve
   await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
+  await openInventory();
   expect(editor).toBeVisible();
-  expect(owner.getSnapshot().filters.open).toBe(true);
-  act(() => { owner.commands.filter("open"); owner.commands.adjacent("thread"); owner.commands.fallback(); });
+  expect(owner.getSnapshot().filters.open).toBe(false);
+  expect(owner.getSnapshot().revealedThreadId).toBe("thread");
+  act(() => { owner.commands.adjacent("thread"); owner.commands.fallback(); });
   expect(editor).toBeVisible();
   act(() => owner.commands.adjacent("thread"));
   fireEvent.click(screen.getByRole("button", { name: "Close conversation" }));
@@ -467,7 +515,7 @@ it("Feedback and Focus share only one global lifecycle headline", async () => {
   expect(screen.getByLabelText("Submission details")).not.toHaveTextContent("Reviewing");
   await focusConversation();
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
+  await openInventory();
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);
   shell.dispose();
 });
@@ -488,13 +536,13 @@ it("uses descriptive focusable status Badges in a separate center slot, includin
   };
   expect(assertBadge("Reviewing", "outline")).toHaveClass("border-border", "text-foreground");
   expect(screen.queryByRole("button", { name: "More" })).toBeNull();
-  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Saved feedback is not sent until you choose Send/);
+  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Saved feedback stays here until you choose Send to agent/);
   status.work = { submissionId: "submission", state: "queued", version: 1 };
   await act(() => owner.refresh());
-  assertBadge("Waiting for agent", "warning", "Waiting to be picked up");
+  assertBadge("Waiting for agent", "warning", "Your feedback is waiting for the agent.");
   status.work.state = "delivered";
   await act(() => owner.refresh());
-  const receipt = "Feedback received; no response yet. This does not confirm an agent is currently working";
+  const receipt = "The agent has your feedback. Waiting for a response.";
   assertBadge("Waiting for agent", "warning", receipt);
   act(() => updateChrome({ comparisonOpen: true }));
   expect(screen.queryByRole("button", { name: "View" })).toBeNull();
@@ -502,9 +550,9 @@ it("uses descriptive focusable status Badges in a separate center slot, includin
   status.review.state = "ended"; status.review.endedAt = 2;
   await act(() => owner.refresh());
   expect(assertBadge("Review ended", "secondary", receipt)).toBeVisible();
-  expect(screen.getByRole("status", { name: "Review ended" })).toHaveAccessibleDescription(/Accepted work can still finish/);
+  expect(screen.getByRole("status", { name: "Review ended" })).toHaveAccessibleDescription(/Work already sent to the agent can still finish/);
   act(() => updateChrome({ comparisonOpen: false }));
-  expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
   shell.dispose();
 });
 
@@ -512,7 +560,7 @@ it("preserves source receipt details without a row and exposes all closed-Feedba
   const { owner, shell, updateChrome } = await fixture();
   const refresh = vi.spyOn(owner.commands, "refresh").mockResolvedValue(undefined);
   act(() => updateChrome({ save: { ...shell.getSnapshot().save, status: "saved" } }));
-  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Source saved/);
+  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Changes saved/);
   expect(screen.queryByRole("status", { name: "Review recovery" })).toBeNull();
   act(() => {
     owner.commands.open(false);

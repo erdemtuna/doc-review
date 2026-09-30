@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, message, handled, expectEditBlocked, submissionHistory } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, message, handled, expectEditBlocked, submissionHistory, setReviewTheme } from "./helpers.js";
 
 test("confirmed source updates survive paused shell painting without requiring reload", async ({ page, review }) => {
   test.setTimeout(30_000);
@@ -132,11 +132,11 @@ test("ending review keeps a read-only observer without replacing the authored do
   await page.locator("#frame").evaluate((element) => { window.reviewFrameBeforeEnd = element; });
   await page.locator("#commentsButton").click();
   await page.locator("#endReview").click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   expect(await page.locator("#frame").evaluate((element) => element === window.reviewFrameBeforeEnd)).toBe(true);
   await expectEditBlocked(page, true);
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   await expect(page.getByRole("region", { name: "Saved comparison", exact: true })).toBeHidden();
   await expect(page.locator(".conversation-lifecycle")).toHaveCount(1);
 });

@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, selectText, selectReviewMode, expectEditBlocked } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, selectText, selectReviewMode, expectEditBlocked, setReviewTheme } from "./helpers.js";
 
 const source = `<!doctype html><html><head><style>
 body{margin:24px;color:#263142;background:white;font:17px/1.6 system-ui}
@@ -16,16 +16,18 @@ async function exposeRecovery(page, review, name) {
 }
 async function captureWidths(page, info, name) {
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      const status = await page.locator(".conversation-global-status").count()
-        ? await page.locator(".conversation-global-status").boundingBox()
-        : await page.locator(".conversation-lifecycle").boundingBox();
-      expect(status.x).toBeGreaterThanOrEqual(0);
-      expect(status.x + status.width).toBeLessThanOrEqual(width);
-      expect((await page.locator("#frame").boundingBox()).height).toBeGreaterThan(250);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect(async () => {
+        const status = await page.locator(".conversation-global-status").count()
+          ? await page.locator(".conversation-global-status").boundingBox()
+          : await page.locator(".conversation-lifecycle").boundingBox();
+        expect(status.x).toBeGreaterThanOrEqual(0);
+        expect(status.x + status.width).toBeLessThanOrEqual(width);
+        expect((await page.locator("#frame").boundingBox()).height).toBeGreaterThan(250);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }).toPass({ timeout: 5000 });
       await page.screenshot({ path: info.outputPath(`${name}-${theme}-${width}.png`), animations: "disabled" });
     }
   }

@@ -46,6 +46,32 @@ export const test = base.extend({
 
 export { expect };
 
+export async function setReviewTheme(page, theme) {
+  theme ??= await page.locator("html").getAttribute("data-theme") === "dark" ? "light" : "dark";
+  await page.getByRole("button", { name: "Review options", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: theme === "dark" ? "Dark" : "Light", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+
+export async function renderedContrast(locator, property = "color") {
+  return locator.evaluate((node, property) => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d"), ancestors = [];
+    for (let current = node; current; current = current.parentElement) ancestors.unshift(current);
+    context.fillStyle = "white"; context.fillRect(0, 0, 1, 1);
+    const surfaces = property === "outlineColor" ? ancestors.slice(0, -1) : ancestors;
+    for (const ancestor of surfaces) { context.fillStyle = getComputedStyle(ancestor).backgroundColor; context.fillRect(0, 0, 1, 1); }
+    const luminance = channels => channels.slice(0, 3).map(value => value / 255)
+      .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+      .reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+    const background = luminance([...context.getImageData(0, 0, 1, 1).data]);
+    context.fillStyle = getComputedStyle(node)[property]; context.fillRect(0, 0, 1, 1);
+    const foreground = luminance([...context.getImageData(0, 0, 1, 1).data]);
+    return (Math.max(background, foreground) + .05) / (Math.min(background, foreground) + .05);
+  }, property);
+}
+
 export async function reviewApi(review, route, { method = "GET", body } = {}) {
   const response = await fetch(`http://127.0.0.1:${review.port}${route}`, {
     method,
@@ -129,6 +155,15 @@ export async function feedback(page) {
   await expect(page.getByRole("complementary", { name: "Feedback" })).toBeVisible();
   const back = page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true });
   if (await back.isVisible()) await back.click();
+}
+
+export async function expectFeedbackBounds(page, { width, height }) {
+  await expect(async () => {
+    const box = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
+    expect(box.width).toBe(Math.min(width, 380));
+    expect(box.x + box.width).toBe(width);
+    expect(box.y + box.height).toBe(height);
+  }).toPass({ timeout: 5000 });
 }
 
 export async function submissionHistory(page) {

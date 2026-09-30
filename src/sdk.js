@@ -38,6 +38,7 @@ let targetGeneration = 0;
 let targetObserver = null;
 let targetIntersection = null;
 let reviewMode = "view";
+let canComment = false;
 let savePolicy = "writable";
 let modeController = null;
 let hoverTarget = null;
@@ -282,7 +283,7 @@ shadow.innerHTML = `
   <div class="dropline" id="dropline"></div>
   <div class="selection-cues" id="selectionCues"></div>
   <div id="blockAnnotations" role="group" aria-label="Saved block comments"></div>
-  <button class="comment-action" id="commentAction" title="Comment on this target" aria-label="Comment on this target">${iconMarkup("messageSquarePlus", { size: 17 })}</button>
+  <button class="comment-action" id="commentAction" disabled title="Comment on this target" aria-label="Comment on this target">${iconMarkup("messageSquarePlus", { size: 17 })}</button>
 `;
 
 const els = {};
@@ -630,7 +631,7 @@ function renderSelectionCues(rects) {
 function positionCommentAction(rects, target = retarget || pending) {
   const visible = visibleRects(rects, target);
   const rect = visible[visible.length - 1];
-  if (!rect || (composeOpen && !retarget)) {
+  if (!canComment || !rect || (composeOpen && !retarget)) {
     els.commentAction.style.display = "none";
     return false;
   }
@@ -1342,6 +1343,7 @@ function restoreTargetFocus(target) {
  * contextual action or keyboard shortcut owns that transition.
  */
 function settleSelection() {
+  if (!canComment) return false;
   const sel = document.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
   const range = sel.getRangeAt(0);
@@ -1390,6 +1392,7 @@ function settleSelection() {
 }
 
 function setElementTarget(container) {
+  if (!canComment) return;
   if (
     !container?.el ||
     (pending && pending.kind === "element" && pending.element === container.el) ||
@@ -1417,7 +1420,7 @@ function setElementTarget(container) {
 
 function openPendingCompose() {
   hoverIntent?.cancel();
-  if (composing || disposed || !themeRevision) return false;
+  if (!canComment || composing || disposed || !themeRevision) return false;
   const selection = document.getSelection();
   if (selection && !selection.isCollapsed && selection.rangeCount) {
     if (!settleSelection()) return false;
@@ -2413,6 +2416,10 @@ function boot() {
         event.key.toLowerCase() === "m"
       ) {
         if (selectionIsActive()) settleSelection();
+        else if (event.target !== document.body && event.target !== document.documentElement) {
+          const target = commentTargetFor(event.target);
+          if (target) setElementTarget(target);
+        }
         if (openPendingCompose()) {
           event.preventDefault();
           event.stopPropagation();
@@ -2875,6 +2882,10 @@ function boot() {
       case "eh:cancel":
         if (msg.targetGeneration && pending && msg.targetGeneration !== pending.generation) break;
         {
+          // Cancellation can arrive before the new selection's debounced update.
+          const selection = document.getSelection();
+          if (selection?.rangeCount && !selection.isCollapsed &&
+            (pending?.kind !== "selection" || !sameRange(selection.getRangeAt(0), pending.range))) settleSelection();
           const discardThrough = Number(msg.discardThroughGeneration) || Number(msg.targetGeneration) || 0;
           retiredComposeGeneration = Math.max(retiredComposeGeneration, discardThrough);
           if (commentOpenRequestGeneration <= discardThrough) commentOpenRequestGeneration = null;
@@ -2941,9 +2952,20 @@ function boot() {
         if (savePolicy === "writable") checkDynamic(String(msg.html || ""));
         break;
       case "eh:configureReview": {
+        if ((msg.mode !== "edit" && msg.mode !== "view") ||
+          (msg.savePolicy !== "writable" && msg.savePolicy !== "feedback-only") || typeof msg.canComment !== "boolean") {
+          console.warn("[doc-review-frame] Rejected invalid review configuration.");
+          break;
+        }
         cancelHover();
-        reviewMode = msg.mode === "edit" ? "edit" : "view";
-        savePolicy = msg.savePolicy === "feedback-only" ? "feedback-only" : "writable";
+        reviewMode = msg.mode;
+        savePolicy = msg.savePolicy;
+        canComment = msg.canComment;
+        els.commentAction.disabled = !canComment;
+        if (!canComment) {
+          clearTimeout(selectionTimer);
+          clearPending();
+        }
         modeController.setMode(reviewMode);
         if (reviewMode === "view") {
           showChip(null);
@@ -2952,7 +2974,7 @@ function boot() {
           els.linkbox.style.display = "none";
         }
         scheduleTargetGeometry();
-        post("eh:configurationApplied", { mode: reviewMode, savePolicy });
+        post("eh:configurationApplied", { mode: reviewMode, savePolicy, canComment });
         break;
       }
       case "eh:restoreScroll":

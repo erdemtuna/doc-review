@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment } from "./helpers.js";
+import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment, setReviewTheme } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 async function call(review, body, route = "/api/conversation") {
@@ -51,19 +51,19 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await page.locator("#commentsButton").click();
   await message(page, "Why this wording?");
   await expect(page.getByText("Discussion", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-exchange").getByRole("img", { name: "Not sent", exact: true })).toBeVisible();
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
-  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+  await expect(page.locator(".conversation-exchange").getByRole("img", { name: "Not sent", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   const picked = await call(review, { ...ref, operation: "poll" });
   expect(picked.submission.messages[0].message.intent).toBe("discuss");
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   await call(review, responseFor(picked.submission, { resultNote: "No source changes were needed." }));
   await expect(page.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "New activity", exact: true }).click();
-  await expect(page.getByRole("button", { name: "New activity", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Mark conversation as read", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("No source changes were needed.", { exact: true })).toHaveCount(1);
   expect(fs.readFileSync(file, "utf8")).toBe(original);
   const thread = page.locator(".conversation-thread");
@@ -74,9 +74,9 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await (await threadAction(page, thread, "Focus")).click();
   await expect(draft).toHaveValue("An unsaved follow-up");
   expect(await draft.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([3, 9]);
-  await thread.getByRole("button", { name: "Back to Feedback" }).click();
+  await (await threadAction(page, thread, "Open in Feedback")).click();
   await expect(draft).toHaveValue("An unsaved follow-up");
-  await (await threadAction(page, thread, "Resolve")).click();
+  await (await threadAction(page, thread, "Resolve conversation")).click();
   await expect(thread.getByRole("status")).toContainText("Finish or close your draft");
   await thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.getByText("An unsaved follow-up", { exact: true })).toBeVisible();
@@ -85,10 +85,13 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await other.locator("#commentsButton").click();
   await other.locator("#endReview").click();
   await expect(other.getByRole("alertdialog")).toContainText("for every tab");
-  await other.getByRole("button", { name: "Confirm", exact: true }).click();
+  await other.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
-  await expect(page.getByText("Pending (read-only)", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pending (read-only)", { exact: true })).toHaveAttribute("title", /review has ended and is read-only/);
+  const unsent = page.getByRole("img", { name: "Not sent", exact: true });
+  await expect(unsent).toBeVisible();
+  await unsent.focus();
+  await expect(page.getByRole("tooltip")).toContainText("review has ended and this saved message is read-only");
+  await page.keyboard.press("Escape");
   expect(errors).toEqual([]);
 });
 
@@ -221,10 +224,10 @@ test("reconnected history bridges missed pages and retains loaded records and th
   await earlier.click();
   await expect(page.locator(".conversation-submission")).toHaveCount(55);
   expect(Math.abs((await marker.boundingBox()).y - before)).toBeLessThan(2);
-  const retained = await page.locator(".conversation-submission > details > small").allTextContents();
+  const retained = await page.locator(".conversation-submission .conversation-result > p").allTextContents();
   await completeOffline(55);
   await expect(page.locator(".conversation-submission")).toHaveCount(110);
-  const ids = await page.locator(".conversation-submission > details > small").allTextContents();
+  const ids = await page.locator(".conversation-submission .conversation-result > p").allTextContents();
   expect(new Set(ids).size).toBe(110);
   expect(ids.slice(-55)).toEqual(retained);
   expect(Math.abs((await marker.boundingBox()).y - before)).toBeLessThan(2);
@@ -279,7 +282,9 @@ test("checked intent editing and ended late results retain read-only observer", 
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await page.locator("#endReview").click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "End review", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await expect(page.locator("#send")).toBeDisabled();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.messages[0].message.intent).toBe("discuss");
@@ -296,7 +301,9 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   const ref = await open(page, review, file);
   await page.locator("#commentsButton").click(); await message(page, "First work");
   await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
-  await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   const second = await context.newPage();
   const fresh = await open(second, review, file); expect(fresh.reviewId).not.toBe(ref.reviewId);
   await second.locator("#commentsButton").click();
@@ -307,17 +314,17 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await page.getByRole("button", { name: "Abandon", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Stop the old agent");
   await expect(page.getByRole("alertdialog")).toContainText(ref.reviewId);
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "Abandon submission", exact: true }).click();
   await expect(page.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
   await expect(second.locator("#send")).toBeEnabled();
   await expectEditBlocked(second, false);
   await second.locator("#send").click(); await expect(second.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await call(review, { ...fresh, operation: "poll" });
   await expect(second.getByRole("status", { name: "Waiting for agent", exact: true }))
-    .toHaveAccessibleDescription(/Feedback received; no response yet/);
+    .toHaveAccessibleDescription(/The agent has your feedback\. Waiting for a response/);
   await submissionHistory(second);
   await second.getByRole("button", { name: "Abandon", exact: true }).click();
-  await second.getByRole("button", { name: "Confirm", exact: true }).click();
+  await second.getByRole("button", { name: "Abandon submission", exact: true }).click();
   await expect(second.getByText("Abandoned. External source work", { exact: false })).toBeVisible();
 });
 
@@ -331,16 +338,20 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await call(review, responseFor(work));
   const thread = page.locator(".conversation-thread");
   await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
-  await (await threadAction(page, thread, "Resolve")).click();
-  await expect(page.getByRole("button", { name: "Undo resolve" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Resolved (1)", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
+  await (await threadAction(page, thread, "Resolve conversation")).click();
+  await expect(thread).toHaveAttribute("data-status", "resolved");
+  const resolved = page.getByRole("button", { name: "Resolved (1)", exact: true });
+  await expect(resolved).toHaveAttribute("aria-pressed", "false");
+  await resolved.click();
   const collapse = thread.locator(".conversation-thread-title");
+  await expect(collapse).toHaveAttribute("aria-expanded", "false");
+  await collapse.click();
+  await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
   await collapse.focus(); await page.keyboard.press("Enter");
   await expect(collapse).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Enter"); await expect(collapse).toHaveAttribute("aria-expanded", "true");
-  await (await threadAction(page, thread, "Reopen")).click();
-  await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+  await (await threadAction(page, thread, "Reopen conversation")).click();
+  await expect(thread.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
   await thread.getByRole("button", { name: "Reply", exact: true }).click();
   const input = thread.getByRole("textbox", { name: "Reply", exact: true });
   await input.fill("Composition survives");
@@ -350,15 +361,18 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await input.evaluate((element) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const [width, height] of [[320, 400], [390, 400], [320, 480], [390, 520], [768, 560], [1440, 800]]) {
       await page.setViewportSize({ width, height });
       await expect(page.getByText("Reviewing", { exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      for (const button of [thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }), thread.getByRole("button", { name: "Back to Feedback" })]) {
-        const box = await button.boundingBox();
-        expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
+      for (const button of [thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }), (await threadAction(page, thread, "Open in Feedback"))]) {
+        await expect(async () => {
+          const box = await button.boundingBox();
+          expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
+        }).toPass({ timeout: 5000 });
       }
+      await page.keyboard.press("Escape");
       if (theme === "light" && width === 320 && height === 400) {
         const transcript = thread.locator(".conversation-transcript");
         await transcript.evaluate((element) => { element.scrollTop = 120; });
@@ -367,7 +381,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
           class: node.className, scroll: node.scrollTop, y: node.getBoundingClientRect().y, height: node.getBoundingClientRect().height,
         })));
         const before = await geometry();
-        await thread.getByRole("button", { name: "Back to Feedback" }).click();
+        await (await threadAction(page, thread, "Open in Feedback")).click();
         const inventory = await geometry();
         await (await threadAction(page, thread, "Focus")).click();
         fs.writeFileSync(testInfo.outputPath("focus-transfer-geometry.json"), JSON.stringify({ before, inventory, after: await geometry() }, null, 2));
@@ -377,10 +391,12 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
     }
     await page.screenshot({ path: testInfo.outputPath(`conversation-focus-${theme}.png`) });
   }
-  await thread.getByRole("button", { name: "Back to Feedback" }).click();
+  await (await threadAction(page, thread, "Open in Feedback")).click();
   await page.setViewportSize({ width: 320, height: 400 });
-  const bottom = await page.locator("#send").boundingBox();
-  expect(bottom.y + bottom.height).toBeLessThanOrEqual(400);
+  await expect(async () => {
+    const bottom = await page.locator("#send").boundingBox();
+    expect(bottom.y + bottom.height).toBeLessThanOrEqual(400);
+  }).toPass({ timeout: 5000 });
   await page.screenshot({ path: testInfo.outputPath("conversation-feedback-320.png") });
 });
 
@@ -396,10 +412,11 @@ test("response transport loss reconciles Send without duplicating immutable work
   });
   await page.locator("#send").click();
   await expect(page.getByText("send: acceptance unknown", { exact: true })).toBeVisible();
-  const receiptMessage = await page.locator(".conversation-error p").last().innerText();
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  const receiptMessages = await page.locator(".review-recovery-message").filter({ hasText: "send: acceptance unknown" }).locator("p").allTextContents();
+  expect(receiptMessages).toEqual(["Failed to fetch", expect.stringContaining("Check the receipt")]);
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   const recovery = page.getByRole("status", { name: "Review recovery" });
-  await expect(recovery).toContainText(receiptMessage);
+  await expect(recovery.getByRole("alert").locator("p")).toHaveText(receiptMessages);
   await expect(recovery.locator("code")).toHaveText(lost.requestId);
   await page.locator("#seeChanges").click();
   await page.setViewportSize({ width: 320, height: 450 });
@@ -429,9 +446,9 @@ test("unknown End stays visible in its dialog and replays the same request witho
     }
     await route.continue();
   });
-  await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Acceptance is unknown");
-  await expect(page.getByRole("button", { name: "Confirm", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "End review", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: "Check receipt", exact: true }).click();
   await expect(page.locator(".conversation-panel").getByText("end: acceptance unknown", { exact: true })).toHaveCount(0);
@@ -594,7 +611,7 @@ test("bounded earlier history preserves reviewer/reply associations and new acti
   await expect(thread.locator(".conversation-exchange").last().locator(".conversation-response")).toHaveCount(0);
   await thread.locator(".conversation-thread-title").click();
   await mutate(review, ref, "reply", { threadId: id, body: "Arrived while collapsed", intent: "discuss" });
-  await expect(thread.getByRole("button", { name: "New activity" })).toBeVisible();
+  await expect(thread.getByRole("button", { name: "Mark conversation as read" })).toBeVisible();
   await expect(thread.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "false");
 });
 
@@ -609,7 +626,7 @@ test("oversized browser edits remain explicitly truncated source-pending feedbac
   await page.keyboard.insertText("x".repeat(200_005));
   await page.locator("#commentsButton").click();
   await feedback(page);
-  await expect(page.getByText("Incomplete capture.", { exact: false })).toBeVisible();
+  await expect(page.getByText("This preview is incomplete. The agent needs the full text before applying the edit.", { exact: true })).toBeVisible();
   await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.edits[0].content.truncated).toBe(true);
@@ -693,7 +710,7 @@ test("review-local revert preserves conversations and exact pending edits", asyn
   await feedback(page);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Revert", exact: true }).click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "Revert edits", exact: true }).click();
   await expect.poll(() => fs.readFileSync(file, "utf8")).toBe(original);
   await expect(page.getByRole("button", { name: "Revert", exact: true })).toBeDisabled();
   await feedback(page);
@@ -709,7 +726,7 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     await feedback(page);
     await page.getByRole("button", { name: /Note to agent/ }).click();
     await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Local draft survives reattachment only");
-    await page.locator("#endReview").click(); await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.locator("#endReview").click(); await page.getByRole("button", { name: "End review", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
     await expect(page.locator("#send")).toBeDisabled();

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, message, handled, seedThread, feedback, overallNote, selectReviewMode, expectEditBlocked, mutate, sendPending, intercept, failure, listed, selectText, beginComment } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, message, handled, seedThread, feedback, overallNote, selectReviewMode, expectEditBlocked, mutate, sendPending, intercept, failure, listed, selectText, beginComment, setReviewTheme } from "./helpers.js";
 import { selectChoice } from "./choice-helpers.js";
 
 const fixture = readFileSync(new URL("../test/fixtures/toolbar-review.html", import.meta.url), "utf8");
@@ -19,7 +19,7 @@ test("toolbar preserves authored state and draft identity across themes and save
   await sendPending(review, ref, { body: "Update the example", intent: "request-change" });
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await handled(review, ref, { overallOutcome: "applied" });
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   await frame.getByLabel("Authored-page draft").fill("Keep this authored draft");
   await frame.getByRole("button", { name: "Increment counter" }).click();
   await page.locator("#frame").evaluate((element) => { window.originalFrame = element; });
@@ -37,7 +37,7 @@ test("toolbar preserves authored state and draft identity across themes and save
     await expect(page.locator("#modeButton")).toBeHidden();
     await expect(page.getByRole("region", { name: "Saved comparison" })).toBeVisible();
     // Theme changes are independent of the mounted comparison and document.
-    await page.locator("#theme").click();
+    await setReviewTheme(page);
     await page.locator("#latestVersion").click();
     await expect(page.locator("#latestVersion")).toHaveAttribute("aria-pressed", "true");
   }
@@ -68,7 +68,7 @@ test("the rounded brand scales cleanly and belongs only to the outer shell", asy
   expect(await page.locator('head link[rel="icon"]').getAttribute("href")).toBe(src);
   expect(await frame.locator('head link[rel="icon"]').getAttribute("href")).toBe(authoredIcon);
   await expect(frame.getByRole("img", { name: "Doc Review", exact: true })).toHaveCount(0);
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   expect(await brand.getAttribute("src")).toBe(src);
   expect(await frame.locator('head link[rel="icon"]').getAttribute("href")).toBe(authoredIcon);
   const study = await page.context().newPage();
@@ -92,7 +92,7 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
   await feedback(page);
   await expect(page.locator(".conversation-thread")).toHaveCount(2);
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400], [761, 700], [760, 700], [601, 700], [481, 700], [480, 700], [390, 700], [320, 700], [900, 450], [899, 450], [320, 450]]) {
       await page.setViewportSize({ width, height });
       await expect(page.locator("#reviewPage")).toHaveCount(0);
@@ -100,19 +100,22 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await expect(page.locator("#reviewDetails")).toHaveCount(0);
       await expect(page.locator(".conversation-title")).toHaveCount(0);
       await expect(page.locator(".shell-toolbar")).not.toContainText("toolbar-layout.html");
+      await expect(async () => {
+        const toolbar = await page.locator(".shell-toolbar").boundingBox();
+        expect(toolbar.width).toBe(width);
+        for (const control of await page.locator(".shell-toolbar button").all()) {
+          if (!await control.isVisible()) continue;
+          const box = await control.boundingBox();
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+          expect(box.height).toBe(32);
+          if (await control.isEnabled()) expect(await control.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+          })).toBe(true);
+        }
+      }).toPass({ timeout: 5000 });
       const toolbar = await page.locator(".shell-toolbar").boundingBox();
-      expect(toolbar.width).toBe(width);
-      for (const control of await page.locator(".shell-toolbar button").all()) {
-        if (!await control.isVisible()) continue;
-        const box = await control.boundingBox();
-        expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(width);
-        expect(box.height).toBe(32);
-        if (await control.isEnabled()) expect(await control.evaluate((element) => {
-          const rect = element.getBoundingClientRect();
-          return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-        })).toBe(true);
-      }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const brand = page.getByRole("img", { name: "Doc Review", exact: true });
       expect(await brand.evaluate((image) => image.complete && image.naturalWidth === 64)).toBe(true);
@@ -166,9 +169,9 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await page.screenshot({ path: testInfo.outputPath(`toolbar-edit-${theme}-${width}x${height}.png`), animations: "disabled" });
       await page.keyboard.press("Escape"); await expect(page.locator("#modeButton")).toBeFocused();
       await selectReviewMode(page, "View");
-      await page.locator("#theme").click(); await page.locator("#theme").click();
+      await setReviewTheme(page); await setReviewTheme(page);
       await page.locator("#seeChanges").click();
-      await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No handled submissions");
+      await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No responses yet");
       await expect(page.locator("#commentsButton")).toBeHidden();
       await expect(page.locator(".conversation-lifecycle")).toBeVisible();
       const changesBadge = await page.locator(".conversation-lifecycle").boundingBox();
@@ -211,10 +214,10 @@ test("waiting and ended badges stay centered with receipt semantics and theme to
     await expect(badge).toHaveAttribute("data-slot", "badge");
     await expect(badge).toHaveAttribute("data-variant", ended ? "secondary" : "warning");
     await expect(badge).toHaveAttribute("role", "status");
-    await expect(badge).toHaveAccessibleDescription(/Waiting to be picked up/);
+    await expect(badge).toHaveAccessibleDescription(/Your feedback is waiting for the agent/);
     expect(await badge.evaluate((element) => element.tabIndex)).toBe(0);
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await expect.poll(() => badge.evaluate((element) => {
         const style = getComputedStyle(element);
         const probe = document.createElement("span");
@@ -227,13 +230,15 @@ test("waiting and ended badges stay centered with receipt semantics and theme to
       for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400],
         ...[1440, 900, 899, 761, 760, 601, 481, 480, 390, 320].map(width => [width, 450])]) {
         await page.setViewportSize({ width, height });
-        const mode = await page.locator("#modeButton").boundingBox(), box = await badge.boundingBox();
-        if (width > 760) expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
-        if (width > 640) expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
-        expect(box.x + box.width).toBeLessThanOrEqual(width);
-        const toolbarHeight = (await page.locator(".shell-toolbar").boundingBox()).height;
-        expect(toolbarHeight).toBeGreaterThanOrEqual(width > 760 ? 49 : 89);
-        expect(toolbarHeight).toBeLessThanOrEqual(width > 760 ? 49 : 129);
+        await expect(async () => {
+          const mode = await page.locator("#modeButton").boundingBox(), box = await badge.boundingBox();
+          if (width > 760) expect(Math.abs(box.y + box.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+          if (width > 640) expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+          const toolbarHeight = (await page.locator(".shell-toolbar").boundingBox()).height;
+          expect(toolbarHeight).toBeGreaterThanOrEqual(width > 760 ? 49 : 89);
+          expect(toolbarHeight).toBeLessThanOrEqual(width > 760 ? 49 : 129);
+        }).toPass({ timeout: 5000 });
         await expect(page.locator(".conversation-global-status")).toHaveCount(0);
         await page.screenshot({ path: info.outputPath(`${ended ? "ended" : "waiting"}-${theme}-${width}x${height}.png`) });
         await page.locator("#seeChanges").click();
@@ -254,7 +259,7 @@ test("toolbar controls reflow without clipping when their text is enlarged", asy
   await openReview(page, review, writeFile(review, "toolbar-large-text.html", fixture));
   await waitForSdk(page);
   await page.addStyleTag({ content: ".shell-toolbar button { font-size:24px;line-height:1.5;height:auto; }" });
-  for (const name of ["Review", "Changes", "View", "Feedback"]) {
+  for (const name of ["Review", "Changes", "Page mode: View", "Feedback"]) {
     const button = page.getByRole("button", { name, exact: true });
     const box = await button.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -286,28 +291,30 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
       expect(polled.status, polled.raw).toBe(200);
     }
     if (state === "ended") await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
-    const explanation = state === "reviewing" ? "Saved feedback is not sent until you choose Send"
-      : state === "queued" ? "Waiting to be picked up"
-      : state === "received" ? "Feedback received; no response yet. This does not confirm an agent is currently working"
-      : "Accepted work can still finish; ending the review does not cancel it";
+    const explanation = state === "reviewing" ? "Saved feedback stays here until you choose Send to agent"
+      : state === "queued" ? "Your feedback is waiting for the agent"
+      : state === "received" ? "The agent has your feedback. Waiting for a response."
+      : "Work already sent to the agent can still finish";
     await expect(badge).toHaveAccessibleDescription(new RegExp(explanation));
     await expect(badge).not.toHaveAttribute("title");
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       for (const width of [1440, 390, 320]) {
         await page.setViewportSize({ width, height: 450 });
         await page.locator("#latestVersion").focus();
         await badge.hover();
         await expect(tooltip).toContainText(explanation);
-        const box = await surface.boundingBox();
-        expect(box.x).toBeGreaterThanOrEqual(12);
-        expect(box.x + box.width).toBeLessThanOrEqual(width - 12);
-        expect(box.y + box.height).toBeLessThanOrEqual(450);
-        expect(await surface.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        await expect(async () => {
+          const box = await surface.boundingBox();
+          expect(box.x).toBeGreaterThanOrEqual(12);
+          expect(box.x + box.width).toBeLessThanOrEqual(width - 12);
+          expect(box.y + box.height).toBeLessThanOrEqual(450);
+          expect(await surface.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        }).toPass({ timeout: 5000 });
         await expect(surface).toHaveCSS("color", theme === "light" ? "rgb(41, 46, 43)" : "rgb(238, 239, 230)");
         await page.keyboard.press("Escape");
         await expect(tooltip).toHaveCount(0);
-        await page.locator("#theme").hover();
+        await page.locator("#reviewOptions").hover();
         await badge.focus();
         await expect(tooltip).toContainText(explanation);
         await page.keyboard.press("Escape");
@@ -460,7 +467,7 @@ test("Changes has no invented identity, follows handled history, retains selecti
   const requests = [];
   page.on("request", (request) => { if (request.url().endsWith("/api/conversation/comparison")) requests.push(request.postDataJSON()); });
   await page.locator("#seeChanges").click();
-  await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No handled submissions");
+  await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No responses yet");
   expect(requests).toEqual([]);
   await seedThread(review, ref, "Explain without changing source");
   await sendPending(review, ref, { body: "Update the example", intent: "request-change" });
@@ -488,7 +495,7 @@ test("Changes has no invented identity, follows handled history, retains selecti
   await comparison.getByRole("button", { name: "Retry comparison" }).click();
   await expect(comparison.locator(".changes-controls[role='alert']")).toHaveCount(0);
   await expect(comparison.getByRole("button", { name: "Source", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   await page.screenshot({ path: testInfo.outputPath("toolbar-ended-changes.png") });
   expect(requests.every((request) => request.reviewId === ref.reviewId && request.entryKey === ref.entryKey &&
     request.submissionId === completed.work.submissionId && request.pageKey === ref.key)).toBe(true);
@@ -519,11 +526,11 @@ test("long mutation errors occupy an on-demand recovery row below real pointer c
   await page.getByRole("textbox", { name: "New message", exact: true }).fill("Keep this draft");
   await page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("could not be verified");
-  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click();
   await expect(page.locator(".conversation-global-status").getByRole("alert")).toBeVisible();
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await page.locator("#modeButton").click(); await page.keyboard.press("Escape");
     await expect(page.locator("#modeButton")).toBeFocused();
     const status = await page.locator(".conversation-global-status").boundingBox();

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, feedback, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, listed, setReviewTheme } from "./helpers.js";
 import { fieldNotes } from "../test/fixtures/readme-review.js";
 
 const source = `<!doctype html><style>body{padding:36px;font:16px/1.5 system-ui}p{width:420px;margin:60px 0}#space{height:1800px}</style>
@@ -17,6 +17,70 @@ async function select(page, frame) {
   await frame.locator("#commentAction").click();
   await expect(editor(page)).toBeVisible();
 }
+
+async function holdCancellation(page) {
+  await page.addInitScript(() => {
+    window.heldCancellation = null;
+    window.replayingCancellation = false;
+    window.addEventListener("message", event => {
+      if (event.data?.type !== "eh:cancel" || window.replayingCancellation) return;
+      event.stopImmediatePropagation();
+      window.heldCancellation = event;
+    }, true);
+    window.releaseCancellation = () => {
+      const event = window.heldCancellation;
+      window.heldCancellation = null;
+      window.replayingCancellation = true;
+      try {
+        window.dispatchEvent(new MessageEvent("message", { data: event.data, origin: event.origin, source: event.source }));
+      } finally {
+        window.replayingCancellation = false;
+      }
+    };
+  });
+}
+
+test("a keyboard target chosen before cancellation arrives supersedes the retired composition", async ({ page, review }) => {
+  await holdCancellation(page);
+  await openReview(page, review, writeFile(review, "delayed-keyboard-cancel.html",
+    "<h2 id='first' tabindex='0'>First heading</h2><h2 id='second' tabindex='0'>Second heading</h2>"));
+  const frame = await waitForSdk(page);
+  await frame.locator("#first").press("Control+Alt+m");
+  await expect(editor(page)).toBeVisible();
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await expect.poll(() => frame.locator("body").evaluate(() => !!window.heldCancellation)).toBe(true);
+  await frame.locator("#second").press("Control+Alt+m");
+  await expect(editor(page)).toBeVisible();
+  await expect(page.locator(".conversation-new-target")).toContainText("Second heading");
+  await editor(page).fill("Keep the new target");
+  await editor(page).evaluate(node => { window.racingEditor = node; node.setSelectionRange(2, 7); });
+  await frame.locator("body").evaluate(() => window.releaseCancellation());
+  await expect(editor(page)).toBeFocused();
+  expect(await editor(page).evaluate(node => [node === window.racingEditor, node.selectionStart, node.selectionEnd]))
+    .toEqual([true, 2, 7]);
+  await expect(page.locator(".conversation-new-target")).toContainText("Second heading");
+});
+
+test("cancellation preserves a newer selection before its debounced target update", async ({ page, review }) => {
+  await holdCancellation(page);
+  const { frame } = await start(page, review);
+  await select(page, frame);
+  await expect(frame.locator("#commentAction")).toBeHidden();
+  await composer(page).getByRole("button", { name: "Close comment" }).click();
+  await expect.poll(() => frame.locator("body").evaluate(() => !!window.heldCancellation)).toBe(true);
+  const selected = await frame.locator("#other").evaluate(node => {
+    const range = document.createRange(); range.selectNodeContents(node);
+    const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    window.releaseCancellation();
+    return selection.toString();
+  });
+  expect(selected).toBe("A different target that must not steal a draft.");
+  await frame.locator("#commentAction").click();
+  await expect(editor(page)).toBeVisible();
+  await expect(page.locator(".conversation-new-target")).toContainText(selected);
+});
 
 test("empty and whitespace close retire the target; selected headings label themselves without changing selectors", async ({ page, review }, info) => {
   await openReview(page, review, writeFile(review, "heading-label-baseline.html",
@@ -115,7 +179,7 @@ test("dirty cancellation, IME, saving and uncertain acceptance preserve the exac
     await expect(page.getByText("create-thread: acceptance unknown", { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath("save-acceptance-unknown.png") });
     await expect(composer(page).getByRole("button", { name: "Close comment" })).toBeDisabled();
-    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Close feedback", exact: true }).click();
     await feedback(page);
     await expect(editor(page)).toHaveValue("Newer unsaved wording");
     await page.getByRole("button", { name: "Check receipt", exact: true }).click();
@@ -208,28 +272,30 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   expect(await editor(page).evaluate((node) => [node === window.newEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 7, 14]);
   await expect(composer(page).getByRole("button", { name: "Close comment" })).toBeDisabled();
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await expect(editor(page)).toBeHidden();
   await feedback(page);
   expect(await editor(page).evaluate((node) => node === window.newEditor)).toBe(true);
   await reopen();
-  await page.locator("#theme").click(); await page.locator("#theme").click();
+  await setReviewTheme(page); await setReviewTheme(page);
   const metrics = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) {
     for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width, height });
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-      if (await page.locator(".conversation-panel").getAttribute("data-host") === "compose") {
-        const bounds = await page.locator(".conversation-panel").boundingBox(), frameBox = await page.locator("#frame").boundingBox();
-        const targets = await frame.locator("#summary").evaluate(() => [...getSelection().getRangeAt(0).getClientRects()].map(rect => ({
-          left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
-        })));
-        for (const target of targets) expect(bounds.x >= frameBox.x + target.right || bounds.x + bounds.width <= frameBox.x + target.left ||
-          bounds.y >= frameBox.y + target.bottom || bounds.y + bounds.height <= frameBox.y + target.top).toBe(true);
-      } else await expect(page.locator(".conversation-new-message")).toContainText(/not enough room|target cannot/);
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
+      await expect(async () => {
+        if (await page.locator(".conversation-panel").getAttribute("data-host") === "compose") {
+          const bounds = await page.locator(".conversation-panel").boundingBox(), frameBox = await page.locator("#frame").boundingBox();
+          const targets = await frame.locator("#summary").evaluate(() => [...getSelection().getRangeAt(0).getClientRects()].map(rect => ({
+            left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+          })));
+          for (const target of targets) expect(bounds.x >= frameBox.x + target.right || bounds.x + bounds.width <= frameBox.x + target.left ||
+            bounds.y >= frameBox.y + target.bottom || bounds.y + bounds.height <= frameBox.y + target.top).toBe(true);
+        } else await expect(page.locator(".conversation-new-message")).toContainText(/not enough room|target cannot/);
+      }).toPass({ timeout: 5000 });
       expect(await editor(page).evaluate((node) => [node === window.newEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 7, 14]);
       await expect(editor(page)).toHaveValue("Please clarify this selected wording.");
-      await expect(page.locator("#theme")).toBeFocused();
+      await expect(page.locator("#reviewOptions")).toBeFocused();
       const visibleHeight = () => editor(page).evaluate(node => {
         const box = node.getBoundingClientRect();
         let top = box.top, bottom = box.bottom;
@@ -243,7 +309,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
         return Math.max(0, Math.min(bottom, innerHeight) - Math.max(top, 0));
       });
       await expect.poll(visibleHeight).toBeGreaterThanOrEqual(18);
-      await expect(page.locator("#theme")).toBeFocused();
+      await expect(page.locator("#reviewOptions")).toBeFocused();
       await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
       await page.screenshot({ path: info.outputPath(`new-comment-initial-${theme}-${width}x${height}.png`) });
       const font = await page.locator("#draft-note").evaluate(node => getComputedStyle(node).fontSize);
@@ -270,11 +336,11 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   await page.mouse.wheel(0, -1000);
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(0);
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   await editor(page).evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   expect(await inventory.evaluate(node => node.scrollTop)).toBe(0);
-  await expect(page.locator("#theme")).toBeFocused();
+  await expect(page.locator("#reviewOptions")).toBeFocused();
   fs.writeFileSync(info.outputPath("new-comment-geometry.json"), JSON.stringify(metrics, null, 2));
 });
 
@@ -302,7 +368,7 @@ test("new-target boundary rejects stale or foreign intent and keeps exact draft 
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("button", { name: "Keep editing" }).click();
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await post(opening); // A rejected newer intent must not invalidate the retained authoritative target.
   await expect(editor(page)).toBeVisible();
   await expect(editor(page)).toBeFocused();
@@ -318,7 +384,7 @@ test("new-target boundary rejects stale or foreign intent and keeps exact draft 
   await post(opening);
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "compose");
   await feedback(page);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 480 });
   await post({ ...opening, type: "eh:targetGeometry" });
   await expect(editor(page)).toBeHidden(); // Geometry/fallback must never reopen an incidentally closed draft.
@@ -350,7 +416,7 @@ test("nested clipping pins to the effective edge and removed targets or shared E
   await editor(page).evaluate(node => { window.newEditor = node; });
   const checkOutline = async (placement) => {
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       expect(await page.locator(".conversation-panel").evaluate(node => {
         const outer = getComputedStyle(node);
         const divider = getComputedStyle(node.querySelector(".conversation-panel-header")).borderBottomColor;
@@ -382,7 +448,7 @@ test("nested clipping pins to the effective edge and removed targets or shared E
   await expect(composer(page).getByRole("button", { name: "Beside selection" })).toBeHidden();
   await page.locator("#endReview").click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("button", { name: "End review", exact: true }).click();
   await expect(editor(page)).toHaveAttribute("readonly", "");
   expect(await editor(page).evaluate(node => node === window.newEditor)).toBe(true);
   await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toHaveCount(0);

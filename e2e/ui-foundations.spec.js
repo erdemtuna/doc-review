@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
+import { renderedContrast, setReviewTheme } from "./helpers.js";
 
 test.describe.configure({ mode: "serial" });
 let server;
@@ -54,17 +55,18 @@ test("G1 controls preserve draft selection, theme preference and focus", async (
   expect(primarySize.height).toBe(32);
   expect(await page.getByLabel("Note to agent").evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
   expect(await page.getByRole("button", { name: "Cancel", exact: true }).evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
-  const contentColor = await page.getByRole("radio", { name: "Content" }).evaluate((element) => getComputedStyle(element).backgroundColor);
-  expect(await page.getByRole("radio", { name: "Source" }).evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(contentColor);
+  const contentColor = await page.getByRole("button", { name: "Document", exact: true }).evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
+  expect(await page.getByRole("button", { name: "Source", exact: true }).evaluate((element) => getComputedStyle(element, "::before").backgroundColor)).not.toBe(contentColor);
   const note = page.getByLabel("Note to agent");
   await note.fill("Keep this selected draft.");
   await note.evaluate((element) => element.setSelectionRange(5, 9));
-  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await setReviewTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(note).toHaveValue("Keep this selected draft.");
   expect(await note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);
-  await page.getByLabel("Review round").selectOption("1");
-  await expect(page.getByRole("status")).toContainText("Sample round 1");
+  await page.getByRole("button", { name: /^Submission:/ }).click();
+  await page.getByRole("menuitemradio", { name: "Submission 1 - Handled" }).click();
+  await expect(page.getByRole("status")).toContainText("Sample submission 1");
   const menu = page.getByRole("button", { name: "Open sample menu" });
   await menu.focus();
   await menu.press("Enter");
@@ -88,15 +90,55 @@ test("G1 controls preserve draft selection, theme preference and focus", async (
 
 test("G1 populated controls and overlays fit both themes at required widths", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(base);
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) {
-      await page.getByRole("button", { name: `Switch to ${theme} theme` }).click();
+      await setReviewTheme(page, theme);
     }
+    for (const name of ["Send feedback", "Capture result", "Selected context", "Cancel", "Delete thread", "Abandon"]) {
+      const button = page.getByRole("button", { name, exact: true });
+      for (const state of ["rest", "hover", "focus"]) {
+        await page.mouse.move(0, 0);
+        if (state === "hover") await button.hover();
+        if (state === "focus") {
+          await button.focus();
+          await page.keyboard.press("Tab"); await page.keyboard.press("Shift+Tab");
+          await expect(button).toBeFocused();
+        }
+        expect(await renderedContrast(button), `${theme}: ${name} ${state}`).toBeGreaterThanOrEqual(4.5);
+        if (state === "focus") {
+          await expect(button).toHaveCSS("outline-width", "2px");
+          expect(await renderedContrast(button, "outlineColor"), `${theme}: ${name} focus boundary`).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+    const picker = page.getByRole("button", { name: /^Submission:/ });
+    const border = await picker.evaluate(node => getComputedStyle(node).borderTopColor);
+    const filters = page.getByRole("group", { name: "Sample conversation filters" });
+    await expect(filters).toHaveCSS("box-shadow", "none");
+    await expect(filters).toHaveCSS("gap", "8px");
+    for (const button of await filters.getByRole("button").all()) {
+      await expect(button).toHaveCSS("border-top-width", "1px");
+      await expect(button).toHaveCSS("border-top-color", border);
+      expect(await renderedContrast(button)).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const state of ["rest", "hover", "expanded"]) {
+      if (state === "hover") await picker.hover();
+      if (state === "expanded") await picker.click();
+      await expect(picker).toHaveCSS("border-top-color", border);
+      expect(await renderedContrast(picker)).toBeGreaterThanOrEqual(4.5);
+      expect(await renderedContrast(picker.locator("svg").first())).toBeGreaterThanOrEqual(3);
+    }
+    await expect(picker).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeFocused();
+    expect(await renderedContrast(picker, "outlineColor")).toBeGreaterThanOrEqual(3);
+    expect(await renderedContrast(page.getByRole("textbox", { name: "Note to agent" }), "borderTopColor")).toBeGreaterThanOrEqual(3);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.evaluate(() => scrollTo(0, 0));
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`g1-${theme}-${width}.png`), fullPage: true, animations: "disabled" });
       await page.getByRole("button", { name: "Open sample menu" }).click();
       const menu = page.getByRole("menu");
