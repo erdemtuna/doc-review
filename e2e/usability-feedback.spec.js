@@ -18,10 +18,19 @@ for (const theme of ["light", "dark"]) for (const [width, height] of [[1280, 800
     await page.addInitScript(theme => localStorage.setItem("doc-review:theme", theme), theme);
     const ref = await openReview(page, review, writeFile(review, `feedback-${theme}-${width}.html`, source));
     await waitForSdk(page);
+    const feedbackButton = page.locator("#commentsButton");
+    const feedbackPaint = () => feedbackButton.evaluate(button => ({
+      background: getComputedStyle(button).backgroundColor,
+      count: getComputedStyle(button.querySelector("#toolbarCount")).backgroundColor,
+    }));
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(() => feedbackButton.evaluate(button => button.getAnimations().some(animation => animation.playState === "running"))).toBe(false);
+    const closedPaint = await feedbackPaint();
     const { threadId } = await seedThread(review, ref, "A handled discussion.", {
       kind: "element", anchor: { selector: "#copy", label: "Exact passage" },
     });
     await feedback(page);
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "true");
     const card = page.locator(`[data-thread="${threadId}"]`);
     const toast = page.locator(".conversation-toast");
     await expect(toast).toHaveCount(0);
@@ -105,6 +114,7 @@ for (const theme of ["light", "dark"]) for (const [width, height] of [[1280, 800
     await expect(card).toHaveAttribute("data-status", "open");
     await expect(toast).toHaveCount(0);
     await (await threadAction(page, card, "Focus")).click();
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("button", { name: "Back to Feedback", exact: true })).toBeInViewport({ ratio: 1 });
     await page.screenshot({ path: info.outputPath(`focus-return-${theme}-${width}.png`), animations: "disabled" });
     await card.getByRole("button", { name: "Resolve conversation", exact: true }).click();
@@ -114,9 +124,32 @@ for (const theme of ["light", "dark"]) for (const [width, height] of [[1280, 800
     await expect(card).toHaveAttribute("data-status", "open");
     await expect(toast).toHaveCount(0);
     await (await threadAction(page, card, "Beside target")).click();
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "false");
+    await page.mouse.move(2, 2);
+    await expect.poll(feedbackPaint).toEqual(closedPaint);
     await expect(page.getByRole("button", { name: "Open in Feedback", exact: true })).toBeInViewport({ ratio: 1 });
     await expect(delivery).toHaveAccessibleName("Received");
     await page.screenshot({ path: info.outputPath(`delivery-transfer-${theme}-${width}.png`), animations: "disabled" });
+    await card.getByRole("button", { name: "Reply", exact: true }).click();
+    const editor = card.getByRole("textbox", { name: "Reply", exact: true });
+    await editor.fill("Retain this popup reply.");
+    await editor.evaluate(node => { window.popupReply = node; node.setSelectionRange(2, 7); });
+    await editor.dispatchEvent("compositionstart", { data: "途中" });
+    await feedbackButton.click();
+    await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "true");
+    await expect(editor).toBeFocused();
+    expect(await editor.evaluate(node => [node === window.popupReply, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 7]);
+    await expect(editor).toHaveValue("Retain this popup reply.");
+    await expect(card.getByRole("button", { name: "Add reply", exact: true })).toBeDisabled();
+    await editor.dispatchEvent("compositionend", { data: "途中" });
+    await expect(card.getByRole("button", { name: "Add reply", exact: true })).toBeEnabled();
+    await feedbackButton.click();
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator(".conversation-panel")).toBeHidden();
+    await feedbackButton.click();
+    await expect(feedbackButton).toHaveAttribute("aria-expanded", "true");
+    expect(await editor.evaluate(node => node === window.popupReply)).toBe(true);
   });
 }
 

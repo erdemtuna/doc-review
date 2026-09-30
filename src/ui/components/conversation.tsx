@@ -864,7 +864,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       </Tooltip></TooltipProvider>}
       state={{ comparing: chrome.comparisonOpen, mode: chrome.mode, modeDisabled: chrome.loading, modeMenuOpen,
         restoreModeFocus: modeFocus.current, editDescription: chrome.policy === "writable" ? "Edits save directly to the file" : "Edits are sent to the agent",
-        drawerOpen: snapshot.open && !contextual, feedbackCount: snapshot.attentionCount, theme: chrome.theme, ended: readonly }}
+        drawerOpen: sidebarVisible, feedbackCount: snapshot.attentionCount, theme: chrome.theme, ended: readonly }}
       commands={{
         setComparing: (value) => act(owner, () => value ? shell.commands.showChanges() : shell.commands.closeComparison()),
         setMode: (value) => { setModeMenuOpen(false); act(owner, () => shell.commands.mode(value)); },

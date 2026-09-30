@@ -79,6 +79,37 @@ it("Feedback and History are stable selected destinations and keep the same repl
   shell.dispose();
 });
 
+it("toolbar Feedback tracks the sidebar, not an adjacent popup, and preserves its reply on transfer", async () => {
+  const { owner, shell } = await fixture();
+  const feedback = document.getElementById("commentsButton")!;
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  act(() => owner.commands.reply("thread"));
+  const editor = screen.getByRole("textbox", { name: "Reply" });
+  fireEvent.change(editor, { target: { value: "Retain this popup reply", selectionStart: 2, selectionEnd: 7 } });
+  fireEvent.compositionStart(editor);
+  act(() => owner.commands.adjacent("thread"));
+  expect(feedback).toHaveAttribute("aria-expanded", "false");
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  fireEvent.click(feedback);
+  expect(owner.getSnapshot().host).toBe("feedback");
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  expect(editor).toHaveValue("Retain this popup reply");
+  expect(owner.getSnapshot().threads[0].draft).toMatchObject({ selectionStart: 2, selectionEnd: 7, composing: true });
+  act(() => owner.commands.focus("thread"));
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(feedback);
+  expect(owner.getSnapshot().host).toBe("feedback");
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(feedback);
+  expect(feedback).toHaveAttribute("aria-expanded", "false");
+  expect(editor).toBeInTheDocument();
+  fireEvent.click(feedback);
+  expect(feedback).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
+  shell.dispose();
+});
+
 it("conversation headers use Locate, More, Collapse and Focus retains destination tabs", async () => {
   const { owner, shell } = await fixture();
   const toolbar = document.querySelector(".conversation-thread-toolbar")!;

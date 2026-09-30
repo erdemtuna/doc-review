@@ -70,6 +70,9 @@ is a compact icon beside each eligible message's timestamp. Editing substitutes
 Close edit at that exact location, without a pinned last-message special case.
 Sidebar/Focus headers contain source and state, then Locate, More, Collapse/Expand.
 Adjacent headers contain source and state, then Open in Feedback (a right-pointing arrow), More, Close.
+The toolbar Feedback button reflects sidebar visibility only: Feedback and Focus
+select it, while adjacent popups and contextual composers do not. Activating it
+from a popup returns to the inventory without replacing the thread or draft.
 Popup Collapse/Expand lives in More. Ordinary Focus has a visible Back to Feedback
 action above the conversation; adjacent popups do not duplicate it. Genuine Back to
 replies navigation is retained instead in a result reply reader. There is no
