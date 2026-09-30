@@ -100,24 +100,22 @@ reattachment control. A recovered target does not reopen a card automatically.
 | Delete a never-submitted thread | **Conversation actions → Delete thread**, then confirm deletion |
 
 Saving queues a message. Every new message starts with **Request a change**
-unchecked. Saved change requests display a document-and-pencil icon labelled
+unchecked. Saved change requests display a message-diff icon labelled
 **Change requested** on hover and for assistive technology. Unsent messages show
-a compact **Pending** badge; ordinary discussions
-and answered replies need no status pill. Other response outcomes remain explicit;
-only unsent messages have Edit controls. Correct sent instructions with a new
+a dashed-circle **Not sent** icon. Agent replies show their informational outcome
+icon, including **Answered**; request and reported-change icons remain distinct.
+Only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a
 thread only hides content. Editing an unsent message replaces its body in place,
 without appending a second editor. Each header shows a compact source excerpt
-beside an icon-only **Show in document** control; tooltips retain the full source description.
-**Resolve** and **Reopen** are visible in
-every conversation header, not hidden in the menu. Finish or close a local draft
+and its host-specific actions. **Resolve** and **Reopen** sit below an expanded
+conversation, opposite **Reply**; collapsed cards and cards with local drafts
+keep the guarded action in **Conversation actions**. Finish or close a local draft
 first; unsent messages and outstanding agent work prevent
 Resolve. An accepted resolution offers **Undo resolve** until the review changes.
-You can also **Resolve** from the bottom-left of the conversation, opposite
-**Reply** on the right, without scrolling back to the header.
 Undo never overrides newer changes from another tab or an ended review.
 Resolving automatically collapses the conversation into a subdued card with a
-check-circle **Resolved** badge. Expand it anytime to read the discussion without
+check-circle **Resolved** informational icon. Expand it anytime to read the discussion without
 reopening it. Reopen and Undo expand the conversation again. Resolution in another
 tab never hides your local reply draft.
 Resolving from the popup beside the document dismisses it automatically. Open
