@@ -16,7 +16,7 @@ test("the committed selected Lucide module is deterministic and allowlisted", ()
   assert.deepEqual(Object.keys(ICON_NODES), [
     "eye", "pencil", "filePenLine", "arrowRight", "messageSquareDiff", "messageSquareCheck", "messageCircleQuestion", "circleDashed", "circlePause", "copy",
     "plus", "minus", "locate", "chevronDown", "chevronLeft", "chevronRight", "messageSquarePlus", "messages",
-    "send", "trash", "moreHorizontal", "x", "check", "circleCheck", "rotateCcw", "clock", "inbox", "circleX", "circleHelp", "sun", "moon",
+    "send", "trash", "moreHorizontal", "x", "check", "checkCheck", "circleCheck", "rotateCcw", "clock", "inbox", "circleX", "circleHelp", "sun", "moon",
   ]);
   assert.match(iconMarkup("eye"), /^<svg/);
   assert.match(iconMarkup("eye"), /aria-hidden="true"/);

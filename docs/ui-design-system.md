@@ -45,7 +45,7 @@ Your edits and footer controls share the leading rail. Focused transcripts retai
 
 Conversation and message states use named, keyboard-focusable informational
 icons with visible explanations, never fake buttons or pill backgrounds:
-Not sent (`circle-dashed`), Sent (`send`), Received (`inbox`), Change requested (`message-square-diff`),
+Not sent (`circle-dashed`), Sent (`send`), Received (`check-check`, without a circle), Change requested (`message-square-diff`),
 Resolved (`circle-check`), Answered (`message-square-check`), Change reported
 (`file-pen-line`), Needs clarification (`message-circle-question-mark`) and
 Deferred (`circle-pause`). Request/report/clarification use established amber

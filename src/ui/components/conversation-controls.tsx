@@ -14,7 +14,7 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
 const statuses = {
   "not-sent": { icon: "circleDashed", label: "Not sent", hint: "Saved feedback. Not sent until you choose Send.", modified: false },
   sent: { icon: "send", label: "Sent", hint: "Submitted to the shared review. This is not confirmation of agent pickup or a read receipt.", modified: false },
-  received: { icon: "inbox", label: "Received", hint: "The agent picked up this submission or responded to this message. This is not a read receipt or proof the agent is currently working.", modified: false },
+  received: { icon: "checkCheck", label: "Received", hint: "The agent picked up this submission or responded to this message. This is not a read receipt or proof the agent is currently working.", modified: false },
   "request-change": { icon: "messageSquareDiff", label: "Change requested", hint: "A request and permission to change the document, not a reported edit.", modified: true },
   resolved: { icon: "circleCheck", label: "Resolved", hint: "This conversation is resolved.", modified: false },
   answered: { icon: "messageSquareCheck", label: "Answered", hint: "The agent answered. This does not indicate source changes or resolve the conversation.", modified: false },

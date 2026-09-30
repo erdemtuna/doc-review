@@ -28,6 +28,7 @@ const icons = {
   moreHorizontal: "ellipsis",
   x: "x",
   check: "check",
+  checkCheck: "check-check",
   circleCheck: "circle-check",
   rotateCcw: "rotate-ccw",
   clock: "clock",

@@ -101,6 +101,15 @@ it("returns menu focus without opening an obstructing hint, but later keyboard e
   expect(await screen.findByRole("tooltip")).toHaveTextContent("Review options");
 });
 
+it("distinguishes Received double ticks from the circular Resolved symbol", () => {
+  render(<><ConversationStatus kind="received" /><ConversationStatus kind="resolved" /></>);
+  const received = screen.getByRole("img", { name: "Received" });
+  expect(received.querySelectorAll("svg path")).toHaveLength(2);
+  expect(received.querySelector("svg circle")).toBeNull();
+  expect(screen.getByRole("img", { name: "Resolved" }).querySelector("svg circle")).not.toBeNull();
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
 it.each([
   ["not-sent", "Not sent", "Not sent until you choose Send"],
   ["sent", "Sent", "not confirmation of agent pickup or a read receipt"],
