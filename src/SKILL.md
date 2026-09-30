@@ -41,7 +41,7 @@ Back to Feedback action; Open/Resolved are separate independent filters.
 Sidebar headers end with Locate, More and Collapse; adjacent headers use Open in
 Feedback (a right-pointing arrow), More and Close. Edit belongs beside each eligible
 message's timestamp. The far-right delivery icon changes from Not sent to Sent,
-then Received when pickup or a response is recorded; this is not a read receipt.
+then Received when the agent picks up the message or replies.
 Resolved conversations automatically collapse and show a subdued check-circle
 **Resolved** informational icon with a keyboard-visible explanation; they remain expandable
 for reading. Reopen expands them again. Resolution from another tab never

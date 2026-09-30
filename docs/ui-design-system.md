@@ -54,6 +54,11 @@ Delivery sits at the far right of reviewer metadata, separate from Edit, intent 
 resolution. Submitted messages show Sent; recorded `deliveredAt` or an actual response
 supports Received. Neither implies a read receipt or current agent liveness, and
 missing pickup evidence must not be promoted to Received.
+Routine hints explain what happened in plain language. Keep implementation caveats
+in developer documentation, while retaining actionable warnings about lost edits,
+unfinished work and uncertain requests.
+Tooltips use the available collision width and reserve one extra collision pixel
+so subpixel widths still keep the 12px viewport gutter.
 Not sent and Change requested may coexist. Ended unsent messages explicitly
 explain that they remain read-only and were not delivered. A request is permission,
 not reported source work; a reported change is not independent save verification.

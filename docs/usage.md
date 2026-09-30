@@ -104,8 +104,7 @@ unchecked. Saved change requests display a message-diff icon labelled
 **Change requested** on hover and for assistive technology. Unsent messages show
 a dashed-circle **Not sent** icon at the far right of the message metadata.
 After submission this becomes a paper-plane **Sent** icon, then double ticks without
-a circle for **Received** when agent pickup or a response is recorded. Received is not
-a read receipt or proof the agent is currently working.
+a circle for **Received** when the agent has picked up the message or replied.
 Agent replies show their informational outcome
 icon, including **Answered**; request and reported-change icons remain distinct.
 Only unsent messages have Edit controls. Correct sent instructions with a new

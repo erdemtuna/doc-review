@@ -132,7 +132,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await peek.getByRole("button", { name: "View changes" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
   await expect(changes.getByRole("region", { name: "Full submission result note" })).toContainText("Updated the agent target.");
-  await expect(changes).toContainText("Saved by you before Send; no additional agent edit reported.");
+  await expect(changes).toContainText("You saved this edit before sending.");
   await expect.poll(async () => (await listed(review, ref, "history")).items[0].comparisonStatus).toBe("ready");
   if (await changes.getByRole("button", { name: "Refresh comparison" }).count()) await changes.getByRole("button", { name: "Refresh comparison" }).click();
   await expect(changes.locator(".comparison-surface")).toContainText("Actual agent result");
@@ -156,7 +156,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   await page.getByRole("button", { name: "History", exact: true }).click();
   const submission = page.locator(".conversation-submission").first();
   await submission.locator(":scope > summary").click();
-  await expect(submission).toContainText("Saved by you before Send; no additional agent edit reported.");
+  await expect(submission).toContainText("You saved this edit before sending.");
   await expect(submission.getByText(/^already-saved:/)).toHaveCount(0);
   await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
   const measurements = [];
@@ -440,8 +440,8 @@ test("deferred source-pending edits retain complete evidence and selected Send i
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await peek.getByRole("button", { name: "View response" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
-  await expect(changes).toContainText("Source pending at Send");
-  await expect(changes).toContainText("Deferred; no application reported for this edit.");
+  await expect(changes).toContainText("Sent for the agent to apply");
+  await expect(changes).toContainText("The agent left this edit for later.");
   await expect(changes.locator(".conversation-result-body")).toHaveText("Deferred the recorded paragraph pending clarification.");
   await expect(changes.locator(".comparison-surface")).toHaveCount(0);
   await expect(changes.getByRole("group", { name: "Comparison tools" })).toHaveCount(0);

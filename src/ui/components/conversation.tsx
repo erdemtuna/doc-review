@@ -680,14 +680,14 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const disabled = readonly || snapshot.busy || !!snapshot.uncertain;
   const work = snapshot.status?.work;
   const status = !snapshot.review ? "Loading review" : readonly ? "Review ended" : work ? "Waiting for agent" : "Reviewing";
-  const workDetails = work ? work.state === "queued" ? "Waiting to be picked up" : "Feedback received; no response yet. This does not confirm an agent is currently working" : "";
+  const workDetails = !work ? "" : work.state === "queued" ? "Your feedback is waiting for the agent." : "The agent has your feedback. Waiting for a response.";
   const statusDetails = [
     !snapshot.review ? "Loading the shared review." : readonly
-      ? `This shared review has ended. Saved-unsent messages and edits remain read-only here.${work ? " Accepted work can still finish; ending the review does not cancel it." : ""}`
-      : work ? "Feedback has been submitted and is waiting for an agent response."
-      : "Review the page, add feedback, or switch to Edit. Saved feedback is not sent until you choose Send.",
-    workDetails && `${workDetails}.`,
-    chrome.save.status === "saved" ? "Source saved." : chrome.save.status === "saving" ? "Saving source." : null,
+      ? `This review has ended. Unsent messages and edits remain available to read.${work ? " Work already sent to the agent can still finish." : ""}`
+      : work ? workDetails
+      : "Review the page, add feedback, or switch to Edit. Saved feedback stays here until you choose Send to agent.",
+    readonly && workDetails,
+    chrome.save.status === "saved" ? "Changes saved." : chrome.save.status === "saving" ? "Saving changes." : null,
   ].filter(Boolean).join(" ");
   const outsideFeedback = !snapshot.open || chrome.comparisonOpen || contextual;
   const feedbackErrors = [
@@ -919,10 +919,10 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
           <div className="conversation-comparison-title"><Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>Changes</h2></div>
           <div className="conversation-empty-result">
           <p>{!snapshot.review || snapshot.loading ? "Loading review history..." : snapshot.history.some((item) => item.result)
-            ? "No document changes reported. Read the agent replies in Feedback or the batch summaries in History."
+            ? "No document changes reported. Read the agent's replies in Feedback or the summaries in History."
             : snapshot.history.some((item) => item.state === "abandoned")
-            ? "No handled submission is selected. Abandoned work does not have an accepted result."
-            : "No handled submissions yet. Send feedback to receive a response and its available comparisons."}</p>
+            ? "There are no completed responses to compare."
+            : "No responses yet. Send feedback to get started."}</p>
           <Button variant="outline" onClick={() => {
             shell.commands.closeComparison(); owner.commands.focus(null); setHistoryOpen(false);
           }}>Open Feedback</Button>

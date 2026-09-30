@@ -12,15 +12,15 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
 }
 
 const statuses = {
-  "not-sent": { icon: "circleDashed", label: "Not sent", hint: "Saved feedback. Not sent until you choose Send.", modified: false },
-  sent: { icon: "send", label: "Sent", hint: "Submitted to the shared review. This is not confirmation of agent pickup or a read receipt.", modified: false },
-  received: { icon: "checkCheck", label: "Received", hint: "The agent picked up this submission or responded to this message. This is not a read receipt or proof the agent is currently working.", modified: false },
-  "request-change": { icon: "messageSquareDiff", label: "Change requested", hint: "A request and permission to change the document, not a reported edit.", modified: true },
+  "not-sent": { icon: "circleDashed", label: "Not sent", hint: "Saved. Choose Send to agent when you're ready.", modified: false },
+  sent: { icon: "send", label: "Sent", hint: "Your message was sent to the agent.", modified: false },
+  received: { icon: "checkCheck", label: "Received", hint: "The agent has your message.", modified: false },
+  "request-change": { icon: "messageSquareDiff", label: "Change requested", hint: "You asked the agent to change the document.", modified: true },
   resolved: { icon: "circleCheck", label: "Resolved", hint: "This conversation is resolved.", modified: false },
-  answered: { icon: "messageSquareCheck", label: "Answered", hint: "The agent answered. This does not indicate source changes or resolve the conversation.", modified: false },
-  applied: { icon: "filePenLine", label: "Change reported", hint: "The agent reported a change. This is not independent verification of a source save.", modified: true },
+  answered: { icon: "messageSquareCheck", label: "Answered", hint: "The agent replied to your message.", modified: false },
+  applied: { icon: "filePenLine", label: "Change reported", hint: "The agent says the requested change is complete.", modified: true },
   "clarification-needed": { icon: "messageCircleQuestion", label: "Needs clarification", hint: "The agent needs your input before continuing.", modified: true },
-  deferred: { icon: "circlePause", label: "Deferred", hint: "The agent deferred this request. It is not currently being processed.", modified: false },
+  deferred: { icon: "circlePause", label: "Deferred", hint: "The agent left this request for later.", modified: false },
 } satisfies Record<string, { icon: IconName; label: string; hint: string; modified: boolean }>;
 
 export function ConversationStatus({ kind, ended = false, className }: { kind: keyof typeof statuses; ended?: boolean; className?: string }) {

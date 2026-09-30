@@ -118,7 +118,7 @@ for (const theme of ["light", "dark"]) test(`neutral recovery, keyboard hints an
     const target = page.getByRole(role, { name, exact: true });
     await target.focus();
     await expect(page.getByRole("tooltip")).toContainText(hint);
-    if (name === "Change requested") await expect(page.getByRole("tooltip")).toContainText("not a reported edit");
+    if (name === "Change requested") await expect(page.getByRole("tooltip")).toHaveText("Change requested. You asked the agent to change the document.");
     await expect(target).toHaveAccessibleName(name);
     await expect(target).not.toHaveAttribute("title");
     await page.keyboard.press("Escape");

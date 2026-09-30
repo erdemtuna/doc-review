@@ -111,15 +111,15 @@ it("distinguishes Received double ticks from the circular Resolved symbol", () =
 });
 
 it.each([
-  ["not-sent", "Not sent", "Not sent until you choose Send"],
-  ["sent", "Sent", "not confirmation of agent pickup or a read receipt"],
-  ["received", "Received", "not a read receipt or proof the agent is currently working"],
-  ["request-change", "Change requested", "not a reported edit"],
-  ["resolved", "Resolved", "conversation is resolved"],
-  ["answered", "Answered", "does not indicate source changes"],
-  ["applied", "Change reported", "not independent verification"],
-  ["clarification-needed", "Needs clarification", "needs your input"],
-  ["deferred", "Deferred", "not currently being processed"],
+  ["not-sent", "Not sent", "Saved. Choose Send to agent when you're ready."],
+  ["sent", "Sent", "Your message was sent to the agent."],
+  ["received", "Received", "The agent has your message."],
+  ["request-change", "Change requested", "You asked the agent to change the document."],
+  ["resolved", "Resolved", "This conversation is resolved."],
+  ["answered", "Answered", "The agent replied to your message."],
+  ["applied", "Change reported", "The agent says the requested change is complete."],
+  ["clarification-needed", "Needs clarification", "The agent needs your input before continuing."],
+  ["deferred", "Deferred", "The agent left this request for later."],
 ] as const)("keeps %s informational with a keyboard-visible explanation", async (kind, label, explanation) => {
   const user = userEvent.setup();
   render(<ConversationStatus kind={kind} />);
@@ -128,7 +128,7 @@ it.each([
   expect(icon).not.toHaveAttribute("title");
   await user.tab();
   expect(icon).toHaveFocus();
-  expect(await screen.findByRole("tooltip")).toHaveTextContent(explanation);
+  expect((await screen.findByRole("tooltip")).textContent).toBe(`${label}. ${explanation}`);
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("tooltip")).toBeNull();
 });

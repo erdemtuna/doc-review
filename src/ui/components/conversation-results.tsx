@@ -17,9 +17,9 @@ export const responseOutcomeLabels = {
 };
 
 export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>["editOutcomes"][number]["outcome"] | undefined) {
-  return outcome === "already-saved" ? "Saved by you before Send; no additional agent edit reported."
-    : outcome === "applied" ? "Agent reported applying this source-pending edit."
-    : outcome === "deferred" ? "Deferred; no application reported for this edit." : "Edit outcome unavailable.";
+  return outcome === "already-saved" ? "You saved this edit before sending."
+    : outcome === "applied" ? "The agent says this edit has been applied."
+    : outcome === "deferred" ? "The agent left this edit for later." : "No update is available for this edit.";
 }
 
 export function ResultPreview({ body, actions }: { body: string; actions: (expandControl: ReactNode) => ReactNode }) {
@@ -112,10 +112,10 @@ export function EditEvidence({ edit }: { edit: Snapshot["edits"][number] }) {
       {content.kind === "deleted" && <div><dt>After</dt><dd>Removed by you</dd></div>}
       {content.kind === "moved" && <div><dt>Position</dt><dd>After: {content.moved_after} · Before: {content.moved_before}</dd></div>}
     </dl>
-    {content.truncated && <p>Incomplete capture. The agent must identify the source or clarify; it cannot apply truncated content.</p>}
+    {content.truncated && <p>This preview is incomplete. The agent needs the full text before applying the edit.</p>}
     <details className="conversation-edit-details"><summary>Exact edit details</summary>
       <pre>{JSON.stringify(content, null, 2)}</pre>
-      <p>{edit.source.state === "saved" ? "Already saved by you before Send." : "Source pending; recording this edit does not save it to source."}</p>
+      <p>{edit.source.state === "saved" ? "Saved directly to the document." : "Recorded for the agent to apply."}</p>
       <details><summary>Source evidence and identity</summary><pre>{JSON.stringify({ editId: edit.editId, version: edit.version, pageKey: edit.pageKey, source: edit.source }, null, 2)}</pre></details>
     </details>
   </>;
@@ -136,7 +136,7 @@ export function SubmissionResultNote({ detail }: { detail: ResultDetail }) {
         const outcome = result.editOutcomes.find((item) => item.editId === edit.editId && item.editVersion === edit.version);
         return <li key={edit.editId}>
           <div className="conversation-edit-heading"><strong className="feedback-edit-label">{edit.content.label}</strong>
-            <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Source pending at Send"}</Badge></div>
+            <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Sent for the agent to apply"}</Badge></div>
           <p>{editOutcomeSummary(outcome?.outcome)}</p>
           {outcome && <p>{outcome.reason}</p>}
           <EditEvidence edit={edit} />

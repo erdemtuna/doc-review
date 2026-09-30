@@ -171,7 +171,7 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await selectReviewMode(page, "View");
       await setReviewTheme(page); await setReviewTheme(page);
       await page.locator("#seeChanges").click();
-      await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No handled submissions");
+      await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No responses yet");
       await expect(page.locator("#commentsButton")).toBeHidden();
       await expect(page.locator(".conversation-lifecycle")).toBeVisible();
       const changesBadge = await page.locator(".conversation-lifecycle").boundingBox();
@@ -214,7 +214,7 @@ test("waiting and ended badges stay centered with receipt semantics and theme to
     await expect(badge).toHaveAttribute("data-slot", "badge");
     await expect(badge).toHaveAttribute("data-variant", ended ? "secondary" : "warning");
     await expect(badge).toHaveAttribute("role", "status");
-    await expect(badge).toHaveAccessibleDescription(/Waiting to be picked up/);
+    await expect(badge).toHaveAccessibleDescription(/Your feedback is waiting for the agent/);
     expect(await badge.evaluate((element) => element.tabIndex)).toBe(0);
     for (const theme of ["light", "dark"]) {
       if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
@@ -291,10 +291,10 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
       expect(polled.status, polled.raw).toBe(200);
     }
     if (state === "ended") await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
-    const explanation = state === "reviewing" ? "Saved feedback is not sent until you choose Send"
-      : state === "queued" ? "Waiting to be picked up"
-      : state === "received" ? "Feedback received; no response yet. This does not confirm an agent is currently working"
-      : "Accepted work can still finish; ending the review does not cancel it";
+    const explanation = state === "reviewing" ? "Saved feedback stays here until you choose Send to agent"
+      : state === "queued" ? "Your feedback is waiting for the agent"
+      : state === "received" ? "The agent has your feedback. Waiting for a response."
+      : "Work already sent to the agent can still finish";
     await expect(badge).toHaveAccessibleDescription(new RegExp(explanation));
     await expect(badge).not.toHaveAttribute("title");
     for (const theme of ["light", "dark"]) {
@@ -304,11 +304,13 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
         await page.locator("#latestVersion").focus();
         await badge.hover();
         await expect(tooltip).toContainText(explanation);
-        const box = await surface.boundingBox();
-        expect(box.x).toBeGreaterThanOrEqual(12);
-        expect(box.x + box.width).toBeLessThanOrEqual(width - 12);
-        expect(box.y + box.height).toBeLessThanOrEqual(450);
-        expect(await surface.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        await expect(async () => {
+          const box = await surface.boundingBox();
+          expect(box.x).toBeGreaterThanOrEqual(12);
+          expect(box.x + box.width).toBeLessThanOrEqual(width - 12);
+          expect(box.y + box.height).toBeLessThanOrEqual(450);
+          expect(await surface.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        }).toPass({ timeout: 5000 });
         await expect(surface).toHaveCSS("color", theme === "light" ? "rgb(41, 46, 43)" : "rgb(238, 239, 230)");
         await page.keyboard.press("Escape");
         await expect(tooltip).toHaveCount(0);
@@ -465,7 +467,7 @@ test("Changes has no invented identity, follows handled history, retains selecti
   const requests = [];
   page.on("request", (request) => { if (request.url().endsWith("/api/conversation/comparison")) requests.push(request.postDataJSON()); });
   await page.locator("#seeChanges").click();
-  await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No handled submissions");
+  await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No responses yet");
   expect(requests).toEqual([]);
   await seedThread(review, ref, "Explain without changing source");
   await sendPending(review, ref, { body: "Update the example", intent: "request-change" });

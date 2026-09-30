@@ -187,8 +187,9 @@ test("visible Focus return preserves the exact composing editor, caret and indep
     .toEqual([true, 2, 9]);
 });
 
-test("Sent and Received keep honest keyboard hints and layered Escape", async ({ page, review }) => {
-  const ref = await openReview(page, review, writeFile(review, "delivery-hints.html", source));
+for (const theme of ["light", "dark"]) test(`Sent and Received keep plain keyboard hints and layered Escape ${theme}`, async ({ page, review }, info) => {
+  await page.addInitScript(theme => localStorage.setItem("doc-review:theme", theme), theme);
+  const ref = await openReview(page, review, writeFile(review, `delivery-hints-${theme}.html`, source));
   await waitForSdk(page);
   const { threadId } = await seedThread(review, ref, "A submitted message.");
   await sendPending(review, ref);
@@ -196,8 +197,8 @@ test("Sent and Received keep honest keyboard hints and layered Escape", async ({
   await page.locator(".conversation-toast").getByRole("button", { name: "Dismiss notification" }).click();
   const card = page.locator(`[data-thread="${threadId}"]`);
   for (const [label, hint] of [
-    ["Sent", "not confirmation of agent pickup or a read receipt"],
-    ["Received", "not a read receipt or proof the agent is currently working"],
+    ["Sent", "Your message was sent to the agent."],
+    ["Received", "The agent has your message."],
   ]) {
     await feedback(page);
     const icon = card.getByRole("img", { name: label, exact: true });
@@ -208,7 +209,8 @@ test("Sent and Received keep honest keyboard hints and layered Escape", async ({
     await expect(icon).toHaveAccessibleName(label);
     await expect(icon).not.toHaveAttribute("title");
     await expect(icon).not.toHaveAttribute("aria-pressed");
-    await expect(page.getByRole("tooltip")).toContainText(hint);
+    await expect(page.getByRole("tooltip")).toHaveText(`${label}. ${hint}`);
+    await page.screenshot({ path: info.outputPath(`delivery-hint-${label.toLowerCase()}-${theme}.png`), animations: "disabled" });
     await page.keyboard.press("Escape");
     await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect(icon).toBeFocused();

@@ -536,13 +536,13 @@ it("uses descriptive focusable status Badges in a separate center slot, includin
   };
   expect(assertBadge("Reviewing", "outline")).toHaveClass("border-border", "text-foreground");
   expect(screen.queryByRole("button", { name: "More" })).toBeNull();
-  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Saved feedback is not sent until you choose Send/);
+  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Saved feedback stays here until you choose Send to agent/);
   status.work = { submissionId: "submission", state: "queued", version: 1 };
   await act(() => owner.refresh());
-  assertBadge("Waiting for agent", "warning", "Waiting to be picked up");
+  assertBadge("Waiting for agent", "warning", "Your feedback is waiting for the agent.");
   status.work.state = "delivered";
   await act(() => owner.refresh());
-  const receipt = "Feedback received; no response yet. This does not confirm an agent is currently working";
+  const receipt = "The agent has your feedback. Waiting for a response.";
   assertBadge("Waiting for agent", "warning", receipt);
   act(() => updateChrome({ comparisonOpen: true }));
   expect(screen.queryByRole("button", { name: "View" })).toBeNull();
@@ -550,7 +550,7 @@ it("uses descriptive focusable status Badges in a separate center slot, includin
   status.review.state = "ended"; status.review.endedAt = 2;
   await act(() => owner.refresh());
   expect(assertBadge("Review ended", "secondary", receipt)).toBeVisible();
-  expect(screen.getByRole("status", { name: "Review ended" })).toHaveAccessibleDescription(/Accepted work can still finish/);
+  expect(screen.getByRole("status", { name: "Review ended" })).toHaveAccessibleDescription(/Work already sent to the agent can still finish/);
   act(() => updateChrome({ comparisonOpen: false }));
   expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
   shell.dispose();
@@ -560,7 +560,7 @@ it("preserves source receipt details without a row and exposes all closed-Feedba
   const { owner, shell, updateChrome } = await fixture();
   const refresh = vi.spyOn(owner.commands, "refresh").mockResolvedValue(undefined);
   act(() => updateChrome({ save: { ...shell.getSnapshot().save, status: "saved" } }));
-  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Source saved/);
+  expect(screen.getByRole("status", { name: "Reviewing" })).toHaveAccessibleDescription(/Changes saved/);
   expect(screen.queryByRole("status", { name: "Review recovery" })).toBeNull();
   act(() => {
     owner.commands.open(false);

@@ -211,7 +211,7 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await expect(change).toBeVisible();
   await expect(change).not.toHaveAttribute("title");
   await change.focus();
-  await expect(page.getByRole("tooltip")).toHaveText("Change requested. A request and permission to change the document, not a reported edit.");
+  await expect(page.getByRole("tooltip")).toHaveText("Change requested. You asked the agent to change the document.");
   await page.keyboard.press("Escape");
   await expect(change).toHaveText("");
   await change.focus(); await expect(change).toBeFocused();

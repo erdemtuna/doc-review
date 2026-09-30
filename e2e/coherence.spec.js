@@ -105,7 +105,7 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   await expect(card.locator(".conversation-body")).toHaveText("An inline correction, not a duplicate comment.");
   await page.locator("#send").click();
   const lifecycle = page.getByRole("status", { name: "Waiting for agent", exact: true });
-  await expect(lifecycle).toHaveAccessibleDescription(/Waiting to be picked up/);
+  await expect(lifecycle).toHaveAccessibleDescription(/Your feedback is waiting for the agent/);
   await expect(page.locator(".conversation-status")).toBeHidden();
   const blockers = page.locator(".conversation-blockers");
   await expect(blockers).toBeHidden();
@@ -140,8 +140,8 @@ test("compact inline editing preserves one editor across hosts and waiting hides
   expect(await page.locator(".conversation-panel").innerText()).not.toMatch(/You can keep commenting|Technical details|review_|submission_/);
   const work = (await conversation(review, ref, "poll")).submission;
   expect(work.messages[0].message.body).toBe("An inline correction, not a duplicate comment.");
-  await expect(lifecycle).toHaveAccessibleDescription(/Feedback received; no response yet/);
-  await expect(lifecycle).toHaveAccessibleDescription(/does not confirm an agent is currently working/);
+  await expect(lifecycle).toHaveAccessibleDescription(/The agent has your feedback\. Waiting for a response\./);
+  await expect(lifecycle).not.toHaveAccessibleDescription(/proof|read receipt|currently working/);
   await expect(blockers).toBeHidden();
   await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(history).toContainText("Waiting for a response");

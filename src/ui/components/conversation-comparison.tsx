@@ -132,13 +132,13 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
       <ComparisonView comparison={value} mode={current.mode} comparisonKey={`${current.submissionId}:${current.pageKey}`} selectedIndex={index} />
     </div>}
     {!replyOnly && value && <details className="changes-diagnostics"><summary>About this comparison</summary>
-      <p>The comparison starts at Send. Your earlier edits are recorded above, not counted as new agent work. Captured differences do not prove who authored them.</p>
+      <p>Compares the document when you sent your feedback with the version captured afterward. Your earlier edits are listed separately.</p>
       <p>Submission: {current.submissionId} · Page: {current.pageKey}</p>
       {value.available === false && <p>{String(value.reason ?? "No compatible capture.")}</p>}
       <p className="changes-legend">{(["added", "modified", "removed"] as const).map((kind) =>
         <span key={kind} className={`changes-${kind}`}><Icon name={kind === "added" ? "plus" : kind === "modified" ? "pencil" : "minus"} />{kind}</span>)}</p>
       {view && <p>{view}</p>}
-      <p>Saved snapshots, not the live layout. Historical scripts, styles and image URLs are never replayed. A handled response does not guarantee a Content capture.</p>
+      <p>Content compares saved text and structure in a simplified layout. Source shows the saved source text.</p>
       {(["beforeCapturedAt", "afterCapturedAt"] as const).map((key) => typeof value[key] === "number" &&
         <p key={key}>{key === "beforeCapturedAt" ? "Before" : "After"} captured: {new Date(value[key]).toLocaleString()}</p>)}
       {Array.isArray(value.limitations) && value.limitations.length > 0 &&

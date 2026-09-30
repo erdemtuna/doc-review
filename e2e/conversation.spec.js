@@ -321,7 +321,7 @@ test("fresh and overlapping reviews block source writes and Send, but allow disc
   await second.locator("#send").click(); await expect(second.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   await call(review, { ...fresh, operation: "poll" });
   await expect(second.getByRole("status", { name: "Waiting for agent", exact: true }))
-    .toHaveAccessibleDescription(/Feedback received; no response yet/);
+    .toHaveAccessibleDescription(/The agent has your feedback\. Waiting for a response/);
   await submissionHistory(second);
   await second.getByRole("button", { name: "Abandon", exact: true }).click();
   await second.getByRole("button", { name: "Abandon submission", exact: true }).click();
@@ -626,7 +626,7 @@ test("oversized browser edits remain explicitly truncated source-pending feedbac
   await page.keyboard.insertText("x".repeat(200_005));
   await page.locator("#commentsButton").click();
   await feedback(page);
-  await expect(page.getByText("Incomplete capture.", { exact: false })).toBeVisible();
+  await expect(page.getByText("This preview is incomplete. The agent needs the full text before applying the edit.", { exact: true })).toBeVisible();
   await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.edits[0].content.truncated).toBe(true);
