@@ -39,7 +39,7 @@ export function responseTemplate(submission, requestId) {
       threadId: message.threadId, messageId: message.messageId, messageVersion: message.version, body: "", outcome: "",
     })),
     editOutcomes: submission.edits.map((edit) => ({ editId: edit.editId, editVersion: edit.version, outcome: "", reason: "" })),
-    ...(submission.overallNote ? { overallOutcome: "" } : {}), resultNote: "",
+    ...(submission.overallNote ? { overallOutcome: "" } : {}), summary: "", resultNote: "",
   };
 }
 
@@ -117,6 +117,7 @@ export function readAgent(conversations, input, command, source = "server") {
   const result = (read, preview = false, budget = 2048) => read.result ? {
     resultId: read.result.resultId, title: read.result.title, effect: read.result.effect,
     body: content(read, "result/body", preview, budget),
+    ...(read.result.summary === undefined ? {} : { summary: content(read, "result/summary", preview) }),
     ...(read.result.overallOutcome ? { overallOutcome: read.result.overallOutcome } : {}),
   } : null;
   function paginate(rows, binding, envelope, build = (row) => row, highWater) {

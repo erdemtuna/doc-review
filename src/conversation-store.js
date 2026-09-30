@@ -14,7 +14,7 @@ import {
 } from "./contracts/page-boundary.js";
 import {
   comparisonReferenceSchema, contextWindow, conversationListRequestSchema, latestExchange,
-  paginate, submissionHistoryItemSchema, threadSummarySchema, validatePageOutput,
+  paginate, submissionHistoryItemSchema, threadSummarySchema, validatePageOutput, editAttentionSchema,
 } from "./contracts/history.js";
 import { canonicalJson, reject, rejectSave, object, id, integer, nullable, timestamp, optional } from "./contracts/validation.js";
 import { compareCapturedViews } from "./view-identity.js";
@@ -45,6 +45,27 @@ const scopeFor = (record) => ({ authenticated: true, review: record.review, page
 const allSubmissions = (data) => values(data.conversations.reviews).flatMap((record) => values(record.submissions));
 const submittedEdit = (record, edit) => values(record.submissions).some((submission) =>
   submission.edits.some((item) => item.editId === edit.editId && item.version === edit.version));
+function editAttention(record) {
+  const submitted = new Map(), outcomes = new Map();
+  const key = (editId, version) => canonicalJson([editId, version]);
+  for (const submission of values(record.submissions)) {
+    for (const edit of submission.edits) submitted.set(key(edit.editId, edit.version), submission);
+    const result = submission.resultId ? record.results[submission.resultId] : null;
+    for (const outcome of result?.editOutcomes ?? []) {
+      outcomes.set(key(outcome.editId, outcome.editVersion), outcome);
+    }
+  }
+  return values(record.edits).flatMap((edit) => {
+    const identity = key(edit.editId, edit.version);
+    const submission = submitted.get(identity), outcome = outcomes.get(identity);
+    if (outcome && ["applied", "already-saved"].includes(outcome.outcome)) return [];
+    return [editAttentionSchema.parse({
+      sequence: edit.sequence, edit, stage: outcome ? "deferred" : submission?.state ?? "unsent",
+      submissionId: submission?.submissionId ?? null, outcome: outcome ?? null,
+      reason: outcome?.reason ?? submission?.abandonment?.reason ?? null,
+    })];
+  });
+}
 function entity(record, collection, id) {
   const result = own(record[collection], id);
   if (!result) reject("NOT_FOUND", `Unknown ${collection} identity in this review.`);
@@ -504,6 +525,7 @@ export class Conversations {
     const result = submissionResultSchema.parse({
       resultId, reviewId: request.reviewId, submissionId: submission.submissionId,
       createdAt: now, sequence: seq(record), author: "agent", body: request.resultNote,
+      ...(request.summary === undefined ? {} : { summary: request.summary }),
       title: resultTitle(request), effect: responseEffect(request), responses,
       editOutcomes: request.editOutcomes,
       ...(request.overallOutcome === undefined ? {} : { overallOutcome: request.overallOutcome }),
@@ -649,6 +671,8 @@ export class Conversations {
         const work = values(record.submissions).find(outstanding);
         return reviewStatusSchema.parse({
           review: record.review,
+          openThreadCount: values(record.threads).filter((thread) => thread.status === "open").length,
+          attentionEditCount: editAttention(record).length,
           pendingMessageCount: values(record.messages).filter((message) => message.submissionId === null).length,
           pendingEditCount: values(record.edits).filter((edit) => !submittedEdit(record, edit)).length,
           work: work ? { submissionId: work.submissionId, state: work.state, version: work.version } : null,
@@ -692,6 +716,10 @@ export class Conversations {
         rows = values(record.edits).filter(inPage).filter((edit) => !submittedEdit(record, edit));
         schema = directEditSchema;
         break;
+      case "edit-attention":
+        rows = editAttention(record).filter((item) => inPage(item.edit));
+        schema = editAttentionSchema;
+        break;
       case "context": {
         const thread = entity(record, "threads", scope.threadId);
         if (!inPage(thread)) reject("SCOPE_MISMATCH", "Thread belongs to another page.");
@@ -719,7 +747,8 @@ export class Conversations {
           return {
             sequence: submission.sequence, reviewId: scope.reviewId, submissionId: submission.submissionId,
             createdAt: submission.createdAt, state: submission.state,
-            result: result ? { resultId: result.resultId, body: result.body, createdAt: result.createdAt, title: result.title, effect: result.effect } : null,
+            result: result ? { resultId: result.resultId, body: result.body, createdAt: result.createdAt, title: result.title, effect: result.effect,
+              ...(result.summary === undefined ? {} : { summary: result.summary }) } : null,
             comparisonStatus: statuses.includes("pending") ? "pending" : statuses.every((status) => status === "ready") ? "ready" :
               statuses.every((status) => status === "not-requested") ? "not-requested" :
                 statuses.some((status) => status === "ready" || status === "partial") ? "partial" : "unavailable",

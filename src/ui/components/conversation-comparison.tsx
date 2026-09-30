@@ -7,7 +7,7 @@ import { Badge } from "./ui/badge";
 import { ChoiceMenu } from "./ui/choice-menu";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import { Icon } from "./icon";
-import { SubmissionResultNote, resultAvailability } from "./conversation-results";
+import { SubmissionResultNote, SubmittedFeedback, SubmittedEdits, ResultPreview, resultHeading, resultAvailability } from "./conversation-results";
 
 type Chrome = ReturnType<ConversationShell["getSnapshot"]>;
 type Snapshot = ReturnType<ConversationShell["owner"]["getSnapshot"]>;
@@ -71,12 +71,8 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
     ? String(value.viewComparison.message) : "";
   return <section ref={root} className="conversation-comparison comparison-host review-ui" aria-label="Saved comparison" hidden={!chrome.comparisonOpen}
     onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (menu) setMenu(null); else shell.commands.closeComparison(); } }}>
-    <div ref={title} className="conversation-comparison-title">
+    <div className="conversation-comparison-sticky"><div ref={title} className="conversation-comparison-title">
       <Button variant="outline" size="sm" onClick={shell.commands.closeComparison}>Back to review</Button><h2>{replyOnly ? "Agent response" : "Changes"}</h2></div>
-    {detail?.result && <SubmissionResultNote detail={detail} />}
-    {history && !replyOnly && <p className="conversation-comparison-summary">{resultAvailability(history)}</p>}
-    {chrome.captureFailures.filter(({ scope, message }) => scope.submissionId === current.submissionId && scope.pageKey === current.pageKey && message !== current.error)
-      .map(({ scope, message }) => <p className="conversation-capture-warning" key={scope.submissionId} role="alert">Content capture unavailable: {message}</p>)}
     {!replyOnly && <header ref={header} className="conversation-comparison-tools">
       <div className="changes-toolbar" role="group" aria-label="Comparison tools">
         <div className="changes-context">
@@ -111,7 +107,14 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
           </SegmentedControl>
         </div>
       </div>
-    </header>}
+    </header>}</div>
+    {detail?.result && (replyOnly ? <SubmissionResultNote detail={detail} /> :
+      <section className="conversation-comparison-summary" aria-label="Agent summary">
+        <ResultPreview body={detail.result.summary ?? resultHeading(detail)} actions={control => control} />
+      </section>)}
+    {history && !replyOnly && history.comparisonStatus !== "ready" && <p className="conversation-comparison-summary">{resultAvailability(history)}</p>}
+    {chrome.captureFailures.filter(({ scope, message }) => scope.submissionId === current.submissionId && scope.pageKey === current.pageKey && message !== current.error)
+      .map(({ scope, message }) => <p className="conversation-capture-warning" key={scope.submissionId} role="alert">Content capture unavailable: {message}</p>)}
     {current.loading && <p className="changes-controls" role="status">Loading saved comparison...</p>}
     {current.error && <div className="changes-controls" role="alert"><p>Couldn't load the change preview.</p><details><summary>Technical details</summary>{current.error}</details>
       {value && <p>Showing the previously loaded snapshot; the refresh failed.</p>}
@@ -128,9 +131,14 @@ export function ConversationComparison({ shell, chrome, snapshot }: { shell: Con
         {chrome.captureError && <p role="alert">{chrome.captureError}</p>}
       </>}
     </section>}
-    {value?.available === true && <div className={`comparison-surface comparison-${current.mode}`}>
+    {!replyOnly && value?.available === true && <div className={`comparison-surface comparison-${current.mode}`}>
       <ComparisonView comparison={value} mode={current.mode} comparisonKey={`${current.submissionId}:${current.pageKey}`} selectedIndex={index} />
     </div>}
+    {detail && <>
+      {!replyOnly && detail.result && <details className="changes-diagnostics"><summary>Full agent response</summary><SubmissionResultNote detail={detail} /></details>}
+      <details className="changes-diagnostics"><summary>Submitted feedback</summary><SubmittedFeedback detail={detail} /></details>
+      {!!detail.submission.edits.length && <details className="changes-diagnostics"><summary>Reviewer edits and evidence</summary><SubmittedEdits detail={detail} /></details>}
+    </>}
     {!replyOnly && value && <details className="changes-diagnostics"><summary>About this comparison</summary>
       <p>Compares the document when you sent your feedback with the version captured afterward. Your earlier edits are listed separately.</p>
       <p>Submission: {current.submissionId} · Page: {current.pageKey}</p>

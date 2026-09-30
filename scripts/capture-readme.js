@@ -50,6 +50,9 @@ try {
     await expect(page.locator("#modeLabel")).toHaveText(name);
   }
   async function capture(name) {
+    const notification = page.getByRole("button", { name: "Dismiss notification", exact: true });
+    if (await notification.isVisible()) await notification.click();
+    await expect(notification).toHaveCount(0);
     await page.mouse.move(0, 0);
     await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(".conversation-lifecycle")).toHaveText("Reviewing");
@@ -72,7 +75,7 @@ try {
     const composer = editor.locator("..");
     await expect(composer.getByLabel("Request a change")).not.toBeChecked();
     if (change) await composer.getByLabel("Request a change").check();
-    await composer.getByRole("button", { name: "Save message", exact: true }).click();
+    await composer.getByRole("button", { name: "Add comment", exact: true }).click();
     await expect(editor).toHaveCount(0);
   }
   await mode("Edit");
@@ -97,9 +100,17 @@ try {
   if (!await page.getByRole("complementary", { name: "Feedback", exact: true }).isVisible()) {
     await page.getByRole("button", { name: "Feedback", exact: true }).click();
   }
-  await page.getByLabel("Overall note", { exact: true }).fill(overallNote);
-  await expect(page.locator('[data-composer="note"]').getByLabel("Request a change")).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Note to agent", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toBeHidden();
+  await expect(page.getByLabel("2 open conversations", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("1 manual edits awaiting handling", { exact: true })).toBeVisible();
+  await page.locator(".conversation-thread").filter({ hasText: summaryFeedback })
+    .getByRole("button", { name: "Collapse conversation", exact: true }).click();
+  await expect(page.locator(".conversation-edit-list > li")).toBeInViewport({ ratio: 1 });
   await capture("doc-review-feedback.png");
+  await page.getByRole("button", { name: "Note to agent", exact: true }).click();
+  await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill(overallNote);
+  await expect(page.locator('[data-composer="note"]').getByLabel("Request a change")).not.toBeChecked();
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const delivered = contracts.pollResponseSchema.parse(await request({ operation: "poll", ...reference }));
@@ -108,23 +119,37 @@ try {
   const response = responseFor(delivered.submission, {
     responses: delivered.submission.messages.map(({ message }) => ({
       threadId: message.threadId, messageId: message.messageId, messageVersion: message.version,
-      outcome: "applied", body: "Updated this copy to describe the concrete benefit and action.",
+      outcome: "applied", body: message.body === summaryFeedback
+        ? "The description now names **notes and links** and explains how collections help you find an idea later."
+        : 'Changed the action to **Start a collection** so the next step is explicit.',
     })),
-    resultNote: "Made the benefit and next step concrete. Kept your headline edit.",
+    summary: "Clearer benefits and a specific next step. Your headline edit is preserved.",
+    resultNote: "Updated the landing-page copy while keeping its calm tone.\n\n- **Description:** names notes and links, with focused collections to help you find an idea later.\n- **Action:** now says **Start a collection**.\n- **Your edit:** kept **Your next good idea starts here.** exactly as saved.",
   });
   contracts.acceptedMutationSchema.parse(await request(response));
   await expect.poll(async () => (await request({ ...reference, submissionId: delivered.submission.submissionId,
     pageKey: reference.entryKey, mode: "content" }, "/api/conversation/comparison")).available, { timeout: 30_000 }).toBe(true);
+  await expect(page.getByLabel("0 manual edits awaiting handling", { exact: true })).toBeVisible();
   await page.locator("#seeChanges").click();
   const comparison = page.getByRole("region", { name: "Saved comparison" });
   await expect(comparison).toContainText("Start a collection");
   await expect(comparison).toContainText("Keep your notes and links");
+  await expect(comparison.getByRole("region", { name: "Agent summary" })).toHaveText(response.summary);
+  const fullResponse = comparison.locator("details.changes-diagnostics")
+    .filter({ has: page.locator("summary", { hasText: "Full agent response" }) });
+  await expect(fullResponse).toHaveJSProperty("open", false);
+  const diff = await comparison.locator(".comparison-surface").boundingBox();
+  const disclosure = await fullResponse.boundingBox();
+  assert.ok(diff.y + diff.height <= disclosure.y, "The diff must precede the full-response disclosure.");
   await capture("doc-review-changes.png");
   assert.deepEqual(errors, []);
   const cover = await browser.newPage({ viewport: { width: 1280, height: 640 }, deviceScaleFactor: 1 });
   await cover.setContent(readmeCover((await readFile(path.join(output, "doc-review.png"))).toString("base64")));
   await cover.locator("img").evaluate((image) => image.decode());
   await cover.evaluate(() => document.fonts.ready);
+  const preview = await cover.locator(".preview").boundingBox();
+  assert.ok(preview.x >= 0 && preview.y >= 0 && preview.x + preview.width <= 1280 &&
+    preview.y + preview.height <= 640, "Social cover must show the entire product capture.");
   await cover.screenshot({ path: path.join(output, "doc-review-social.png") });
   for (const name of ["doc-review", "doc-review-feedback", "doc-review-changes", "doc-review-social"]) {
     const png = await readFile(path.join(output, `${name}.png`));

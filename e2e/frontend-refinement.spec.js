@@ -180,15 +180,15 @@ for (const theme of ["light", "dark"]) test(`settled neutral expansion, readable
   const trigger = page.locator("#commentsButton"), count = page.locator("#toolbarCount");
   for (const desired of [0, 1, 11, 100]) {
     if (desired) {
-      for (let i = Number(await count.textContent()); i < desired; i++) {
+      for (let i = parseInt(await count.textContent(), 10); i < desired; i++) {
         await seedThread(review, ref, `Saved feedback ${i}`);
       }
     }
-    await expect(count).toHaveText(desired > 99 ? "99+" : String(desired));
+    await expect(count).toHaveText(`${desired} open`);
     for (const expanded of [true, false]) {
       await trigger.click(); await page.mouse.move(0, 0);
       await expect(trigger).toHaveAttribute("aria-expanded", String(expanded));
-      await expect(count).toHaveText(desired > 99 ? "99+" : String(desired));
+      await expect(count).toHaveText(`${desired} open`);
       await settled(trigger);
       await expect(count).toHaveCSS("color", await trigger.evaluate(n => getComputedStyle(n).color));
       expect(await renderedContrast(count)).toBeGreaterThanOrEqual(4.5);
@@ -229,7 +229,7 @@ for (const theme of ["light", "dark"]) test(`settled neutral expansion, readable
   await intercept(page, "status", route => failure(route, "Count temporarily unavailable", "INVALID_INPUT"));
   await page.evaluate(() => { window.refinementEvents.close(); window.refinementEvents.dispatchEvent(new Event("error")); });
   await expect(count).toHaveText("…");
-  await expect(trigger).toHaveAccessibleDescription("Count unavailable: saved pending feedback items");
+  await expect(trigger).toHaveAccessibleDescription("Count unavailable: open conversations");
   await trigger.click(); await settled(trigger);
   expect(await renderedContrast(count)).toBeGreaterThanOrEqual(4.5);
   await page.screenshot({ path: info.outputPath(`count-unavailable-${theme}.png`), animations: "disabled" });

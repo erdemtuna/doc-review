@@ -129,7 +129,7 @@ test("Comments, Your edits and optional note are independent disclosures with au
   await expect(page.locator(".conversation-edit-preview")).toContainText("Exact after");
   await expect(page.locator(".conversation-edits").getByRole("checkbox")).toHaveCount(0);
   await expect(page.locator("#send")).toHaveText("Send to agent (4)");
-  await expect(page.locator("#toolbarCount")).toHaveText("3");
+  await expect(page.locator("#toolbarCount")).toHaveText("2 open");
   await noteToggle.click();
   expect(await note.evaluate(node => [node === window.disclosureNote, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 7]);
   await page.locator("#send").click();

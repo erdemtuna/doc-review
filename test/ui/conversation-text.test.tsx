@@ -1,11 +1,11 @@
 import { afterEach, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { ConversationText } from "@/components/conversation-text";
+import { MessageMarkdown } from "@/components/message-markdown";
 
 afterEach(cleanup);
 
 it("renders paragraphs, emphasis, lists, code and tables without losing source examples", () => {
-  const { container } = render(<ConversationText>{`**Decision:** use *earlier* findings.
+  const { container } = render(<MessageMarkdown body={`**Decision:** use *earlier* findings.
 
 - Preserve history
 - Keep \`<b>exact markup</b>\`
@@ -18,7 +18,7 @@ it("renders paragraphs, emphasis, lists, code and tables without losing source e
 <b>earlier decisions</b>
 \`\`\`
 
-The exact <b>earlier decisions</b> markup is retained.`}</ConversationText>);
+The exact <b>earlier decisions</b> markup is retained.`} />);
   expect(container.querySelector("strong")).toHaveTextContent("Decision:");
   expect(container.querySelector("em")).toHaveTextContent("earlier");
   expect(screen.getAllByRole("listitem")).toHaveLength(2);
@@ -29,23 +29,23 @@ The exact <b>earlier decisions</b> markup is retained.`}</ConversationText>);
 });
 
 it("keeps hostile HTML and unsafe links inert without loading images", () => {
-  const { container } = render(<ConversationText>{`<script>alert(1)</script>
+  const { container } = render(<MessageMarkdown body={`<script>alert(1)</script>
 
 <img src=x onerror=alert(1)>
 
 [bad](javascript:alert) [data](data:text/html,evil) [safe](https://example.com)
 
-![remote](https://example.com/image.png)`}</ConversationText>);
+![remote](https://example.com/image.png)`} />);
   expect(container.querySelector("script,img,iframe,svg")).toBeNull();
   expect(screen.getAllByRole("link")).toHaveLength(1);
-  expect(screen.getByRole("link")).toHaveAttribute("href", "https://example.com");
+  expect(screen.getByRole("link")).toHaveAttribute("href", "https://example.com/");
   expect(screen.getByRole("link")).toHaveAttribute("rel", "noopener noreferrer");
   expect(container.textContent).toContain("<script>alert(1)</script>");
 });
 
 it("preserves multiline plain text and task list state", () => {
-  const { container } = render(<ConversationText>{"First line\nSecond line\n\n- [x] Done\n- [ ] Next"}</ConversationText>);
+  const { container } = render(<MessageMarkdown body={"First line\nSecond line\n\n- [x] Done\n- [ ] Next"} />);
   expect(container.querySelector("br")).not.toBeNull();
-  expect(screen.getByLabelText("Completed")).toBeVisible();
-  expect(screen.getByLabelText("Not completed")).toBeVisible();
+  expect(screen.getByLabelText("Completed task")).toBeVisible();
+  expect(screen.getByLabelText("Incomplete task")).toBeVisible();
 });

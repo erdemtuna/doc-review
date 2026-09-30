@@ -5,19 +5,18 @@ description: Open an HTML file, Markdown file, or localhost page for View-first 
 
 # doc-review
 
-Start only when the user explicitly invokes /doc-review or requests an interactive
-browser review. Another skill's automatic review step is not user permission.
-Otherwise respond normally without opening a review or polling.
+Only an explicit user request permits opening a review or polling; another
+skill's automatic review step does not.
 
-After the explicit review request, open the requested file or real localhost route:
+Open the requested file or real localhost route:
 
 ```sh
 npx -y @erdemtuna/doc-review path/to/file.html
 ```
 
-Retain `review.reviewId`, `review.entryKey`, receipt and URL. Copy the actual
-generated commands, not placeholder IDs. Opening after End creates a different
-review; never switch an existing handler to it.
+Retain `review.reviewId`, `review.entryKey`, receipt and URL. Copy generated
+commands, not placeholders. Opening after End creates a different review;
+never switch an existing handler to it.
 
 ## Read, handle, respond, wait
 
@@ -31,13 +30,12 @@ reconnect. On `timeout`, repeat the same poll. On `ended`, stop. On `work`, reta
 the submission identity/version and handle only that work.
 
 `submission.inventory` contains pages, messages, edits and any result outcomes.
-Follow `nextCursor` with the submission command until `complete`; counts cover
-the full obligation, not just this window. `inline` is complete; `reference`
-means retrieve exact content when needed. Read complete necessary evidence and
-authoritative source before editing. Exporting a file alone is not reading it.
-Delivery references/previews are NOT original capture truncation.
+Follow `nextCursor` until `complete`; counts cover the full obligation.
+`inline` is complete; retrieve `reference` content as needed. Read necessary
+evidence and authoritative source before editing; exporting is not reading.
+Delivery references/previews are NOT capture truncation.
 
-Load only the relevant reference:
+Read relevant references:
 
 - Before responding, read [response-contract](references/response-contract.md).
   Use `handoff.templateCommand` to create the complete inventory in a new file.
@@ -46,7 +44,7 @@ Load only the relevant reference:
 - For reviewer UI, follow-ups, large content, paging, compaction or recovery, read
   [context-and-recovery](references/context-and-recovery.md). Start with the
   closest relevant previous exchange or `handoff.historyCommand` (`--limit 1`).
-  Do not eagerly load every thread or all history. Agent context excludes current,
+  Do not load all history eagerly. Agent context excludes current,
   later and saved-unsent messages; browser drafts are not agent instructions.
 
 ## Non-negotiable boundaries
@@ -63,6 +61,12 @@ clarification, not guessed replacements.
 Respond exactly once per submitted message and exact edit version, plus one
 independent `resultNote`. A note requires scalar `overallOutcome`; its prose goes
 in `resultNote`. Do not invent success.
+
+Fill `summary` with 1-2 orientation sentences; `resultNote` is the full answer.
+Lead replies with the answer or exact clarification question. Aim for 1-2
+sentences and up to 3 useful bullets (40-90 words, not a limit). Use Markdown;
+avoid boilerplate, IDs/hashes and evidence dumps unless needed.
+Never auto-resend deferred/abandoned edits; they remain visible for follow-up.
 
 ```sh
 npx -y @erdemtuna/doc-review respond --review <reviewId> --entry <entryKey> --response-file response.json --timeout 600

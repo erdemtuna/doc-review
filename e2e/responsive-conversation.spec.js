@@ -5,8 +5,12 @@ import { threadAction } from "./conversation-actions.js";
 
 const matrix = [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]];
 const textGeometry = locator => locator.evaluate(node => {
-  const range = document.createRange(); range.selectNodeContents(node);
-  const lines = [...range.getClientRects()].filter(rect => rect.width && rect.height);
+  const range = document.createRange(), walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  const lines = [];
+  while (walker.nextNode()) {
+    range.selectNodeContents(walker.currentNode);
+    lines.push(...[...range.getClientRects()].filter(rect => rect.width && rect.height));
+  }
   const first = lines[0];
   let top = 0, bottom = innerHeight, left = 0, right = innerWidth;
   for (let parent = node; parent; parent = parent.parentElement) {

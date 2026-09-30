@@ -271,7 +271,7 @@ export const completeResponseSchema = object({
   operation: literal("respond"), reviewId: id, entryKey: id, submissionId: id,
   requestId: id, expectedVersion: version,
   responses: array(inlineResponseSchema), editOutcomes: array(directEditOutcomeSchema),
-  resultNote: text(), overallOutcome: optional(messageOutcomeSchema),
+  resultNote: text(), summary: optional(text()), overallOutcome: optional(messageOutcomeSchema),
 });
 export type CompleteResponse = Infer<typeof completeResponseSchema>;
 
@@ -320,7 +320,7 @@ export function responseEffect(response: CompleteResponse): "reply-only" | "chan
 }
 export const submissionResultSchema = object({
   resultId: id, reviewId: id, submissionId: id, createdAt: timestamp, sequence: integer(1),
-  author: literal("agent"), body: text(), title: enumeration(["What changed", "Agent response"]),
+  author: literal("agent"), body: text(), summary: optional(text()), title: enumeration(["What changed", "Agent response"]),
   effect: enumeration(["reply-only", "changes-reported"]),
   responses: array(agentMessageSchema), editOutcomes: array(directEditOutcomeSchema),
   overallOutcome: optional(messageOutcomeSchema),
@@ -459,7 +459,7 @@ export function validateResponseCommit(
   const result = submissionResultSchema.parse(resultInput);
   const receipt = handlingReceiptSchema.parse(receiptInput);
   if (result.reviewId !== submission.reviewId || result.submissionId !== submission.submissionId ||
-      result.body !== response.resultNote || result.title !== resultTitle(response) ||
+      result.body !== response.resultNote || result.summary !== response.summary || result.title !== resultTitle(response) ||
       result.effect !== responseEffect(response) || result.overallOutcome !== response.overallOutcome ||
       canonicalJson(result.editOutcomes) !== canonicalJson(response.editOutcomes) ||
       result.responses.length !== response.responses.length) {
@@ -502,6 +502,7 @@ export const submissionReadSchema = refine(object({
     operation: "respond", reviewId: submission.reviewId, entryKey: submission.entryKey, submissionId: submission.submissionId,
     requestId: receipt.requestId, expectedVersion: deliveredVersion,
     responses, editOutcomes: result.editOutcomes, resultNote: result.body,
+    ...(result.summary === undefined ? {} : { summary: result.summary }),
     ...(result.overallOutcome === undefined ? {} : { overallOutcome: result.overallOutcome }),
   }, result, receipt);
 });

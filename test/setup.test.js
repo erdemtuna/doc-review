@@ -22,9 +22,10 @@ test("skill activation requires an explicit interactive review request", () => {
   assert.match(contents, /^name: doc-review$/m);
   assert.match(description, /Use only when the user explicitly invokes \/doc-review/);
   assert.match(description, /Do not invoke merely because you write, update, discuss, or review/);
-  assert.match(contents, /Another skill's\s+automatic\s+review step is not user permission/);
-  assert.match(contents, /without opening a review or polling/);
-  assert.match(contents, /After the explicit review request/);
+  assert.match(contents, /Only an explicit user request permits opening a review or polling/);
+  assert.match(contents, /another\s+skill's automatic review step does not/);
+  assert.match(contents, /Open the requested file or real localhost route/);
+  assert.ok(Buffer.byteLength(skillFor(NPX_COMMAND)) <= 4096, "Shipped skill stays within the 4 KiB guidance budget");
   assert.doesNotMatch(contents, /Use after writing or updating something the user will read/);
 });
 

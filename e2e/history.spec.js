@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import { selectChoice } from "./choice-helpers.js";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, submissionHistory, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode, beginComment } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, feedback, submissionHistory, overallNote, enterEditMode, conversation, handled, listed, intercept, failure, selectText, mutate, selectReviewMode, beginComment, readLatestResponse } from "./helpers.js";
 
 async function sendNote(page, text = "Refine this source", change = true) {
   await feedback(page);
@@ -192,7 +192,7 @@ test("reply-only response creates neither a result capture nor a fake source ver
   const render = await page.locator("#frame").getAttribute("src");
   let captures = 0; await page.route("**/api/conversation/capture", async (route) => { captures++; await route.continue(); });
   const { work } = await handled(review, ref);
-  await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Answered without changing source.", { exact: true })).toBeVisible();
+  await readLatestResponse(page, "Answered without changing source.");
   expect(captures).toBe(0); expect(fs.readFileSync(file)).toEqual(bytes);
   expect(await page.locator("#frame").getAttribute("src")).toBe(render);
   expect((await compare(review, ref, work.submissionId)).available).toBe(false);

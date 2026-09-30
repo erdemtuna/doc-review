@@ -36,6 +36,15 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     ...ref, collection, pageKey: null, threadId: null, submissionId: null, status: "all", ...fields,
   }, query: {} });
   const ready = (tab) => expect(tab.locator("#frame")).toHaveAttribute("data-sdk-ready", "true");
+  const fullResponse = async (tab, text) => {
+    const latest = tab.getByRole("region", { name: "Latest submission result" });
+    await expect(latest).toContainText(text);
+    const disclosure = latest.locator(":scope > details");
+    if (!await disclosure.evaluate(node => node.open)) await disclosure.locator("summary").click();
+    await expect(disclosure.locator(".message-markdown")).toBeVisible();
+    await expect(disclosure.locator(".message-markdown")).toHaveText(text);
+    await disclosure.locator("summary").click();
+  };
   const mode = async (tab, name) => {
     await tab.locator("#modeButton").click();
     await tab.getByRole("menuitemradio", { name: new RegExp(`^${name}`) }).click();
@@ -155,7 +164,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     assert.equal(contextPage.totalCount, 0, "current work is not historical context");
     const firstFrame = await page.locator("#frame").getAttribute("src");
     await respond(ref, responseFor(first, { resultNote: "Discussion left every source byte unchanged." }));
-    await expect(page.locator(".conversation-result-preview")).toHaveText("Discussion left every source byte unchanged.");
+    await fullResponse(page, "Discussion left every source byte unchanged.");
     assert.equal(fs.readFileSync(target, "utf8"), original);
     assert.equal(await page.locator("#frame").getAttribute("src"), firstFrame, "reply-only response creates no fake version");
     evidence.push({ phase: "discussion", reviewId: ref.reviewId, submissionId: first.submissionId, unchanged: true });
@@ -241,8 +250,8 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     }
     assert.deepEqual(await respond(ref, response), accepted);
     assert.equal(fs.readFileSync(target, "utf8"), exactAfterAgent, "transport retry never repeats source edits");
-    await expect(page.locator(".conversation-result-preview")).toHaveText(response.resultNote);
-    await expect(second.locator(".conversation-result-preview")).toHaveText(response.resultNote);
+    await fullResponse(page, response.resultNote);
+    await fullResponse(second, response.resultNote);
     assert.equal((await read(ref, "submission", { submissionId: mixed.submissionId })).result.responses.length, mixed.messages.length);
     evidence.push({ phase: "mixed", submissionId: mixed.submissionId, savedEdits: mixed.edits.length,
       responseAttempts: attempts.length, receipt: accepted.receipt.requestId, sourceWrittenOnce: true });
@@ -299,7 +308,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await editBlocked(second, true);
     assert.equal((await list(freshRef, "threads")).totalCount, 0);
     await respond(ref, responseFor(outstanding, { resultNote: "Valid late result after shared End and restart." }));
-    await expect(page.locator(".conversation-result-preview")).toHaveText("Valid late result after shared End and restart.");
+    await fullResponse(page, "Valid late result after shared End and restart.");
     await editBlocked(second, false);
     assert.equal((await list(freshRef, "history")).totalCount, 0);
     assert.deepEqual(fs.readFileSync(staged[0].path), fs.readFileSync(path.join(project, "assets", staged[0].id)));
@@ -338,7 +347,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
         complete.editOutcomes[0].outcome = "applied";
         await respond(pendingRef, complete);
         assert.equal(fs.readFileSync(source, "utf8"), after);
-        await expect(second.locator(".conversation-result-preview")).toHaveText(complete.resultNote);
+        await fullResponse(second, complete.resultNote);
         evidence.push({ phase: "source-pending", kind, source: path.basename(source), submissionId: work.submissionId });
       } finally {
         if (app) { app.closeAllConnections(); await new Promise((resolve) => app.close(resolve)); }
@@ -400,7 +409,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     const noCapture = (await pick(unavailableRef)).submission;
     fs.writeFileSync(unavailableFile, "<p>After capture failure</p>");
     await respond(unavailableRef, responseFor(noCapture, { overallOutcome: "applied", resultNote: "Handled despite unavailable capture." }));
-    await expect(second.locator(".conversation-result-preview")).toHaveText("Handled despite unavailable capture.");
+    await fullResponse(second, "Handled despite unavailable capture.");
     const sourceComparison = await ok({ ...unavailableRef, submissionId: noCapture.submissionId, pageKey: unavailableRef.entryKey, mode: "source" }, "/api/conversation/comparison");
     assert.equal(sourceComparison.available, true);
     await second.unroute("**/api/conversation/capture");

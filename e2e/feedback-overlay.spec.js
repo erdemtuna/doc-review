@@ -133,12 +133,12 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
 test("Send includes all saved feedback with independent note permission and unknown counts stay explicit", async ({ page, review }) => {
   const ref = await openReview(page, review, writeFile(review, "feedback-selection.html", source));
   await waitForSdk(page); await seedThread(review, ref, "Saved discussion"); await feedback(page);
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
+  await expect(page.locator("#toolbarCount")).toHaveText("1 open");
   await expect(page.locator("#send")).toHaveText("Send to agent (1)");
   await expect(page.locator(".conversation-thread").getByRole("checkbox")).toHaveCount(0);
   await feedback(page);
   await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
+  await expect(page.locator("#toolbarCount")).toHaveText("1 open");
   await expect(page.locator("#send")).toBeEnabled();
   await page.getByRole("button", { name: /Note to agent/ }).click();
   await page.getByRole("textbox", { name: "Note to agent", exact: true }).fill("Only this note requests a change");
@@ -162,7 +162,7 @@ test("Send includes all saved feedback with independent note permission and unkn
   expect((await page.locator(".conversation-inventory").boundingBox()).height).toBeGreaterThanOrEqual(50);
   await page.unroute("**/api/conversation");
   await page.getByRole("button", { name: "Refresh review", exact: true }).click();
-  await expect(page.locator("#toolbarCount")).toHaveText("2");
+  await expect(page.locator("#toolbarCount")).toHaveText("2 open");
   await expect(page.locator("#send")).toHaveText("Send to agent (3)");
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
@@ -170,9 +170,9 @@ test("Send includes all saved feedback with independent note permission and unkn
   expect(work.messages).toHaveLength(2); expect(work.edits).toEqual([]);
   expect(work.messages.every(item => item.message.intent === "discuss")).toBe(true);
   expect(work.overallNote).toEqual({ body: "Only this note requests a change", intent: "request-change" });
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
+  await expect(page.locator("#toolbarCount")).toHaveText("2 open");
   await expect(page.locator("#send")).toBeDisabled();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
-  await expect(page.locator("#toolbarCount")).toHaveText("0");
+  await expect(page.locator("#toolbarCount")).toHaveText("2 open");
 });

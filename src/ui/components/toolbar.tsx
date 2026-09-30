@@ -14,7 +14,7 @@ export function Toolbar({ runtime }: { runtime: ToolbarController }) {
   return <ToolbarControls state={state} commands={runtime.commands} />;
 }
 
-export function ToolbarControls({ state, commands, readOnlyNavigation = false, editDisabled = false, pagePicker, status, changesId = "conversationChanges", feedbackCount = state.feedbackCount, feedbackCountLabel = "feedback items", documentTarget, documentLoading = false, pageMenuOpen = false, onOptionsOpen }: {
+export function ToolbarControls({ state, commands, readOnlyNavigation = false, editDisabled = false, pagePicker, status, changesId = "conversationChanges", feedbackCount = state.feedbackCount, feedbackCountLabel = "feedback items", feedbackInventory, documentTarget, documentLoading = false, pageMenuOpen = false, onOptionsOpen }: {
   state: ToolbarState;
   commands: ToolbarController["commands"];
   readOnlyNavigation?: boolean;
@@ -24,6 +24,7 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
   changesId?: string;
   feedbackCountLabel?: string;
   feedbackCount?: number | null;
+  feedbackInventory?: { openThreads: number; edits: number } | null;
   documentTarget?: CanonicalPage["target"] | null;
   documentLoading?: boolean;
   pageMenuOpen?: boolean;
@@ -67,9 +68,14 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
         <Icon name="messages" /><span className="shell-comments-label">Feedback</span>
         <Badge id="toolbarCount" variant="secondary" title={feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`}
           aria-label={feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`}>
-          {feedbackCount === null ? "…" : feedbackCount > 99 ? "99+" : feedbackCount}
+          {feedbackCount === null ? "…" : feedbackInventory ? `${feedbackInventory.openThreads} open` : feedbackCount > 99 ? "99+" : feedbackCount}
         </Badge>
-        <span id="feedbackCountDescription" className="sr-only">{feedbackCount === null ? "Count unavailable:" : feedbackCount} {feedbackCountLabel}</span>
+        {feedbackInventory !== undefined && <Badge variant="secondary"
+          aria-label={feedbackInventory ? `${feedbackInventory.edits} manual edits awaiting handling` : "Manual edit count unavailable"}>
+          {feedbackInventory ? `${feedbackInventory.edits} ${feedbackInventory.edits === 1 ? "edit" : "edits"}` : "…"}
+        </Badge>}
+        <span id="feedbackCountDescription" className="sr-only">{feedbackCount === null ? "Count unavailable:" : feedbackCount} {feedbackCountLabel}
+          {feedbackInventory && `; ${feedbackInventory.edits} manual edits awaiting handling`}</span>
       </Button>;
   const options = <ReviewOptions open={optionsOpen} onOpenChange={setOptions} disabled={state.ended && !readOnlyNavigation}
     theme={state.theme} onThemeChange={commands.setTheme} target={documentTarget} loading={documentLoading} />;

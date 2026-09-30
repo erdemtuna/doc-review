@@ -117,6 +117,99 @@ const rejected = (result, code) => {
   assert.equal(result.body.error.code, code, JSON.stringify(result));
 };
 
+test("authored summaries preserve exact response identity, reconstruction and legacy omission", async (t) => {
+  const f = await fixture(t), ref = await f.open();
+  await f.note(ref);
+  const work = (await f.poll(ref)).submission;
+  const summary = "  Brief **orientation**.\nSecond sentence.  ";
+  const request = f.response(work, { summary, resultNote: "Independent full answer." });
+  rejected(await f.call({ ...request, summary: " \n " }), "INVALID_INPUT");
+  const accepted = await f.ok(request);
+  assert.deepEqual(await f.ok(request), accepted);
+  rejected(await f.call({ ...request, summary: summary.trim() }), "REQUEST_CONFLICT");
+  rejected(await f.call({ ...request, summary: undefined }), "REQUEST_CONFLICT");
+  const read = await f.read(ref, "submission", { submissionId: work.submissionId });
+  assert.equal(read.result.summary, summary);
+  assert.equal(read.result.body, request.resultNote);
+  assert.throws(() => contract.validateResponseCommit(work, request, { ...read.result, summary: "Changed" }, read.receipt),
+    { code: "RESPONSE_COVERAGE" });
+  assert.equal((await f.list(ref, "history")).items[0].result.summary, summary);
+  await f.restart();
+  assert.equal((await f.read(ref, "submission", { submissionId: work.submissionId })).result.summary, summary);
+  assert.deepEqual(await f.ok(request), accepted);
+  await f.note(ref);
+  await f.ok(f.response((await f.poll(ref)).submission));
+  await f.restart();
+  assert.equal((await f.list(ref, "history")).items[0].result.summary, undefined);
+});
+
+test("attention is review-wide, paginated and exact-version based without changing immutable Send semantics", async (t) => {
+  const f = await fixture(t), ref = await f.open();
+  const other = (await f.mutate(ref, "join-page", { target: f.file("other.html") })).value.pageKey;
+  const firstThread = await f.thread(ref);
+  await f.thread(ref, { pageKey: other });
+  const saved = await f.mutate(ref, "record-edit", { pageKey: ref.entryKey, content: edit("Original", "Saved") });
+  await f.mutate(ref, "save-edit", { pageKey: ref.entryKey, editId: saved.value.editId, editVersion: 1,
+    expectedSourceHash: (await f.read(ref, "read-page", { pageKey: ref.entryKey })).page.sourceHash, html: "<p>Saved</p>" });
+  const created = [saved];
+  for (let i = 0; i < 104; i++) created.push(await f.mutate(ref, "record-edit", {
+    pageKey: other, content: edit("Original", `Replacement ${i}`, { label: `Paragraph ${i}` }),
+  }));
+  const allAttention = async () => {
+    let cursor, items = [];
+    do {
+      const page = contract.editAttentionPageSchema.parse(await f.list(ref, "edit-attention", {}, { limit: 50, ...(cursor ? { cursor } : {}) }));
+      items.push(...page.items); cursor = page.nextCursor;
+    } while (cursor);
+    return items;
+  };
+  let items = await allAttention();
+  assert.equal(items.length, 105);
+  assert.ok(items.every(item => item.stage === "unsent"));
+  assert.equal((await f.read(ref, "status")).openThreadCount, 2);
+  assert.equal((await f.list(ref, "threads", { status: "resolved" })).totalCount, 0);
+  const page = await f.list(ref, "edit-attention", {}, { limit: 1 });
+  rejected(await f.call({ operation: "list", scope: { ...ref, collection: "edits", pageKey: null, threadId: null, submissionId: null, status: "all" },
+    query: { cursor: page.nextCursor } }), "INVALID_CURSOR");
+  const selections = items.map(({ edit }) => ({ pageKey: edit.pageKey, editId: edit.editId, version: edit.version }));
+  await f.send(ref, [firstThread], selections, { pageKeys: [ref.entryKey, other] });
+  assert.equal((await f.read(ref, "status")).attentionEditCount, 105);
+  assert.equal((await f.list(ref, "edits")).totalCount, 0);
+  assert.ok((await allAttention()).every(item => item.stage === "queued"));
+  const work = (await f.poll(ref)).submission;
+  assert.ok((await allAttention()).every(item => item.stage === "delivered"));
+  const answer = f.response(work);
+  answer.editOutcomes = answer.editOutcomes.map((outcome, i) => ({
+    ...outcome, outcome: outcome.editId === saved.value.editId ? "already-saved" : i % 2 ? "applied" : "deferred",
+    reason: "Exact outcome reason.",
+  }));
+  const wrong = structuredClone(answer); wrong.editOutcomes[0].editVersion++;
+  rejected(await f.call(wrong), "RESPONSE_COVERAGE");
+  assert.equal((await f.read(ref, "status")).attentionEditCount, 105);
+  await f.ok(answer);
+  const deferred = answer.editOutcomes.filter(item => item.outcome === "deferred");
+  items = await allAttention();
+  assert.equal(items.length, deferred.length);
+  assert.ok(items.every(item => item.stage === "deferred" && item.reason === "Exact outcome reason." && item.submissionId === work.submissionId));
+  assert.equal((await f.read(ref, "status")).openThreadCount, 2, "response does not resolve a thread");
+  rejected(await f.call(await f.request(ref, "record-edit", { pageKey: other, editId: items[0].edit.editId,
+    editVersion: items[0].edit.version, content: edit("Original", "Changed") })), "MESSAGE_IMMUTABLE");
+  const next = await f.mutate(ref, "record-edit", { pageKey: other, content: edit("Original", "Deliberate new edit") });
+  const sent = await f.send(ref, [], [{ pageKey: other, editId: next.value.editId, version: 1 }], { pageKeys: [other] });
+  await f.ok({ operation: "abandon", ...ref, requestId: rid(), expectedVersion: 1,
+    submissionId: sent.value.submissionId, confirmExternalWorkMayContinue: true, reason: "Inspect external work first." });
+  items = await allAttention();
+  assert.equal(items.length, deferred.length + 1);
+  assert.equal(items.find(item => item.edit.editId === next.value.editId).stage, "abandoned");
+  assert.equal((await f.list(ref, "edits")).totalCount, 0);
+  await f.mutate(ref, "set-thread-status", { threadId: firstThread.value.threadId, status: "resolved" });
+  assert.equal((await f.read(ref, "status")).openThreadCount, 1);
+  await f.mutate(ref, "end", { confirmUnsentReadOnly: true });
+  await f.restart();
+  assert.deepEqual(await allAttention(), items);
+  assert.equal((await f.read(ref, "status")).attentionEditCount, items.length);
+});
+
 test("receipt identities are scoped by review or canonical open entry, with separate operation namespaces", async (t) => {
   const f = await fixture(t);
   const requestId = '__proto__:["open","review"]|shared';

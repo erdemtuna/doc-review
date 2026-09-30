@@ -280,7 +280,7 @@ try {
     const template = JSON.parse(await readFile(artifact.path, "utf8"));
     assert.throws(() => contracts.completeResponseSchema.parse(template));
     template.responses.forEach((reply) => { reply.body = "Recovered the prior explanation."; reply.outcome = "answered"; });
-    template.overallOutcome = "answered"; template.resultNote = "Answered without source changes.";
+    template.overallOutcome = "answered"; template.summary = "Answered without source changes."; template.resultNote = "Answered without source changes.";
     await writeFile(artifact.path, JSON.stringify(template));
     assert.equal(JSON.parse((await npxRun(npxWork.handoff.responseCommand)).stdout).ok, true);
     await npxRun(`npx -y ${expected.name} setup`);
@@ -372,7 +372,7 @@ try {
       connection: () => ({ base, token: info.token }),
       restart: async () => { const port = info.port; await stopServer(); await startServer(port); },
     });
-    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js|frontend-refinement.spec.js";
+    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js|frontend-refinement.spec.js|feedback-readability.spec.js|changes-controls.spec.js";
     try {
       const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=2",
         `--output=${path.join(evidenceDir, "installed-parity")}`], root, {

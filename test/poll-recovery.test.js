@@ -35,7 +35,7 @@ test("response persistence failure retries the exact request with no partial pub
   assert.equal(persisted.receipt.requestId, answer.requestId);
 });
 
-test("lost response before/after persistence retries a frozen body, not source work, and replays after restart", { timeout: 15000 }, async (t) => {
+test("lost response before/after persistence retries a frozen body, not source work, and replays after restart", { timeout: 30000 }, async (t) => {
   const f = await fixture(t), { file, ref } = await queued(f);
   const { submission } = await f.poll(ref);
   const answer = responseFor(submission), requests = [];

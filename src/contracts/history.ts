@@ -1,6 +1,6 @@
 import type { FeedbackBatch } from "./feedback.js";
 import {
-  agentMessageSchema, conversationThreadSchema, directEditSchema, reviewerMessageSchema,
+  agentMessageSchema, conversationThreadSchema, directEditSchema, directEditOutcomeSchema, reviewerMessageSchema,
   type AgentMessage, type ReviewerMessage,
 } from "./feedback.js";
 import {
@@ -252,7 +252,7 @@ export interface ComparisonInput {
 
 export const pagingScopeSchema = refine(object({
   reviewId: id, entryKey: id,
-  collection: enumeration(["threads", "context", "history", "pages", "edits", "comparisons"]),
+  collection: enumeration(["threads", "context", "history", "pages", "edits", "edit-attention", "comparisons"]),
   pageKey: nullable(id), threadId: nullable(id), submissionId: nullable(id),
   status: enumeration(["open", "resolved", "all"]),
 }), (scope) => {
@@ -396,7 +396,7 @@ export function contextWindow(
   return validatePageOutput(paginate(exchanges, scope, query, currentSequence), exchangeSchema, scope, query);
 }
 export const resultSummarySchema = object({
-  resultId: id, body: text(), createdAt: timestamp,
+  resultId: id, body: text(), summary: optional(text()), createdAt: timestamp,
   title: enumeration(["What changed", "Agent response"]), effect: enumeration(["reply-only", "changes-reported"]),
 });
 export const submissionHistoryItemSchema = refine(object({
@@ -418,3 +418,21 @@ export const comparisonReferenceSchema = object({
 export const comparisonReferencePageSchema = pagedSchema(comparisonReferenceSchema);
 /** Only review-local unsubmitted edits; submitted versions remain in submission reads. */
 export const directEditPageSchema = pagedSchema(directEditSchema);
+export const editAttentionSchema = refine(object({
+  sequence: integer(1), edit: directEditSchema,
+  stage: enumeration(["unsent", "queued", "delivered", "deferred", "abandoned"]),
+  submissionId: nullable(id), outcome: nullable(directEditOutcomeSchema), reason: nullable(text()),
+}), (item) => {
+  if (item.sequence !== item.edit.sequence ||
+      (item.stage === "unsent") !== (item.submissionId === null) ||
+      (item.stage === "deferred") !== (item.outcome !== null) ||
+      (["deferred", "abandoned"].includes(item.stage)) !== (item.reason !== null)) {
+    reject("INVALID_INPUT", "Invalid edit attention lifecycle.");
+  }
+  if (item.outcome && (item.outcome.editId !== item.edit.editId || item.outcome.editVersion !== item.edit.version ||
+      item.outcome.outcome !== "deferred" || item.outcome.reason !== item.reason)) {
+    reject("INVALID_INPUT", "Attention outcome does not describe this exact edit.");
+  }
+});
+export type EditAttention = Infer<typeof editAttentionSchema>;
+export const editAttentionPageSchema = pagedSchema(editAttentionSchema);

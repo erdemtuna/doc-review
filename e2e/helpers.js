@@ -243,6 +243,15 @@ export async function handled(review, ref, fields = {}) {
   return { work, response, receipt: acceptedMutationSchema.parse(result.json()).receipt };
 }
 
+export async function readLatestResponse(page, text) {
+  const latest = page.getByRole("region", { name: "Latest submission result" });
+  await expect(latest).toContainText(text);
+  const disclosure = latest.locator(":scope > details");
+  if (!await disclosure.evaluate(node => node.open)) await disclosure.locator("summary").click();
+  await expect(disclosure.locator(".message-markdown")).toBeVisible();
+  await expect(disclosure.locator(".message-markdown")).toHaveText(text);
+}
+
 export async function intercept(page, operation, handler) {
   await page.route("**/api/conversation", async (route) => {
     if (route.request().postDataJSON().operation === operation) await handler(route);

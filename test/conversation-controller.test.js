@@ -29,6 +29,40 @@ async function controller(t, configure = {}) {
   return { f, ref, target, owner, calls, intercept(value) { intercept = value; } };
 }
 const target = { kind: "element", anchor: { selector: "p", label: "Paragraph" } };
+test("authoritative attention inventory stays separate from Send through paging, deferral and unavailable reads", async (t) => {
+  const c = await controller(t);
+  await c.f.thread(c.ref);
+  for (let i = 0; i < 101; i++) await c.f.mutate(c.ref, "record-edit", {
+    pageKey: c.ref.entryKey, content: editContent("Original", `Pending ${i}`, { label: `Edit ${i}` }),
+  });
+  await c.owner.refresh();
+  assert.deepEqual(c.owner.getSnapshot().inventory, { openThreads: 1, edits: 101 });
+  assert.equal(c.owner.getSnapshot().attentionEdits.length, 101);
+  assert.equal(c.owner.getSnapshot().selection.total, 102);
+  await c.owner.commands.send();
+  assert.deepEqual(c.owner.getSnapshot().inventory, { openThreads: 1, edits: 101 });
+  assert.equal(c.owner.getSnapshot().selection.total, 0);
+  assert.equal(c.owner.getSnapshot().edits.length, 0);
+  const work = (await c.f.exportPoll(c.ref)).submission;
+  assert.equal((await c.f.respond(c.ref, responseFor(work))).code, 0);
+  await c.owner.refresh();
+  assert.ok(c.owner.getSnapshot().attentionEdits.every(item => item.stage === "deferred"));
+  c.owner.commands.filter("open"); c.owner.commands.filter("resolved");
+  assert.deepEqual(c.owner.getSnapshot().inventory, { openThreads: 1, edits: 101 });
+  c.intercept(async (body, response) => {
+    if (body.operation === "list" && body.scope.collection === "edit-attention") {
+      const value = await response.json();
+      return new Response(JSON.stringify({ ...value, items: [], nextCursor: null }), { status: 200 });
+    }
+    return response;
+  });
+  await assert.rejects(c.owner.refresh(), /incomplete/);
+  assert.equal(c.owner.getSnapshot().inventory, null);
+  assert.equal(c.owner.getSnapshot().attentionEdits.length, 101, "uncertain reads do not erase known evidence");
+  c.intercept(null); await c.owner.refresh();
+  c.owner.commands.connected(false);
+  assert.equal(c.owner.getSnapshot().inventory, null);
+});
 test("unchanged refreshes reuse submission bodies across delivery and completion", async (t) => {
   const c = await controller(t);
   await c.f.send(c.ref, [], [], { overallNote: { body: "Discuss only", intent: "discuss" } });

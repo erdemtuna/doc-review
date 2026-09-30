@@ -57,6 +57,7 @@ export const pollResponseSchema = union(
 );
 export const reviewStatusSchema = object({
   review: reviewSchema,
+  openThreadCount: integer(), attentionEditCount: integer(),
   pendingMessageCount: integer(), pendingEditCount: integer(),
   work: nullable(object({ submissionId: id, state: enumeration(["queued", "delivered"]), version })),
   blockers: array(object({ reviewId: id, submissionId: id, targetKeys: array(id) })),
