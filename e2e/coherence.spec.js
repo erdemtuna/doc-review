@@ -514,16 +514,30 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     if (popup) {
       await expect(page.locator(".conversation-panel")).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();
-      await expect(page.getByText("Conversation resolved.", { exact: true })).toBeHidden();
+      await expect(page.locator(".conversation-toast")).toContainText("Conversation resolved.");
       await page.screenshot({ path: info.outputPath(`dismissed-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
+    }
+    const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
+    if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
+    await expect(undo).toBeVisible();
+    await expect(undo).toBeInViewport({ ratio: 1 });
+    if (theme === "light") {
+      await undo.click();
+      await expect(card).toHaveAttribute("data-status", "open");
+      await expect(undo).toHaveCount(0);
+      if (popup) await feedback(page);
+      await card.getByRole("button", { name: "Resolve conversation", exact: true }).click();
+      await expect(undo).toBeVisible();
+    } else if (popup) {
       await feedback(page);
       await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
     }
+    await page.getByRole("button", { name: "Dismiss notification", exact: true }).click();
+    await expect(undo).toHaveCount(0);
     if (await page.locator(".conversation-panel").getAttribute("data-host") === "feedback") {
       const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
       if (await resolvedFilter.getAttribute("aria-pressed") === "false") {
         await expect(card).toBeHidden();
-        await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
         await resolvedFilter.click();
       }
     }
@@ -531,22 +545,16 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     await expect(card.getByRole("img", { name: "Resolved", exact: true })).toHaveAccessibleName("Resolved");
     await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toHaveAttribute("aria-expanded", "false");
     await expect(card.locator(".conversation-thread-content")).toBeHidden();
-    if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
     await expect(await threadAction(page, card, "Reopen conversation")).toBeEnabled();
     await page.keyboard.press("Escape");
     await expect(card.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
     expect((await card.boundingBox()).height).toBeLessThan(openHeight);
-    const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
-    await expect(undo).toBeVisible();
-    await undo.scrollIntoViewIfNeeded();
-    await expect(undo).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`resolved-${host}-${theme}-${width}.png`), caret: "initial" });
     await card.getByRole("button", { name: "Expand conversation", exact: true }).click();
     await expect(card.locator(".conversation-response")).toBeVisible();
     await expect(card.getByRole("img", { name: "Resolved", exact: true })).toBeVisible();
     await expect(card.getByRole("button", { name: "Reopen conversation", exact: true })).toBeVisible();
-    if (theme === "light") await undo.click();
-    else await card.getByRole("button", { name: "Reopen conversation", exact: true }).click();
+    await card.getByRole("button", { name: "Reopen conversation", exact: true }).click();
     await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
     await expect(card.getByRole("img", { name: "Resolved", exact: true })).toHaveCount(0);
     await expect(card.locator(".conversation-response")).toBeVisible();

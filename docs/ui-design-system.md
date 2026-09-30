@@ -20,8 +20,8 @@ colors, unread dots, or reduced text/control opacity. Explicit expansion survive
 refreshes; reopening or Undo expands the conversation again. A remote resolution
 never hides an existing local draft.
 An adjacent popup closes on confirmed resolution and returns keyboard focus to
-Feedback without changing the selected filters. Opening Feedback offers version-safe
-Undo; enable Resolved to see the collapsed card. Resolution does not close the regular Feedback or Focus sidebar.
+Feedback without changing the selected filters. A screen notification offers version-safe
+Undo without reopening Feedback; enable Resolved to see the collapsed card. Resolution does not close the regular Feedback or Focus sidebar.
 Resolved threads retain target geometry for navigation but do not paint document
 highlights or count toward document badges. Reopen/Undo restores annotations;
 resolving one of several threads at a shared target leaves its open peers marked.
@@ -29,7 +29,8 @@ Document highlights and badges toggle their conversation surface on repeated
 activation, including shared targets, without discarding reply drafts.
 The element hover outline is a single dashed boundary, without an outer shadow
 or solid halo.
-Their shared segmented controls retain selected paint without hover or focus.
+Open/Resolved are separate outlined filter buttons with independent checkmarks,
+not a connected single-choice selector. Both or neither may be selected.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages
 are unboxed, share author/avatar/time metadata and retain 13px body text.
@@ -65,9 +66,10 @@ is a compact icon beside each eligible message's timestamp. Editing substitutes
 Close edit at that exact location, without a pinned last-message special case.
 Sidebar/Focus headers contain source and state, then Locate, More, Collapse/Expand.
 Adjacent headers contain source and state, then Open in Feedback, More, Close.
-Popup Collapse/Expand and Focus's Open in Feedback live in More. There is no
-duplicate header Resolve or misleading Back to Feedback row. Genuine Back to
-replies navigation is retained. Close hides the popup without discarding drafts.
+Popup Collapse/Expand lives in More. Ordinary Focus has a visible Back to Feedback
+action above the conversation; adjacent popups do not duplicate it. Genuine Back to
+replies navigation is retained instead in a result reply reader. There is no
+duplicate header Resolve. Close hides the popup without discarding drafts.
 Open in Feedback returns to the actual inventory without changing Open/Resolved
 filters. A named, dismissible temporary reveal shows an excluded originating
 thread; changing filters or leaving this inventory context expires the exception.
@@ -94,9 +96,16 @@ Editing an unsent message replaces its body inside that exchange, never appendin
 duplicate editor after the transcript. No transfer clones a textarea. Collapse and Close preserve drafts and reading
 state; neither resolves a thread. One-click Resolve/Reopen is server-guarded
 and refuses drafts, pending messages, and accepted work.
-Undo is bound to the exact accepted review version and disappears after any newer
-review mutation or End; uncertain receipts must reconcile before Undo appears.
-The Undo action remains reachable in all hosts. Enter queues the draft, Shift+Enter inserts a newline,
+Accepted-operation messages appear in a five-second Radix notification outside
+sidebar layout, above any overlapping footer or visible conversation actions,
+announced politely without moving focus. Hover, keyboard focus
+and window blur pause expiry; a pending action cannot dismiss it. Resolve offers
+Undo there while its exact accepted review version remains current; newer mutations
+or End remove Undo, and uncertain receipts must reconcile before it appears.
+Repeated accepted requests reset the notification by receipt identity. F8 reaches
+notifications; they also have a named dismiss control. Recovery guidance, read-only
+information and unfinished-draft warnings remain persistent, never timed away.
+Enter queues the draft, Shift+Enter inserts a newline,
 Escape cancels; active IME composition is never intercepted. The overall note
 stays multiline and submission-only: Enter must not Send. Comments and Your edits
 collapse independently without unmounting their contents. The optional overall
@@ -258,10 +267,12 @@ commands, not choices, over the same low-level Radix menu foundation.
 The mixed Review options utility menu uses that foundation too, not a seventh
 ChoiceMenu or a new control family.
 
-Four segmented groups share one family: Review/Changes, Feedback/History and
-Document/Source are single-choice; Open/Resolved is independent multiple choice
-and permits both or neither. These remain Tab-reachable pressed buttons, not
-tabs or exclusive radio filters. NativeSelect is retained only for recovery
+Three segmented groups share one family: Review/Changes, Feedback/History and
+Document/Source are single-choice. Open/Resolved instead use distinct `FilterButton`
+controls with separated borders and independent checkmarks. These remain
+Tab-reachable pressed buttons and permit both or neither, not exclusive radios.
+Review options follows View/Edit at the far right in visual and keyboard order.
+NativeSelect is retained only for recovery
 preview fixture tooling; Toggle/ToggleGroup are removed.
 
 `IconButton` composes Button and a visible hover/keyboard `ControlHint` without a

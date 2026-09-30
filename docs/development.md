@@ -118,7 +118,7 @@ durable server. The installed-package browser smoke below exercises the complete
 HTML/Markdown/scripted/URL lifecycle and retained comparisons.
 
 The foundations gallery composes the current brand, all six Button roles,
-ChoiceMenu, single/multiple SegmentedControl, permission Checkbox, informational
+ChoiceMenu, single-choice SegmentedControl, independent FilterButton, permission Checkbox, informational
 hints, conversation metadata, results, timeline, recovery and rich comparisons.
 The recovery gallery renders `RecoveryNotice`/`ReceiptRecovery` with explicitly
 synthetic states; its native selector chooses fixtures, not review data. Neither
@@ -152,6 +152,8 @@ preview implements a parallel workflow or ships in the package.
 | Decorative picker outlines with readable labels/icons/focus; essential field borders unchanged | `e2e/ui-foundations.spec.js`, choice-menu and existing six-picker browser coverage |
 | Canonical original file copy, explicit theme choices, failure/retry, stale completion and loading | review-options component tests and refinement browser suite |
 | Menu focus return versus retained SDK editor state; later acknowledgment/retry cannot steal resumed editor focus | theme-sync/theme-recovery browser suites |
+| Five-second notification outside sidebar flow; hover/focus pause, repeat identity, pending Undo, no focus theft and retained recovery information | `test/ui/conversation-notification.test.tsx`, conversation-controller tests, `e2e/usability-feedback.spec.js` |
+| Separate independent checked filters, far-right utilities and visible Focus return retaining the same IME editor | usability-feedback and refinement browser suites; conversation and toolbar component tests |
 
 The refinement suite does not change the browser engine. Its two isolated
 scrollbar configurations toggle Chromium's native overlay feature and record

@@ -33,8 +33,10 @@ reveals the exact passage, hiding a floating panel only when it would obscure th
 target. Focus and secondary thread actions are in the conversation menu.
 Resolve/Reopen sits opposite Reply below an expanded conversation and remains in
 Conversation actions when collapsed or a local draft is open. Resolve refuses unfinished drafts,
-unsent messages and outstanding agent work; Undo resolve is available only while
-the accepted review version is still current.
+unsent messages and outstanding agent work; a five-second notification offers
+Undo resolve only while the accepted review version is still current.
+Hover or keyboard focus pauses the notification. Focus includes a visible
+Back to Feedback action; Open/Resolved are separate independent filters.
 Sidebar headers end with Locate, More and Collapse; adjacent headers use Open in
 Feedback, More and Close. Edit belongs beside each eligible message's timestamp.
 Resolved conversations automatically collapse and show a subdued check-circle

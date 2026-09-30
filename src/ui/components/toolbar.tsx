@@ -61,8 +61,7 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
         onOpenChange={commands.setModeMenu}
         onValueChange={mode => { if (mode === "view" || mode === "edit") commands.setMode(mode); }} />
     </div>;
-  const actions = <div className="shell-actions">
-      <Button id="commentsButton" variant="ghost"
+  const feedback = <Button id="commentsButton" variant="ghost"
         aria-controls="drawer" aria-label="Feedback" aria-describedby="feedbackCountDescription" aria-expanded={state.drawerOpen}
         hidden={state.comparing} disabled={state.ended && !readOnlyNavigation} onMouseDown={(event) => event.preventDefault()} onClick={commands.openComments}>
         <Icon name="messages" /><span className="shell-comments-label">Feedback</span>
@@ -71,15 +70,12 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
           {feedbackCount === null ? "…" : feedbackCount > 99 ? "99+" : feedbackCount}
         </Badge>
         <span id="feedbackCountDescription" className="sr-only">{feedbackCount === null ? "Count unavailable:" : feedbackCount} {feedbackCountLabel}</span>
-      </Button>
-      <ReviewOptions open={optionsOpen} onOpenChange={setOptions} disabled={state.ended && !readOnlyNavigation}
-        theme={state.theme} onThemeChange={commands.setTheme} target={documentTarget} loading={documentLoading} />
-    </div>;
+      </Button>;
+  const options = <ReviewOptions open={optionsOpen} onOpenChange={setOptions} disabled={state.ended && !readOnlyNavigation}
+    theme={state.theme} onThemeChange={commands.setTheme} target={documentTarget} loading={documentLoading} />;
   return <>
     {destinations}
-    {status ? <>
-      <div className="shell-status">{status}</div>
-      <div className="shell-tools">{actions}{modeControls}</div>
-    </> : <>{modeControls}{actions}</>}
+    {status && <div className="shell-status">{status}</div>}
+    <div className="shell-tools">{feedback}{modeControls}{options}</div>
   </>;
 }

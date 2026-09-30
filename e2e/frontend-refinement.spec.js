@@ -32,7 +32,7 @@ async function geometry(page, card, mode, focused = false) {
       const owner = focused ? transcript : inventory;
       const meta = node.querySelector(".conversation-meta").getBoundingClientRect();
       const rails = [
-        ".conversation-panel-header .segmented-control", ".conversation-filters .segmented-control",
+        ".conversation-panel-header .segmented-control", ".conversation-filter-buttons",
         ".conversation-inventory > .conversation-section-toggle", ".conversation-thread:not([hidden])",
         ".conversation-footer-controls > button", ".feedback-actions > button",
       ].map(selector => panel.querySelector(selector)).filter(n => n?.getClientRects().length).map(n => n.getBoundingClientRect().left - left);
@@ -93,10 +93,11 @@ for (const mode of ["classic", "overlay"]) nativeTest.describe(`native ${mode} s
       await card.getByRole("button", { name: "Expand conversation", exact: true }).click();
       await (await threadAction(page, card, "Focus")).click();
       samples.push({ host: "focus-long", ...await geometry(page, card, mode, true) });
-      await expect(card.getByRole("button", { name: "Back to Feedback" })).toHaveCount(0);
-      await (await threadAction(page, card, "Open in Feedback")).click();
+      await expect(panel(page).getByRole("button", { name: "Back to Feedback", exact: true })).toBeInViewport({ ratio: 1 });
+      await panel(page).getByRole("button", { name: "Back to Feedback", exact: true }).click();
       await (await threadAction(page, card, "Beside target")).click();
       await expect(panel(page)).toHaveAttribute("data-host", "adjacent");
+      await expect(page.getByRole("button", { name: "Back to Feedback", exact: true })).toHaveCount(0);
       await expect.poll(() => card.locator(".conversation-thread-actions button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")))).toEqual([
         "Open in Feedback", "Conversation actions", "Close conversation",
       ]);

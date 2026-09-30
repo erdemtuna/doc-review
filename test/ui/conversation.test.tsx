@@ -278,13 +278,16 @@ it("cards default to Open only and filters independently allow both or neither",
   expect(screen.getByRole("button", { name: "Collapse conversation", expanded: true })).toBeVisible();
   const open = screen.getByRole("button", { name: "Open (1)" });
   const resolved = screen.getByRole("button", { name: "Resolved (0)" });
+  expect(screen.getByRole("group", { name: "Conversation filters" })).not.toHaveClass("segmented-control");
+  expect(open).toHaveClass("filter-button");
   expect(open).toHaveAttribute("aria-pressed", "true");
   expect(resolved).toHaveAttribute("aria-pressed", "false");
   fireEvent.click(resolved);
   expect(resolved).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(open);
   expect(card).not.toBeVisible();
-  expect(open).toHaveAttribute("data-variant", "ghost");
+  expect(open).toHaveAttribute("data-variant", "outline");
+  expect(open).toHaveAttribute("aria-pressed", "false");
   expect(resolved).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(resolved);
   expect(resolved).toHaveAttribute("aria-pressed", "false");

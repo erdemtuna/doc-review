@@ -33,6 +33,8 @@ it("owns accessible destinations with stable controls and one command per Strict
   expect(brand).toHaveAttribute("height", "32");
   expect(brand).not.toHaveAttribute("tabindex");
   expect(screen.getByRole("group", { name: "Review destination" })).not.toContainElement(brand);
+  expect([...document.querySelectorAll(".shell-tools button")].map(button => button.getAttribute("aria-label")))
+    .toEqual(["Feedback", "Page mode: View", "Review options"]);
   const review = screen.getByRole("button", { name: "Review" });
   const changes = screen.getByRole("button", { name: "Changes" });
   expect(review).toHaveAttribute("aria-controls", "frame");

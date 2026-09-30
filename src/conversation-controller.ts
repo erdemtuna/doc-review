@@ -58,6 +58,7 @@ export function createConversationController(options: Options) {
   let revealRequest = 0;
   let resolutionGuardId: string | null = null;
   let resolutionUndo: { threadId: string; reviewVersion: number } | null = null;
+  let notification: { id: string; message: string; undoThreadId?: string } | null = null;
   let note = conversationDraft();
   let newMessage: { pageKey: string; target: ConversationTarget; draft: ConversationDraft } | null = null;
   let filters = { open: true, resolved: false };
@@ -119,7 +120,7 @@ export function createConversationController(options: Options) {
       contextLoading: contextLoads.has(thread.thread.threadId), contextError: contextErrors.get(thread.thread.threadId) ?? "",
     })),
     submissions: [...submissions.entries()].map(([id, value]) => ({ id, value })),
-    note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected, revealedMessage, revealedThreadId,
+    note, newMessage, filters, focusId, host, open, error, notice, notification, captureNotice, connected, revealedMessage, revealedThreadId,
     resolutionGuard: currentResolutionGuard(),
     resolutionUndo: review?.state === "open" && review.version === resolutionUndo?.reviewVersion ? resolutionUndo : null,
     confirmation, draftCancellation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
@@ -285,11 +286,14 @@ export function createConversationController(options: Options) {
     pending.accepted(result.receipt);
     if (pending.draftId) savingDrafts.delete(pending.draftId);
     uncertain = null;
-    notice = ["create-thread", "reply", "update-message"].includes(pending.body.operation) ? ""
+    const message = ["create-thread", "reply", "update-message"].includes(pending.body.operation) ? ""
       : `${pending.body.operation === "send" ? "Feedback sent" : pending.body.operation === "end" ? "Shared review ended"
         : pending.body.operation === "set-thread-status" ? (pending.body.status === "resolved" ? "Conversation resolved" : "Conversation reopened") : "Saved"}.`;
+    notification = message ? { id: result.receipt.requestId, message,
+      ...(pending.body.operation === "set-thread-status" && pending.body.status === "resolved" ? { undoThreadId: pending.body.threadId } : {}) } : null;
+    notice = "";
     // Acceptance is independent of whether the subsequent read succeeds.
-    try { await refresh(); } catch { notice = `${notice ? `${notice} ` : ""}Refresh failed; do not repeat accepted work.`; }
+    try { await refresh(); } catch { notice = "Refresh failed; do not repeat accepted work."; }
     return result.receipt;
   }
   function mutate(operation: Mutation["operation"], fields: Record<string, unknown> = {}, accepted: Pending["accepted"] = () => {}, expectedVersion?: number, draftId?: string) {
@@ -426,6 +430,7 @@ export function createConversationController(options: Options) {
       connected(value: boolean) { connected = value; publish(); },
       filter(kind: "open" | "resolved") { revealedThreadId = null; filters = { ...filters, [kind]: !filters[kind] }; publish(); },
       dismissReveal() { revealedThreadId = null; publish(); },
+      dismissNotification(id: string) { if (notification?.id === id) { notification = null; publish(); } },
       collapse(id: string) { if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id); publish(); },
       focus(id: string | null) {
         revealRequest++;

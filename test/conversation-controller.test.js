@@ -668,11 +668,25 @@ test("Resolve is one accepted mutation with version-bound Undo and no confirmati
   assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, 1);
   const undo = c.owner.getSnapshot().resolutionUndo;
   assert.deepEqual(undo, { threadId: id, reviewVersion: c.owner.getSnapshot().review.version });
+  const notification = c.owner.getSnapshot().notification;
+  assert.deepEqual(notification, { id: c.calls.find(body => body.operation === "set-thread-status").requestId,
+    message: "Conversation resolved.", undoThreadId: id });
+  assert.equal(c.owner.getSnapshot().notice, "");
+  c.owner.commands.dismissNotification("older-notification");
+  assert.deepEqual(c.owner.getSnapshot().notification, notification);
   await c.owner.commands.undoResolve();
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
   assert.equal(c.owner.getSnapshot().threads[0].attention, false);
   assert.equal(c.owner.getSnapshot().resolutionUndo, null);
+  const reopened = c.owner.getSnapshot().notification;
+  assert.equal(reopened.message, "Conversation reopened.");
+  assert.notEqual(reopened.id, notification.id);
+  c.owner.commands.dismissNotification(notification.id);
+  assert.deepEqual(c.owner.getSnapshot().notification, reopened);
+  c.owner.commands.dismissNotification(reopened.id);
+  assert.equal(c.owner.getSnapshot().notification, null);
+  assert.equal(c.owner.getSnapshot().notice, "");
   await c.owner.commands.resolve(id);
   await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "open" });
   await assert.rejects(c.owner.commands.undoResolve(), /version|changed/i);

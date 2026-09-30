@@ -115,7 +115,14 @@ test("G1 populated controls and overlays fit both themes at required widths", as
     }
     const picker = page.getByRole("button", { name: /^Submission:/ });
     const border = await picker.evaluate(node => getComputedStyle(node).borderTopColor);
-    await expect(page.getByRole("group", { name: "Sample conversation filters" })).toHaveCSS("box-shadow", `${border} 0px 0px 0px 1px inset`);
+    const filters = page.getByRole("group", { name: "Sample conversation filters" });
+    await expect(filters).toHaveCSS("box-shadow", "none");
+    await expect(filters).toHaveCSS("gap", "8px");
+    for (const button of await filters.getByRole("button").all()) {
+      await expect(button).toHaveCSS("border-top-width", "1px");
+      await expect(button).toHaveCSS("border-top-color", border);
+      expect(await renderedContrast(button)).toBeGreaterThanOrEqual(4.5);
+    }
     for (const state of ["rest", "hover", "expanded"]) {
       if (state === "hover") await picker.hover();
       if (state === "expanded") await picker.click();

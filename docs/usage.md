@@ -68,8 +68,8 @@ chooser expose other conversations at that highlight. **Beside target**,
 selection, caret, composition, loaded exchanges and reading position.
 Sidebar headers group source and state before Locate, More and Collapse.
 Adjacent popups instead offer Open in Feedback, More and Close. Popup Close only
-hides the conversation; Collapse is in More. Focus's More menu also offers Open
-in Feedback. Returning reveals the original card without changing your filters;
+hides the conversation; Collapse is in More. Focus has a visible **Back to Feedback**
+action above the conversation. Returning reveals the original card without changing your filters;
 an excluded card has a dismissible explanation. Edit sits beside each eligible
 message's timestamp. Informational icons explain unsent messages, change requests,
 resolution and agent outcomes on hover or keyboard focus.
@@ -112,14 +112,20 @@ and its host-specific actions. **Resolve** and **Reopen** sit below an expanded
 conversation, opposite **Reply**; collapsed cards and cards with local drafts
 keep the guarded action in **Conversation actions**. Finish or close a local draft
 first; unsent messages and outstanding agent work prevent
-Resolve. An accepted resolution offers **Undo resolve** until the review changes.
+Resolve. An accepted resolution offers **Undo resolve** in a five-second screen
+notification, without taking space from Feedback. Hover or focus pauses the timer;
+F8 moves keyboard focus to notifications. Reopen and other brief confirmations
+use the same presentation. Important warnings and recovery messages stay visible.
+The Undo action is available only while the accepted review version is current.
 Undo never overrides newer changes from another tab or an ended review.
 Resolving automatically collapses the conversation into a subdued card with a
 check-circle **Resolved** informational icon. Expand it anytime to read the discussion without
 reopening it. Reopen and Undo expand the conversation again. Resolution in another
 tab never hides your local reply draft.
-Resolving from the popup beside the document dismisses it automatically. Open
-Feedback to use Undo resolve, or enable the Resolved filter to find the conversation.
+Resolving from the popup beside the document dismisses it automatically. Use
+the notification's Undo resolve, or enable the Resolved filter to find the conversation.
+Open and Resolved are separate independent filter buttons: enable either, both,
+or neither. Only Open is enabled initially.
 Resolved threads no longer highlight the document or contribute to its conversation
 badges. Open threads at the same passage keep their highlights. Reopen or Undo
 restores the highlight; Show in document still locates resolved discussions.

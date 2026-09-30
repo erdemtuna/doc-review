@@ -18,12 +18,18 @@
   .conversation-comparison h2 { flex: 1; margin: 0; font-size: 16px; }
   .conversation-panel-header { flex-shrink: 0; padding: 12px var(--conversation-rail); }
   .conversation-panel-header .segmented-control { margin-right: auto; }
+  .conversation-focus-navigation { flex: 0 0 auto; padding: 4px var(--conversation-rail); }
   .conversation-panel.is-adjacent .conversation-panel-header { padding: 8px; }
   .conversation-overview { flex: 0 1 auto; min-height: 0; overflow: auto; }
   .conversation-status { padding: 6px var(--conversation-rail); display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
   .conversation-status span { color: var(--muted-foreground); }
   .conversation-notice { font-size: 12px; padding: 0 var(--conversation-rail); }
   .conversation-filters { display: flex; gap: 6px; padding: 6px var(--conversation-rail); flex-wrap: wrap; }
+  .conversation-filter-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .conversation-toast-viewport { position: fixed; bottom: 16px; left: 16px; z-index: var(--review-layer-notice); width: max-content; max-width: calc(100vw - 32px); margin: 0; padding: 0; list-style: none; outline: none; }
+  .conversation-toast { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lg); font-size: 13px; overflow-wrap: anywhere; }
+  .conversation-toast:focus-visible, .conversation-toast-viewport:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .conversation-toast > [data-radix-toast-announce-exclude] { margin-left: auto; }
   .conversation-inventory { flex: 1; min-height: 50px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px max(0px, calc(var(--conversation-rail) - var(--conversation-scrollbar))) 18px; scrollbar-gutter: stable both-edges; background: var(--card); }
   .conversation-comments { display: contents; }
   .conversation-section-toggle { justify-content: flex-start; margin-bottom: 8px; font-weight: 600; }
@@ -217,7 +223,7 @@
 }
 @layer utilities {
   @media (max-width: 480px) and (max-height: 550px) {
-    .conversation-filters .segmented-control button { padding-inline: 6px; }
+    .conversation-filter-buttons button { padding-inline: 6px; }
     .conversation-panel-header [data-slot="badge"] { padding-inline: 2px; }
   }
 }

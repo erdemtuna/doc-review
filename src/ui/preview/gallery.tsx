@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ChoiceMenu } from "@/components/ui/choice-menu";
 import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control";
+import { FilterButton } from "@/components/ui/filter-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { IconButton } from "@/components/ui/icon-button";
 import { Timeline, TimelineItem } from "@/components/ui/timeline";
@@ -123,11 +124,11 @@ export function Gallery() {
             </div>
             <div className="preview-field">
               <p className="preview-kicker">Independent filters (both or neither)</p>
-              <SegmentedControl selection="multiple" aria-label="Sample conversation filters">
-                {(["open", "resolved"] as const).map(filter => <SegmentedControlItem key={filter} size="sm"
+              <div className="conversation-filter-buttons" role="group" aria-label="Sample conversation filters">
+                {(["open", "resolved"] as const).map(filter => <FilterButton key={filter}
                   selected={filters[filter]} onClick={() => setFilters(current => ({ ...current, [filter]: !current[filter] }))}>
-                  {filter === "open" ? "Open" : "Resolved"}</SegmentedControlItem>)}
-              </SegmentedControl>
+                  {filter === "open" ? "Open" : "Resolved"}</FilterButton>)}
+              </div>
             </div>
           </div>
           <div className="preview-field">
