@@ -215,12 +215,20 @@ note, sends a durable submission, applies a scripted revision, submits a complet
 response for that exact review, and waits for real SDK history captures. This is a scripted product
 example, not a recording of an autonomous agent. No existing review is reused.
 Its private server, browser, files, and state are cleaned up on success or failure.
+The response includes an authored summary and Markdown prose. The Feedback
+capture collapses one conversation and leaves the optional note empty and
+collapsed so the manual-edit evidence has room. The note is filled after that
+capture to retain coverage of the complete submission;
+the Changes capture shows the summary and diff before the closed full-response
+disclosure. Transient notifications are dismissed through the normal UI.
 
 Product captures use a 1120 x 800 viewport at 1.5 device scale (1680 x 1200 PNG),
 light mode, English locale, and UTC. `scripts/readme-cover.js` composes the
-1280 x 640 social PNG from the actual Review capture. All four outputs must be
+1280 x 640 social PNG from the entire actual Review capture, without clipping
+its toolbar or conversation. All four outputs must be
 below 1 MB. The script checks the saved edit, feedback inventory, successful
-response, expected changed text, image dimensions, and browser
+response, cleared handled-edit count, diff-first order, visible edit evidence,
+social preview bounds, expected changed text, image dimensions, and browser
 errors. It leaves staged PNGs in ignored `output/readme`; use
 `node scripts/capture-readme.js --output <directory>` after a build to stage
 elsewhere. It does not overwrite tracked images by default.
@@ -232,7 +240,7 @@ the corresponding PNGs into `assets`. Keep the filenames stable:
 | --- | --- |
 | `doc-review.png` | README hero and highlight-adjacent conversation |
 | `doc-review-feedback.png` | Conversation inventory, pending edits, overall note and Send/End actions |
-| `doc-review-changes.png` | Completed comparison of the same submission |
+| `doc-review-changes.png` | Authored summary and diff-first comparison of the same submission |
 | `doc-review-social.png` | GitHub social-sharing cover |
 
 Run `npm run media:preview` to inspect the rendered README, usage guide and

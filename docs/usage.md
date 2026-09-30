@@ -272,7 +272,7 @@ authorship.
 
 ## Sending feedback
 
-![Feedback showing collapsible Comments and Edits, an overall note, and End review to the left of Send to agent](../assets/doc-review-feedback.png)
+![Feedback showing independent conversation and edit counts, a saved headline edit, and the optional Note to agent collapsed](../assets/doc-review-feedback.png)
 
 *Review the submission before sending. Every message has independent discussion
 or change-request intent. The overall note has its own intent, not blanket

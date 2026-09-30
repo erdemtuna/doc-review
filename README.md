@@ -1,14 +1,14 @@
 # Doc Review
 
-**Review your coding agent's work in the browser, not in a wall of chat.**
+**Review and refine documents with your agent.**
 
-Open an HTML file, a Markdown document, or a localhost page. Point to what needs
-changing, edit the small things yourself, and send your feedback to the agent
-in a durable review conversation.
+Open an HTML file, a Markdown document, or a localhost page. Ask questions,
+request changes, and edit the small things yourself. Keep the conversation
+beside the document as you iterate with your agent.
 
 ![The Field Notes landing page in Review, with highlighted copy and an anchored comment asking for a concrete benefit](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review.png)
 
-*Feedback stays beside the work. Your agent gets the comments, edits, and overall note together.*
+*Keep questions and feedback beside the document as you refine it together.*
 
 ## Get started
 
@@ -77,16 +77,16 @@ The independent full `resultNote` remains required and available in a disclosure
 You can review a plan, refine a landing page, or walk through a local app without
 moving your feedback into a separate document.
 
-![The Feedback overlay with expanded conversations, saved pending edits, an independent overall note, and End review beside Send](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
+![Feedback with independent open-conversation and edit counts, a saved headline edit, and the optional Note to agent collapsed](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
 
-*Feedback uses per-message intent,
-saved pending replies, and complete submission results.*
+*Review open conversations and edits separately. Each message has its own intent;
+add a note to the agent only when you need one.*
 
 ![The completed Field Notes submission in Changes, comparing the revised description and call to action with their originals](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-changes.png)
 
 *Changes now puts sticky comparison controls, a compact summary and the diff first.
 Full responses, submitted feedback, reviewer edit evidence and technical details
-remain in separate disclosures below. The image above shows the earlier layout.*
+remain in separate disclosures below.*
 
 ## What happens to your edits?
 
