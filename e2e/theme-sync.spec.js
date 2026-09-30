@@ -155,7 +155,8 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
         const css = getComputedStyle(shadow.querySelector(selector));
         styles[selector] = { color: css.color, background: css.backgroundColor, border: css.borderTopColor, borderStyle: css.borderTopStyle, shadow: css.boxShadow, opacity: css.opacity };
       }
-      styles.mark = { background: getComputedStyle(document.querySelector("mark")).backgroundColor };
+      const markStyle = getComputedStyle(document.querySelector("mark"));
+      styles.mark = { background: markStyle.backgroundColor, outline: markStyle.outlineColor, outlineStyle: markStyle.outlineStyle };
       styles.selection = { background: getComputedStyle(document.querySelector("#target"), "::selection").backgroundColor };
       styles.placeholder = { color: getComputedStyle(shadow.querySelector("input"), "::placeholder").color };
       return styles;
@@ -179,7 +180,9 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
       expect(styles[".dropline"].border).toBe(rgb(palette.primary));
       expect(styles[".active"].border).toBe(rgb(palette["annotation-border"]));
       expect(styles[".block-badge"].background).toBe(rgb(palette["annotation-background"]));
-      expect(styles.mark.background).toBe(rgb(palette["annotation-background"]));
+      expect(styles.mark.background).toBe("rgba(0, 0, 0, 0)");
+      expect(styles.mark.outline).toBe(rgb(palette["annotation-border"]));
+      expect(styles.mark.outlineStyle).toBe("dashed");
       expect(styles.selection.background).toBe(rgb(palette["annotation-active"]));
       expect(await frame.evaluate(() => ({
         nodes: saved.host === document.querySelector("[data-eh-ui]") && saved.input === saved.host.shadowRoot.querySelector("#linkInput") &&

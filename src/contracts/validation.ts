@@ -18,9 +18,10 @@ export const ERROR_STATUS = {
   INTERNAL_ERROR: 500, STATE_PERSIST_FAILED: 503,
 } as const;
 export type ContractErrorCode = keyof typeof ERROR_STATUS;
+export type SaveFailureReason = "source-changed" | "source-unavailable" | "evidence-mismatch" | "unsafe-content";
 export class ContractError extends Error {
   readonly status: number;
-  constructor(readonly code: ContractErrorCode, message: string, readonly path = "$") {
+  constructor(readonly code: ContractErrorCode, message: string, readonly path = "$", readonly saveReason?: SaveFailureReason) {
     super(`${path}: ${message}`);
     this.name = "ContractError";
     this.status = ERROR_STATUS[code];
@@ -28,6 +29,9 @@ export class ContractError extends Error {
 }
 export function reject(code: ContractErrorCode, message: string, path = "$"): never {
   throw new ContractError(code, message, path);
+}
+export function rejectSave(reason: SaveFailureReason, message: string): never {
+  throw new ContractError("SAVE_EVIDENCE_CONFLICT", message, "$", reason);
 }
 export interface Schema<T> {
   parse(value: unknown, path?: string): T;
@@ -169,16 +173,19 @@ export const failureSchema = refine(object({
   error: object({
     code: enumeration(Object.keys(ERROR_STATUS) as ContractErrorCode[]),
     message: text(), status: integer(400, 599), retryable: booleanValue,
+    saveReason: optional(enumeration(["source-changed", "source-unavailable", "evidence-mismatch", "unsafe-content"])),
   }),
 }), ({ error }) => {
   if (error.status !== ERROR_STATUS[error.code] || error.retryable !== (error.code === "STATE_PERSIST_FAILED")) {
     reject("INVALID_INPUT", "Error code/status/retryability mismatch.");
   }
+  if (error.saveReason && error.code !== "SAVE_EVIDENCE_CONFLICT") reject("INVALID_INPUT", "Save reason requires a save conflict.");
 });
 export type ContractFailure = Infer<typeof failureSchema>;
 export function contractFailure(error: ContractError): ContractFailure {
   return failureSchema.parse({ ok: false, error: {
     code: error.code, message: error.message, status: error.status, retryable: error.code === "STATE_PERSIST_FAILED",
+    ...(error.saveReason ? { saveReason: error.saveReason } : {}),
   } });
 }
 

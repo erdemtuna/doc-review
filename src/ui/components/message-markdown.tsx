@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { Marked, type Token, type MarkedToken } from "marked";
 
-const parser = new Marked({ gfm: true });
+const parser = new Marked({ gfm: true, breaks: true });
 
 function decode(text: string) {
   return text.replace(/&(?:#\d+|#x[\da-f]+|[a-z][a-z\d]+);/gi, entity => {
@@ -40,7 +40,7 @@ function renderTokens(tokens: readonly Token[]): ReactNode {
       case "blockquote": return <blockquote key={index}>{children}</blockquote>;
       case "br": return <br key={index} />;
       case "hr": return <hr key={index} />;
-      case "html": return <span key={index}>{token.raw}</span>;
+      case "html": return <code key={index}>{token.raw}</code>;
       case "image": return <span key={index} className="message-image-alt">[Image: {decode(token.text)}]</span>;
       case "link": {
         const href = messageLink(token.href);

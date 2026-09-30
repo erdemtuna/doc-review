@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment, setReviewTheme } from "./helpers.js";
+import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment, setReviewTheme, readLatestResponse } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 async function call(review, body, route = "/api/conversation") {
@@ -103,14 +103,17 @@ test("composer keyboard modes and double-click reply Save preserve one request a
   await newMessage.fill("First line"); await newMessage.press("Shift+Enter"); await newMessage.press("End");
   await page.keyboard.insertText("Second line"); await newMessage.press("Enter");
   const thread = page.locator(".conversation-thread");
-  await expect(thread.getByText("First line\nSecond line", { exact: true })).toBeVisible();
+  await expect(thread.locator(".conversation-body")).toBeVisible();
+  await expect(thread.locator(".conversation-body")).toHaveText("First line\nSecond line", { useInnerText: true });
   await expect(page.locator(".conversation-status")).toBeHidden();
   await thread.getByRole("button", { name: "Edit message", exact: true }).click();
   const edit = page.getByRole("textbox", { name: "Edit message", exact: true });
+  await expect(edit).toHaveValue("First line\nSecond line");
   await edit.fill("Cancelled correction"); await edit.press("Escape");
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(edit).toHaveCount(0);
-  await expect(thread.getByText("First line\nSecond line", { exact: true })).toBeVisible();
+  await expect(thread.locator(".conversation-body")).toBeVisible();
+  await expect(thread.locator(".conversation-body")).toHaveText("First line\nSecond line", { useInnerText: true });
   await thread.getByRole("button", { name: "Edit message", exact: true }).click();
   await edit.fill("Saved correction"); await edit.press("Enter");
   await expect(edit).toHaveCount(0);
@@ -210,7 +213,7 @@ test("reconnected history bridges missed pages and retains loaded records and th
       await call(review, responseFor(work, { resultNote: `Offline result ${index}` }));
     }
     await context.setOffline(false);
-    await expect(page.locator(".conversation-result-peek").getByText(`Offline result ${start + 54}`, { exact: true })).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator(".conversation-submission .conversation-result > .message-markdown").first()).toHaveText(`Offline result ${start + 54}`, { timeout: 15_000 });
   };
   await completeOffline(0);
   await expect(page.locator(".conversation-submission")).toHaveCount(50);
@@ -224,10 +227,10 @@ test("reconnected history bridges missed pages and retains loaded records and th
   await earlier.click();
   await expect(page.locator(".conversation-submission")).toHaveCount(55);
   expect(Math.abs((await marker.boundingBox()).y - before)).toBeLessThan(2);
-  const retained = await page.locator(".conversation-submission .conversation-result > p").allTextContents();
+  const retained = await page.locator(".conversation-submission .conversation-result > .message-markdown").allTextContents();
   await completeOffline(55);
   await expect(page.locator(".conversation-submission")).toHaveCount(110);
-  const ids = await page.locator(".conversation-submission .conversation-result > p").allTextContents();
+  const ids = await page.locator(".conversation-submission .conversation-result > .message-markdown").allTextContents();
   expect(new Set(ids).size).toBe(110);
   expect(ids.slice(-55)).toEqual(retained);
   expect(Math.abs((await marker.boundingBox()).y - before)).toBeLessThan(2);
@@ -289,11 +292,11 @@ test("checked intent editing and ended late results retain read-only observer", 
   const work = (await call(review, { ...ref, operation: "poll" })).submission;
   expect(work.messages[0].message.intent).toBe("discuss");
   await call(review, responseFor(work, { resultNote: "Late response after shared End." }));
-  await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Late response after shared End.", { exact: true })).toBeVisible();
+  await readLatestResponse(page, "Late response after shared End.");
   await expect(page.locator(".conversation-lifecycle")).toHaveText("Review ended");
   await expect(page.getByRole("button", { name: "Reply", exact: true })).toHaveCount(0);
   await page.reload(); await waitForSdk(page); await page.locator("#commentsButton").click();
-  await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Late response after shared End.", { exact: true })).toBeVisible();
+  await readLatestResponse(page, "Late response after shared End.");
 });
 
 test("fresh and overlapping reviews block source writes and Send, but allow discussion; visible confirmed abandonment releases them", async ({ page, context, review }) => {
@@ -584,7 +587,7 @@ test("stale source save refusal preserves current bytes and exposes explicit rec
   await paragraph.evaluate((element) => { const range = document.createRange(); range.selectNodeContents(element); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
   await page.keyboard.type("Must not overwrite concurrent source");
   await page.locator("#commentsButton").click();
-  await expect(page.getByRole("alert")).toContainText("Source changed");
+  await expect(page.getByRole("alert")).toContainText("The source changed since this edit was recorded.");
   expect(fs.readFileSync(file, "utf8")).toBe("<p id='copy'>Concurrent source writer</p>");
   await expect(page.locator(".conversation-lifecycle")).not.toHaveAccessibleDescription(/Source saved/);
   await page.getByRole("button", { name: "Reload source (discard local page edits)" }).click();
@@ -663,7 +666,7 @@ test("source results expose real comparisons and reply-only results never replac
   await page.locator("#send").click(); await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
   const discussion = (await call(review, { ...ref, operation: "poll" })).submission;
   await call(review, responseFor(discussion, { resultNote: "Explanation only, no new version." }));
-  await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("Explanation only, no new version.", { exact: true })).toBeVisible();
+  await readLatestResponse(page, "Explanation only, no new version.");
   expect(await page.locator("#frame").getAttribute("src")).toBe(before);
 });
 
@@ -749,7 +752,7 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     const responseFile = path.join(review.root, "browser-response.json");
     fs.writeFileSync(responseFile, JSON.stringify(responseFor(work.submission, { resultNote: "CLI completed old review after restart." })));
     await cli("respond", ...args, "--response-file", responseFile);
-    await expect(page.getByRole("region", { name: "Latest submission result" }).getByText("CLI completed old review after restart.", { exact: true })).toBeVisible();
+    await readLatestResponse(page, "CLI completed old review after restart.");
     await expect(page.locator("#send")).toBeDisabled();
   });
 

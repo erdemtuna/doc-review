@@ -61,6 +61,32 @@ immutable approved `lib` directory: the gate requires byte-for-byte equality.
 source example. Do not print `server.json` or copy its token into a report.
 These options do not publish a package or start a lasting preview.
 
+### Agent-run evidence
+
+`scripts/acceptance-evidence.js` provides small local-only evidence helpers:
+`createEvidenceCollector(directory)` writes chronological events with hash-linked
+request/response bodies; `verifyEvidence(directory)` checks every logged reference
+and returns event/blob counts and bytes. Use a new directory for each run; existing
+logs cannot be overwritten. Keep failed attempts and distinguish missing request
+payloads from reconstructed evidence. Pass parsed request/response bodies, never
+HTTP headers, browser storage or credentials. Document contents remain private local
+artifacts, not material for automatic upload.
+Store screenshots or checkpoint source bytes with `collector.blob(bytes)` and pass
+the returned references in an event's `artifacts` array; these are hash-verified too.
+
+`acceptanceHandoff(manifest, opened)` derives exact review/entry arguments from the
+authoritative open result and checks absolute runtime, CLI, state and source paths.
+Use those structured arguments for replacement handlers instead of retyping IDs.
+Record the base commit plus the actual package hash when testing an uncommitted
+checkout. Use one handler at a time and keep semantic scoring separate from its input.
+
+Use `caret: "initial"` for Playwright screenshots: its default caret hiding can
+leave an empty style attribute on an editable body and invalidate exact save proof.
+Capture checkpoints and failures, referencing identical bytes once. Keep browser
+profiles separate from portable evidence; never remove a profile while its retained
+review is in use. Report product state/history, screenshots, logs and profile sizes
+separately rather than treating the whole harness directory as product storage.
+
 Source lives in `src`; the TypeScript compiler emits Node/SDK ESM into `lib`.
 Before checking types, the build generates the shell/SDK palette from
 `src/review-palette.js` and the inline toolbar/favicon asset from

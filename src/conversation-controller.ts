@@ -205,8 +205,13 @@ export function createConversationController(options: Options) {
       }
     }));
     const nextSubmissions = new Map<string, Submission>();
-    await Promise.all(nextHistory.items.map((item) => item.submissionId).map(async (id) => {
-      nextSubmissions.set(id, await post({ operation: "submission", ...reference, submissionId: id }, submissionReadSchema));
+    await Promise.all(nextHistory.items.map(async (item) => {
+      const id = item.submissionId, cached = submissions.get(id);
+      // Submitted instructions are immutable; delivery/completion changes state.
+      // Comparison capture is refreshed independently through history.
+      const unchanged = cached && cached.submission.state === item.state &&
+        cached.submission.resultId === (item.result?.resultId ?? null);
+      nextSubmissions.set(id, unchanged ? cached : await post({ operation: "submission", ...reference, submissionId: id }, submissionReadSchema));
     }));
     const confirmed = await post({ operation: "status", ...reference }, reviewStatusSchema);
     if (JSON.stringify(nextStatus) !== JSON.stringify(confirmed)) { refreshAgain = true; return; }

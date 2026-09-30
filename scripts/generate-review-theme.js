@@ -35,6 +35,8 @@ function documentColors(colors) {
   return `    ${mark} { background: ${colors["annotation-background"]}; color: ${colors["annotation-foreground"]}; text-decoration: underline ${colors["annotation-border"]}; }
     ${mark}:hover, ${mark}.eh-active { background: ${colors["annotation-active"]}; }
     ${mark}.eh-active { outline: 2px solid ${colors["annotation-border"]}; outline-offset: 1px; }
+    body[contenteditable="true"] ${mark} { color: inherit; background: transparent; text-decoration: none; outline: 1px dashed ${colors["annotation-border"]}; outline-offset: 1px; }
+    body[contenteditable="true"] ${mark}.eh-active { outline: 2px solid ${colors["annotation-border"]}; }
     ::selection { background: ${colors["annotation-active"]}; color: ${colors["annotation-foreground"]}; }`;
 }
 

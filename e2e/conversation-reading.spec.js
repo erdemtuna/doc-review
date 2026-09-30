@@ -2,6 +2,34 @@ import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, setReviewTheme } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
+test("formatted replies remain readable and inert across themes, Focus and reload", async ({ page, review }, info) => {
+  const ref = await openReview(page, review, writeFile(review, "formatted-reading.html", '<p id="copy">Earlier decisions remain available.</p>'));
+  await waitForSdk(page);
+  const { threadId, messageId } = await seedThread(review, ref, "Please **explain** the exact `<b>` markup.");
+  await sendPending(review, ref);
+  await handled(review, ref, {
+    responses: [{ threadId, messageId, messageVersion: 1, outcome: "answered",
+      body: "**Preserved:** the exact <b>earlier decisions</b> markup.\n\n- Keep the human edit\n- Read `prior context`\n\n<script>alert('never')</script>" }],
+    resultNote: "**Discussion only.** No source changes.",
+  });
+  await feedback(page);
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  for (const [theme, width] of [["light", 1366], ["dark", 720]]) {
+    await page.setViewportSize({ width, height: 800 });
+    await setReviewTheme(page, theme);
+    await expect(card.locator(".conversation-response .conversation-body strong")).toHaveText("Preserved:");
+    await expect(card.locator(".conversation-response li")).toHaveCount(2);
+    await expect(card.locator(".conversation-response code").first()).toHaveText("<b>");
+    await expect(card.locator(".conversation-response b, .conversation-response script")).toHaveCount(0);
+    expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`formatted-${theme}.png`), caret: "initial" });
+  }
+  await (await threadAction(page, card, "Focus")).click();
+  await expect(card.locator(".conversation-response .conversation-body strong")).toBeVisible();
+  await page.reload(); await waitForSdk(page); await feedback(page);
+  await expect(card.locator(".conversation-response .conversation-body strong")).toHaveText("Preserved:");
+});
+
 test("reading fixture retains the four reported conversation states", async ({ page, review }, info) => {
   const ref = await openReview(page, review, writeFile(review, "reading.html", `<!doctype html>
 <html><head><style>body{max-width:800px;margin:64px auto;padding:0 28px;font:19px/1.65 Georgia;background:#f7f5ed;color:#243b38}h1{font-size:48px}p{margin:32px 0}</style></head>

@@ -972,7 +972,9 @@ function targetFor(node) {
     // one edit row, so number them.
     const twins = block.parentElement ? [...block.parentElement.children].filter((c) => c.tagName === block.tagName) : [];
     const ordinal = twins.length > 1 ? ` ${twins.indexOf(block) + 1}` : "";
-    pinnedLabels.set(block, heading ? `${clip(heading, 26)} · ${tag}${ordinal}` : clip(block.textContent, 40) || tag);
+    const excerpt = clip(block.textContent.replace(/\s+/g, " ").trim(), 40);
+    pinnedLabels.set(block, heading ? `${clip(heading, 26)} · ${tag}${ordinal}: ${excerpt}`
+      : excerpt ? `${excerpt}${ordinal ? ` · ${tag}${ordinal}` : ""}` : `${tag}${ordinal}`);
   }
   return { el: block, label: pinnedLabels.get(block), authored: false };
 }
@@ -1769,12 +1771,16 @@ const REVIEW_DOCUMENT_COLORS = {
     mark[${MARK_ATTR}] { background: #FFF1D9; color: #75470E; text-decoration: underline #915B13; }
     mark[${MARK_ATTR}]:hover, mark[${MARK_ATTR}].eh-active { background: #F5D6A3; }
     mark[${MARK_ATTR}].eh-active { outline: 2px solid #915B13; outline-offset: 1px; }
+    body[contenteditable="true"] mark[${MARK_ATTR}] { color: inherit; background: transparent; text-decoration: none; outline: 1px dashed #915B13; outline-offset: 1px; }
+    body[contenteditable="true"] mark[${MARK_ATTR}].eh-active { outline: 2px solid #915B13; }
     ::selection { background: #F5D6A3; color: #75470E; }
   `,
   dark: `
     mark[${MARK_ATTR}] { background: #3D3020; color: #F1CC8E; text-decoration: underline #E7BB72; }
     mark[${MARK_ATTR}]:hover, mark[${MARK_ATTR}].eh-active { background: #594325; }
     mark[${MARK_ATTR}].eh-active { outline: 2px solid #E7BB72; outline-offset: 1px; }
+    body[contenteditable="true"] mark[${MARK_ATTR}] { color: inherit; background: transparent; text-decoration: none; outline: 1px dashed #E7BB72; outline-offset: 1px; }
+    body[contenteditable="true"] mark[${MARK_ATTR}].eh-active { outline: 2px solid #E7BB72; }
     ::selection { background: #594325; color: #F1CC8E; }
   `,
 };

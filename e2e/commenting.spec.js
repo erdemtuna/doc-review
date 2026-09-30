@@ -222,7 +222,9 @@ test("Markdown direct changes stay source-pending through View and immutable com
   await expect(page.getByRole("region", { name: "Latest submission result" })).toBeVisible();
   await submissionHistory(page);
   await page.locator(".conversation-submission").first().locator(":scope > summary").click();
-  await expect(page.getByText(/The agent left this edit for later\. Preserved/)).toBeVisible();
+  const result = page.locator(".conversation-submission").first();
+  await expect(result.getByText("The agent left this edit for later.", { exact: true })).toBeVisible();
+  await expect(result.locator(".message-markdown").filter({ hasText: /^Preserved/ })).toBeVisible();
   expect(fs.readFileSync(file, "utf8")).toBe(source);
 });
 

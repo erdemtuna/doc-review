@@ -108,7 +108,7 @@ export function createConversationShell() {
     sessionId, current: () => frame.identity(), policy, request: api.request,
     flush: (strict) => frame.flush(strict), send: (message) => frame.send(message),
     sourceHash: (hash) => frame.setSourceHash(hash), pageChanged() {},
-    conflict() { reportSource("Source changed or write permission was withdrawn. Inspect source and reload before further edits; conversation drafts are kept."); mode = "view"; void configure(); },
+    conflict(message) { reportSource(message); mode = "view"; void configure(); },
     failed: reportSource, diagnostic() {}, sending: () => owner.getSnapshot().busy,
     conversation: {
       record(key, payload) {

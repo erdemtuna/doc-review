@@ -45,6 +45,18 @@ The installed [skill instructions](../src/SKILL.md) describe that workflow.
 
 Reviews start with **View** selected. Use page controls normally,
 or switch to **Edit** to change content. Comments are available in both modes.
+In Edit, annotated text uses an outline rather than review-colored text and fill,
+so native typing and formatting cannot copy the review colors into your source.
+Your document's own colors, backgrounds and formatting are preserved.
+Conversation messages and result notes render Markdown paragraphs, emphasis,
+lists, tables and code. HTML source examples stay visible as inert code rather
+than becoming executable markup; embedded images are shown by their alternative
+text, not fetched. Editing a message retains its original Markdown source.
+
+If a source save is rejected, its notice distinguishes changed source, unavailable
+write access, unrecorded changes and unsafe content when the server can identify
+the cause. Rejected page changes are not saved by that request. Inspect them
+before reloading; keeping conversation drafts does not mean rejected HTML is on disk.
 
 Select text, or hover or focus an element, then use its nearby comment icon.
 New comments use measured space beside, above or below the selection or element
