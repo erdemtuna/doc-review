@@ -1,59 +1,61 @@
 import { Toast } from "radix-ui";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ConversationController } from "../../conversation-controller";
-import { Button } from "./ui/button";
 import { IconButton } from "./ui/icon-button";
 import { Icon } from "./icon";
 
-export function ConversationNotification({ notification, onDismiss, onUndo, busy }: {
-  notification: ReturnType<ConversationController["getSnapshot"]>["notification"];
-  onDismiss(id: string): void;
-  onUndo?: () => void;
-  busy: boolean;
+type Notification = NonNullable<ReturnType<ConversationController["getSnapshot"]>["notification"]>;
+type Dismiss = (id: string) => void;
+
+function LifecycleToast({ notification, onDismiss }: { notification: Notification; onDismiss: Dismiss }) {
+  const [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false);
+  const [hidden, setHidden] = useState(document.hidden);
+  const remaining = useRef(5000);
+  useEffect(() => {
+    const update = () => setHidden(document.hidden);
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  const paused = hovered || focused || hidden;
+  useEffect(() => {
+    if (paused) return;
+    const start = Date.now();
+    const timer = window.setTimeout(() => onDismiss(notification.id), remaining.current);
+    return () => {
+      window.clearTimeout(timer);
+      remaining.current = Math.max(0, remaining.current - (Date.now() - start));
+    };
+  }, [paused, notification.id, onDismiss]);
+  // Radix's window-blur timer also pauses when the user focuses the document iframe.
+  // Own the deadline, pausing only for notification interaction or a hidden page.
+  return <Toast.Root className="conversation-toast" open type="background" duration={Infinity}
+    onOpenChange={open => { if (!open) onDismiss(notification.id); }}
+    onPointerMove={event => { if (event.pointerType !== "touch") setHovered(true); }}
+    onPointerLeave={() => setHovered(false)}
+    onFocusCapture={() => setFocused(true)}
+    onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}
+    onKeyDown={event => { if (event.key === "Escape") event.stopPropagation(); }}>
+    <Toast.Description>{notification.message}</Toast.Description>
+    <Toast.Close asChild><IconButton aria-label="Dismiss notification"><Icon name="x" /></IconButton></Toast.Close>
+  </Toast.Root>;
+}
+
+export function ConversationNotification({ notification, onDismiss }: {
+  notification: Notification | null;
+  onDismiss: Dismiss;
 }) {
   const viewport = useRef<HTMLOListElement>(null);
   useLayoutEffect(() => {
-    const node = viewport.current;
-    if (!notification || !node) return;
-    const controls = [...document.querySelectorAll<HTMLElement>(
-      ".conversation-panel .conversation-footer, .conversation-thread .conversation-reply, .conversation-thread .conversation-composer",
-    )];
-    const position = () => {
-      const bounds = node.getBoundingClientRect();
-      let bottom = 16;
-      const boxes = controls.map(control => control.getBoundingClientRect()).sort((a, b) => b.top - a.top);
-      for (const box of boxes) {
-        if (box.width && box.height && box.top >= 0 && box.bottom <= window.innerHeight &&
-          box.left < bounds.right && box.right > bounds.left &&
-          box.top < window.innerHeight - bottom && box.bottom > window.innerHeight - bottom - bounds.height) {
-          bottom = window.innerHeight - box.top + 8;
-        }
-      }
-      node.style.bottom = `${Math.max(16, Math.min(bottom, window.innerHeight - bounds.height - 16))}px`;
-    };
+    const node = viewport.current, toolbar = document.querySelector(".shell-toolbar");
+    if (!node || !toolbar) return;
+    const position = () => { node.style.top = `${Math.max(0, toolbar.getBoundingClientRect().bottom) + 8}px`; };
     const observer = new ResizeObserver(position);
-    observer.observe(node);
-    for (const control of controls) observer.observe(control);
-    const panel = document.querySelector(".conversation-panel");
-    if (panel) observer.observe(panel);
-    window.addEventListener("resize", position);
-    window.addEventListener("scroll", position, true);
+    observer.observe(toolbar);
     position();
-    return () => {
-      observer.disconnect(); window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true);
-    };
-  });
-  return <Toast.Provider duration={5000} label="Review notification">
-    {notification && <Toast.Root key={notification.id} className="conversation-toast" open type="background"
-      duration={busy ? Infinity : 5000} onOpenChange={open => { if (!open && !busy) onDismiss(notification.id); }}
-      onKeyDown={event => { if (event.key === "Escape") event.stopPropagation(); }}>
-      <Toast.Description>{notification.message}</Toast.Description>
-      {onUndo && <Toast.Action asChild altText="You can also reopen this conversation from the Resolved filter.">
-        <Button variant="outline" size="xs" disabled={busy} aria-busy={busy}
-          onClick={event => { event.preventDefault(); onUndo(); }}>Undo resolve</Button>
-      </Toast.Action>}
-      <Toast.Close asChild><IconButton aria-label="Dismiss notification" disabled={busy}><Icon name="x" /></IconButton></Toast.Close>
-    </Toast.Root>}
+    return () => observer.disconnect();
+  }, []);
+  return <Toast.Provider duration={Infinity} label="Review notification">
+    {notification && <LifecycleToast key={notification.id} notification={notification} onDismiss={onDismiss} />}
     <Toast.Viewport ref={viewport} className="conversation-toast-viewport review-ui" label="Review notifications ({hotkey})" />
   </Toast.Provider>;
 }

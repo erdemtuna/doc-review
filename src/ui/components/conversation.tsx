@@ -352,7 +352,7 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, openInventory }: {
       </div>
       <div className="conversation-thread-actions">
       {adjacent ? <IconButton className="conversation-icon" aria-label="Open in Feedback"
-        onMouseDown={event => event.preventDefault()} onClick={openInventory}><Icon name="panelRightOpen" /></IconButton>
+        onMouseDown={event => event.preventDefault()} onClick={openInventory}><Icon name="arrowRight" /></IconButton>
         : <IconButton className="conversation-jump conversation-icon" disabled={!target.canJump}
           aria-label="Show in document" aria-describedby={target.reason ? `target-status-${id}` : undefined} hint="Show the exact passage"
           onMouseDown={(event) => event.preventDefault()} onClick={() => act(owner, () => owner.commands.jump(id))}>
@@ -409,7 +409,11 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, openInventory }: {
               aria-label="Close edit" disabled={disabled || snapshot.savingDraftIds.includes(id) || item.draft.composing}
               onClick={() => owner.commands.cancelDraft(id)}><Icon name="x" /></IconButton>}
             {reviewer.intent === "request-change" && item.draft?.messageId !== reviewer.messageId && <ConversationIntent />}
-            {reviewer.submissionId === null && <ConversationStatus kind="not-sent" ended={snapshot.review?.state === "ended"} />}
+            <ConversationStatus className="conversation-delivery" ended={snapshot.review?.state === "ended"}
+              kind={reviewer.submissionId === null ? "not-sent" : response ||
+                snapshot.submissions.some(({ id, value }) => id === reviewer.submissionId && value.submission.deliveredAt !== null) ||
+                (snapshot.status?.work?.submissionId === reviewer.submissionId && snapshot.status.work.state === "delivered")
+                ? "received" : "sent"} />
           </div>
           {item.draft?.messageId === reviewer.messageId ? draftView : <>
           <p className="conversation-body">{reviewer.body}</p>
@@ -892,10 +896,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     </div>}
     {createPortal(<>
       {panel}
-      <ConversationNotification notification={snapshot.notification} onDismiss={owner.commands.dismissNotification}
-        busy={snapshot.busy || !!snapshot.uncertain}
-        onUndo={snapshot.notification?.undoThreadId === snapshot.resolutionUndo?.threadId && snapshot.resolutionUndo
-          ? () => act(owner, owner.commands.undoResolve) : undefined} />
+      <ConversationNotification notification={snapshot.notification} onDismiss={owner.commands.dismissNotification} />
     </>, document.body)}
     <AlertDialog open={!!snapshot.confirmation} onOpenChange={(open) => { if (!open) owner.commands.cancelConfirmation(); }}>
       <AlertDialogContent onOpenAutoFocus={() => {

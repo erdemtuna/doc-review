@@ -3,6 +3,7 @@ import { ControlHint, IconButton } from "./ui/icon-button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./ui/dropdown-menu";
 import { Icon, type IconName } from "./icon";
 import type { ConversationTarget } from "../../contracts/feedback";
+import { cn } from "@/lib/utils";
 
 type ConversationAction = { label: string; disabled?: boolean; destructive?: boolean; run(): void };
 
@@ -12,6 +13,8 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
 
 const statuses = {
   "not-sent": { icon: "circleDashed", label: "Not sent", hint: "Saved feedback. Not sent until you choose Send.", modified: false },
+  sent: { icon: "send", label: "Sent", hint: "Submitted to the shared review. This is not confirmation of agent pickup or a read receipt.", modified: false },
+  received: { icon: "inbox", label: "Received", hint: "The agent picked up this submission or responded to this message. This is not a read receipt or proof the agent is currently working.", modified: false },
   "request-change": { icon: "messageSquareDiff", label: "Change requested", hint: "A request and permission to change the document, not a reported edit.", modified: true },
   resolved: { icon: "circleCheck", label: "Resolved", hint: "This conversation is resolved.", modified: false },
   answered: { icon: "messageSquareCheck", label: "Answered", hint: "The agent answered. This does not indicate source changes or resolve the conversation.", modified: false },
@@ -20,10 +23,10 @@ const statuses = {
   deferred: { icon: "circlePause", label: "Deferred", hint: "The agent deferred this request. It is not currently being processed.", modified: false },
 } satisfies Record<string, { icon: IconName; label: string; hint: string; modified: boolean }>;
 
-export function ConversationStatus({ kind, ended = false }: { kind: keyof typeof statuses; ended?: boolean }) {
+export function ConversationStatus({ kind, ended = false, className }: { kind: keyof typeof statuses; ended?: boolean; className?: string }) {
   const status = statuses[kind];
   const hint = kind === "not-sent" && ended ? "Not sent; this review has ended and this saved message is read-only." : status.hint;
-  return <ControlHint hint={<>{status.label}. {hint}</>}><span className="conversation-status-icon" data-status-icon={kind}
+  return <ControlHint hint={<>{status.label}. {hint}</>}><span className={cn("conversation-status-icon", className)} data-status-icon={kind}
     data-modified={status.modified} role="img" aria-label={status.label} tabIndex={0}>
     <Icon name={status.icon} size={14} />
   </span></ControlHint>;

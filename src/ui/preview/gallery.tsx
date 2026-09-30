@@ -208,10 +208,10 @@ export function Gallery() {
               <div id="sample-conversation" hidden={!expanded}>
               <div className="conversation-meta"><ConversationAuthor role="You" /><ConversationTime value={Date.UTC(2026, 8, 29)} />
                 <IconButton aria-label="Edit message" onClick={() => setNotice("Sample Edit action; use the live shell to edit saved feedback.")}><Icon name="pencil" /></IconButton>
-                <ConversationIntent /><ConversationStatus kind="not-sent" /></div>
+                <ConversationIntent /><ConversationStatus kind="not-sent" className="conversation-delivery" /></div>
               <p className="conversation-body">Keep this message unboxed inside its conversation card.</p>
               <div className="preview-row" aria-label="Informational outcome vocabulary">
-                {(["resolved", "answered", "applied", "clarification-needed", "deferred"] as const).map(kind => <ConversationStatus key={kind} kind={kind} />)}
+                {(["sent", "received", "resolved", "answered", "applied", "clarification-needed", "deferred"] as const).map(kind => <ConversationStatus key={kind} kind={kind} />)}
               </div></div>
             </article>
             <Timeline aria-label="Sample review timeline"><TimelineItem tone="response" icon={<Icon name="messages" />}>

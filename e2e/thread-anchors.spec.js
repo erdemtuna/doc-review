@@ -87,7 +87,7 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
   await (await threadAction(page, first, "Resolve conversation")).click();
   await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
-  await page.getByRole("button", { name: "Undo resolve", exact: true }).click();
+  await (await threadAction(page, first, "Reopen conversation")).click();
   await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
   await expect(frame.locator("#copy")).toHaveText("Unique marked passage.");
   expect(fs.readFileSync(file, "utf8")).toBe(source);

@@ -147,12 +147,12 @@ preview implements a parallel workflow or ships in the package.
 | Six shared rails and symmetric card/header insets within 1px; real transcript scrolling and fully reachable footers | `e2e/frontend-refinement.spec.js`: measured classic and overlay Chromium scrollbar modes, expanded/collapsed and overflow/no-overflow, both themes, desktop and short 390/320px screens |
 | Exact three-action headers; annotation entry, nondestructive Close, temporary filtered reveal, Changes expiry and fallback | refinement browser suite and `test/conversation-controller.test.js` |
 | Every editable message owns Edit/Close edit beside its timestamp; exact retained editor and selection | refinement, coherence, conversation-adjacent and responsive-conversation browser suites |
-| All seven informational status meanings, simultaneous request/unsent, keyboard hints and layered Escape | `test/ui/review-options.test.tsx`, refinement, conversation-cards and consolidation browser suites |
+| All nine informational status meanings, honest Sent/Received evidence, right-aligned delivery, simultaneous request/unsent, keyboard hints and layered Escape | `test/ui/review-options.test.tsx`, refinement, conversation-cards and consolidation browser suites |
 | Settled neutral expansion and readable 0/1/11/99+/unavailable counts | refinement browser suite; color checks wait for actual transitions to finish |
 | Decorative picker outlines with readable labels/icons/focus; essential field borders unchanged | `e2e/ui-foundations.spec.js`, choice-menu and existing six-picker browser coverage |
 | Canonical original file copy, explicit theme choices, failure/retry, stale completion and loading | review-options component tests and refinement browser suite |
 | Menu focus return versus retained SDK editor state; later acknowledgment/retry cannot steal resumed editor focus | theme-sync/theme-recovery browser suites |
-| Five-second notification outside sidebar flow; hover/focus pause, repeat identity, pending Undo, no focus theft and retained recovery information | `test/ui/conversation-notification.test.tsx`, conversation-controller tests, `e2e/usability-feedback.spec.js` |
+| Five-second lifecycle notifications below the toolbar, no thread-status notifications, completion vs abandonment, hover/focus/hidden-page pause, expiry during iframe reading, exact identity and retained recovery information | `test/ui/conversation-notification.test.tsx`, conversation-controller tests, `e2e/usability-feedback.spec.js` |
 | Separate independent checked filters, far-right utilities and visible Focus return retaining the same IME editor | usability-feedback and refinement browser suites; conversation and toolbar component tests |
 
 The refinement suite does not change the browser engine. Its two isolated

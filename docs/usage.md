@@ -102,7 +102,11 @@ reattachment control. A recovered target does not reopen a card automatically.
 Saving queues a message. Every new message starts with **Request a change**
 unchecked. Saved change requests display a message-diff icon labelled
 **Change requested** on hover and for assistive technology. Unsent messages show
-a dashed-circle **Not sent** icon. Agent replies show their informational outcome
+a dashed-circle **Not sent** icon at the far right of the message metadata.
+After submission this becomes a paper-plane **Sent** icon, then an inbox
+**Received** icon when agent pickup or a response is recorded. Received is not
+a read receipt or proof the agent is currently working.
+Agent replies show their informational outcome
 icon, including **Answered**; request and reported-change icons remain distinct.
 Only unsent messages have Edit controls. Correct sent instructions with a new
 message instead of changing immutable history. Closing Feedback or collapsing a
@@ -112,22 +116,23 @@ and its host-specific actions. **Resolve** and **Reopen** sit below an expanded
 conversation, opposite **Reply**; collapsed cards and cards with local drafts
 keep the guarded action in **Conversation actions**. Finish or close a local draft
 first; unsent messages and outstanding agent work prevent
-Resolve. An accepted resolution offers **Undo resolve** in a five-second screen
-notification, without taking space from Feedback. Hover or focus pauses the timer;
-F8 moves keyboard focus to notifications. Reopen and other brief confirmations
-use the same presentation. Important warnings and recovery messages stay visible.
-The Undo action is available only while the accepted review version is current.
-Undo never overrides newer changes from another tab or an ended review.
+Resolve. Resolve and Reopen do not show notifications.
+Review-state transitions instead appear for five seconds at the top left,
+below the toolbar: **Waiting for agent**, **Agent response received. Ready to review**,
+or **Review ended**. Resuming after abandonment is not labelled as agent completion.
+Hover, notification focus or a hidden browser tab pauses the timer; reading the
+document iframe does not. F8 moves keyboard focus to notifications.
+Important warnings and recovery messages stay visible.
 Resolving automatically collapses the conversation into a subdued card with a
 check-circle **Resolved** informational icon. Expand it anytime to read the discussion without
-reopening it. Reopen and Undo expand the conversation again. Resolution in another
+reopening it. Reopen expands the conversation again. Resolution in another
 tab never hides your local reply draft.
 Resolving from the popup beside the document dismisses it automatically. Use
-the notification's Undo resolve, or enable the Resolved filter to find the conversation.
+the Resolved filter to find the conversation and reopen it explicitly.
 Open and Resolved are separate independent filter buttons: enable either, both,
-or neither. Only Open is enabled initially.
+or neither. Selected color, not checkmarks, identifies enabled filters. Only Open is enabled initially.
 Resolved threads no longer highlight the document or contribute to its conversation
-badges. Open threads at the same passage keep their highlights. Reopen or Undo
+badges. Open threads at the same passage keep their highlights. Reopen
 restores the highlight; Show in document still locates resolved discussions.
 Click a document highlight or conversation badge to open its discussion; click
 the same target again to dismiss it. Unsaved replies survive dismissal. Enter and

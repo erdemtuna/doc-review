@@ -339,7 +339,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   const thread = page.locator(".conversation-thread");
   await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
   await (await threadAction(page, thread, "Resolve conversation")).click();
-  await expect(page.getByRole("button", { name: "Undo resolve" })).toBeVisible();
+  await expect(thread).toHaveAttribute("data-status", "resolved");
   const resolved = page.getByRole("button", { name: "Resolved (1)", exact: true });
   await expect(resolved).toHaveAttribute("aria-pressed", "false");
   await resolved.click();

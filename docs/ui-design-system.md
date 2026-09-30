@@ -17,19 +17,19 @@ resolved threads start collapsed with a quiet check-circle **Resolved** icon.
 Accepted resolution collapses the card without leaving a stretched empty Focus
 surface. Muted surfaces and the icon distinguish resolution without bright success
 colors, unread dots, or reduced text/control opacity. Explicit expansion survives
-refreshes; reopening or Undo expands the conversation again. A remote resolution
+refreshes; reopening expands the conversation again. A remote resolution
 never hides an existing local draft.
 An adjacent popup closes on confirmed resolution and returns keyboard focus to
-Feedback without changing the selected filters. A screen notification offers version-safe
-Undo without reopening Feedback; enable Resolved to see the collapsed card. Resolution does not close the regular Feedback or Focus sidebar.
+Feedback without changing the selected filters. Enable Resolved to see the collapsed
+card and reopen it explicitly. Resolution does not close the regular Feedback or Focus sidebar.
 Resolved threads retain target geometry for navigation but do not paint document
-highlights or count toward document badges. Reopen/Undo restores annotations;
+highlights or count toward document badges. Reopen restores annotations;
 resolving one of several threads at a shared target leaves its open peers marked.
 Document highlights and badges toggle their conversation surface on repeated
 activation, including shared targets, without discarding reply drafts.
 The element hover outline is a single dashed boundary, without an outer shadow
 or solid halo.
-Open/Resolved are separate outlined filter buttons with independent checkmarks,
+Open/Resolved are separate outlined filter buttons with independent selected colors and no icons,
 not a connected single-choice selector. Both or neither may be selected.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages
@@ -45,11 +45,15 @@ Your edits and footer controls share the leading rail. Focused transcripts retai
 
 Conversation and message states use named, keyboard-focusable informational
 icons with visible explanations, never fake buttons or pill backgrounds:
-Not sent (`circle-dashed`), Change requested (`message-square-diff`),
+Not sent (`circle-dashed`), Sent (`send`), Received (`inbox`), Change requested (`message-square-diff`),
 Resolved (`circle-check`), Answered (`message-square-check`), Change reported
 (`file-pen-line`), Needs clarification (`message-circle-question-mark`) and
 Deferred (`circle-pause`). Request/report/clarification use established amber
 ink; ordinary delivery/resolution/outcome information uses muted foreground.
+Delivery sits at the far right of reviewer metadata, separate from Edit, intent and
+resolution. Submitted messages show Sent; recorded `deliveredAt` or an actual response
+supports Received. Neither implies a read receipt or current agent liveness, and
+missing pickup evidence must not be promoted to Received.
 Not sent and Change requested may coexist. Ended unsent messages explicitly
 explain that they remain read-only and were not delivered. A request is permission,
 not reported source work; a reported change is not independent save verification.
@@ -65,7 +69,7 @@ restoration of the removed global More menu. Focus is a named menu action and Ed
 is a compact icon beside each eligible message's timestamp. Editing substitutes
 Close edit at that exact location, without a pinned last-message special case.
 Sidebar/Focus headers contain source and state, then Locate, More, Collapse/Expand.
-Adjacent headers contain source and state, then Open in Feedback, More, Close.
+Adjacent headers contain source and state, then Open in Feedback (a right-pointing arrow), More, Close.
 Popup Collapse/Expand lives in More. Ordinary Focus has a visible Back to Feedback
 action above the conversation; adjacent popups do not duplicate it. Genuine Back to
 replies navigation is retained instead in a result reply reader. There is no
@@ -77,7 +81,7 @@ thread; changing filters or leaving this inventory context expires the exception
 The bottom action row offers icon-and-text Resolve on the left, opposite
 Reply on the right, so finishing a long discussion does not require returning to
 the header. Expanded resolved threads offer Reopen there. These actions share
-the controller's guards and Undo behavior; a local draft replaces the bottom row.
+the controller's authoritative version guards; a local draft replaces the bottom row.
 Collapsed cards and cards with drafts keep guarded Resolve/Reopen in More.
 Draft permissions use the shared Checkbox primitive. There are no batch-selection
 or exclusion controls; Send includes all saved pending messages and edits.
@@ -96,14 +100,15 @@ Editing an unsent message replaces its body inside that exchange, never appendin
 duplicate editor after the transcript. No transfer clones a textarea. Collapse and Close preserve drafts and reading
 state; neither resolves a thread. One-click Resolve/Reopen is server-guarded
 and refuses drafts, pending messages, and accepted work.
-Accepted-operation messages appear in a five-second Radix notification outside
-sidebar layout, above any overlapping footer or visible conversation actions,
-announced politely without moving focus. Hover, keyboard focus
-and window blur pause expiry; a pending action cannot dismiss it. Resolve offers
-Undo there while its exact accepted review version remains current; newer mutations
-or End remove Undo, and uncertain receipts must reconcile before it appears.
-Repeated accepted requests reset the notification by receipt identity. F8 reaches
-notifications; they also have a named dismiss control. Recovery guidance, read-only
+Only review-lifecycle transitions appear in five-second Radix notifications outside
+sidebar layout, at the top left eight pixels below the measured toolbar.
+Initial load, stable refreshes, pickup, Resolve and Reopen are quiet.
+Returning to Reviewing names an agent response only when authoritative completion
+evidence exists; abandonment instead says Reviewing resumed.
+Notifications announce politely without moving focus. Hover, notification focus and
+a hidden document pause the remaining lifetime; iframe focus and mutation busy state
+do not. Each transition has its own deadline and identity-guarded dismissal.
+F8 reaches notifications; they also have a named dismiss control. Recovery guidance, read-only
 information and unfinished-draft warnings remain persistent, never timed away.
 Enter queues the draft, Shift+Enter inserts a newline,
 Escape cancels; active IME composition is never intercepted. The overall note
@@ -269,7 +274,7 @@ ChoiceMenu or a new control family.
 
 Three segmented groups share one family: Review/Changes, Feedback/History and
 Document/Source are single-choice. Open/Resolved instead use distinct `FilterButton`
-controls with separated borders and independent checkmarks. These remain
+controls with separated borders and independent selected colors, without checkmarks. These remain
 Tab-reachable pressed buttons and permit both or neither, not exclusive radios.
 Review options follows View/Edit at the far right in visual and keyboard order.
 NativeSelect is retained only for recovery

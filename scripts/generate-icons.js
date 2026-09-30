@@ -8,7 +8,7 @@ const icons = {
   eye: "eye",
   pencil: "pencil",
   filePenLine: "file-pen-line",
-  panelRightOpen: "panel-right-open",
+  arrowRight: "arrow-right",
   messageSquareDiff: "message-square-diff",
   messageSquareCheck: "message-square-check",
   messageCircleQuestion: "message-circle-question-mark",

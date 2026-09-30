@@ -103,6 +103,8 @@ it("returns menu focus without opening an obstructing hint, but later keyboard e
 
 it.each([
   ["not-sent", "Not sent", "Not sent until you choose Send"],
+  ["sent", "Sent", "not confirmation of agent pickup or a read receipt"],
+  ["received", "Received", "not a read receipt or proof the agent is currently working"],
   ["request-change", "Change requested", "not a reported edit"],
   ["resolved", "Resolved", "conversation is resolved"],
   ["answered", "Answered", "does not indicate source changes"],

@@ -460,7 +460,7 @@ test("shared composer styles and exact draft survive every desktop host in both 
   fs.writeFileSync(info.outputPath("shared-style-parity.json"), JSON.stringify(samples, null, 2));
 });
 
-for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and version-safe Undo work in ${host}`, async ({ page, review }, info) => {
+for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and explicit Reopen work in ${host}`, async ({ page, review }, info) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   const ref = await openReview(page, review, writeFile(review, `resolution-${host}.html`, '<p id="copy" tabindex="0">A reviewed passage.</p>'));
   await waitForSdk(page);
@@ -514,26 +514,13 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     if (popup) {
       await expect(page.locator(".conversation-panel")).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();
-      await expect(page.locator(".conversation-toast")).toContainText("Conversation resolved.");
       await page.screenshot({ path: info.outputPath(`dismissed-${theme}-${width}.png`), animations: "disabled", caret: "initial" });
     }
-    const undo = page.getByRole("button", { name: "Undo resolve", exact: true });
     if (theme === "dark" && !popup) await expect(card.getByRole("button", { name: "Expand conversation", exact: true })).toBeFocused();
-    await expect(undo).toBeVisible();
-    await expect(undo).toBeInViewport({ ratio: 1 });
-    if (theme === "light") {
-      await undo.click();
-      await expect(card).toHaveAttribute("data-status", "open");
-      await expect(undo).toHaveCount(0);
-      if (popup) await feedback(page);
-      await card.getByRole("button", { name: "Resolve conversation", exact: true }).click();
-      await expect(undo).toBeVisible();
-    } else if (popup) {
+    if (popup) {
       await feedback(page);
       await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "feedback");
     }
-    await page.getByRole("button", { name: "Dismiss notification", exact: true }).click();
-    await expect(undo).toHaveCount(0);
     if (await page.locator(".conversation-panel").getAttribute("data-host") === "feedback") {
       const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
       if (await resolvedFilter.getAttribute("aria-pressed") === "false") {
@@ -558,7 +545,6 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
     await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
     await expect(card.getByRole("img", { name: "Resolved", exact: true })).toHaveCount(0);
     await expect(card.locator(".conversation-response")).toBeVisible();
-    await expect(undo).toHaveCount(0);
   }
   await card.getByRole("button", { name: "Resolve conversation", exact: true }).click();
   await mutate(review, ref, "set-thread-status", { threadId, status: "open" });

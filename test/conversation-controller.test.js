@@ -650,12 +650,54 @@ test("one-click resolution guards drafts, unsent and delivered work without disp
   assert.equal(c.owner.getSnapshot().threads[0].draft.text, "A draft in this tab");
 });
 
-test("Resolve is one accepted mutation with version-bound Undo and no confirmation dialog", async (t) => {
+test("only authoritative lifecycle transitions notify, with completion distinguished from abandonment", async t => {
+  const c = await controller(t);
+  assert.equal(c.owner.getSnapshot().notification, null);
+  await draft(c, "First batch");
+  assert.equal(c.owner.getSnapshot().notification, null);
+  const observed = [];
+  const unsubscribe = c.owner.subscribe(() => observed.push(c.owner.getSnapshot()));
+  t.after(unsubscribe);
+  await c.owner.commands.send();
+  const waiting = c.owner.getSnapshot().notification;
+  assert.equal(waiting.message, "Waiting for agent.");
+  assert.ok(observed.some(snapshot => snapshot.busy && snapshot.notification?.id === waiting.id));
+  c.owner.commands.dismissNotification(waiting.id);
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().notification, null);
+  const work = (await c.f.read(c.ref, "poll")).submission;
+  await c.owner.refresh();
+  assert.equal(c.owner.getSnapshot().notification, null, "pickup is not a new review phase");
+  await c.f.ok(responseFor(work));
+  await c.owner.refresh();
+  const completed = c.owner.getSnapshot().notification;
+  assert.equal(completed.message, "Agent response received. Ready to review.");
+  assert.notEqual(completed.id, waiting.id);
+  await c.owner.refresh();
+  assert.deepEqual(c.owner.getSnapshot().notification, completed);
+  c.owner.commands.dismissNotification(waiting.id);
+  assert.deepEqual(c.owner.getSnapshot().notification, completed, "old dismissal cannot remove a newer transition");
+  c.owner.commands.dismissNotification(completed.id);
+  await draft(c, "Second batch");
+  assert.equal(c.owner.getSnapshot().notification, null);
+  await c.owner.commands.send();
+  assert.equal(c.owner.getSnapshot().notification.message, "Waiting for agent.");
+  assert.notEqual(c.owner.getSnapshot().notification.id, waiting.id);
+  c.owner.commands.confirm("abandon", c.owner.getSnapshot().status.work.submissionId);
+  await c.owner.commands.confirmAction();
+  assert.equal(c.owner.getSnapshot().notification.message, "Reviewing resumed.");
+  c.owner.commands.confirm("end");
+  await c.owner.commands.confirmAction();
+  assert.equal(c.owner.getSnapshot().notification.message, "Review ended.");
+});
+
+test("Resolve and Reopen are single version-guarded mutations without notifications or confirmation dialogs", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Ready to resolve");
   await c.owner.commands.send();
   await c.f.ok(responseFor((await c.f.read(c.ref, "poll")).submission));
   await c.owner.refresh();
+  c.owner.commands.dismissNotification(c.owner.getSnapshot().notification.id);
   await Promise.all([c.owner.commands.resolve(id), c.owner.commands.resolve(id)]);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
@@ -666,40 +708,28 @@ test("Resolve is one accepted mutation with version-bound Undo and no confirmati
   c.owner.commands.collapse(id);
   assert.equal(c.owner.getSnapshot().confirmation, null);
   assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, 1);
-  const undo = c.owner.getSnapshot().resolutionUndo;
-  assert.deepEqual(undo, { threadId: id, reviewVersion: c.owner.getSnapshot().review.version });
-  const notification = c.owner.getSnapshot().notification;
-  assert.deepEqual(notification, { id: c.calls.find(body => body.operation === "set-thread-status").requestId,
-    message: "Conversation resolved.", undoThreadId: id });
+  assert.equal(c.owner.getSnapshot().notification, null);
   assert.equal(c.owner.getSnapshot().notice, "");
-  c.owner.commands.dismissNotification("older-notification");
-  assert.deepEqual(c.owner.getSnapshot().notification, notification);
-  await c.owner.commands.undoResolve();
+  await c.owner.commands.resolve(id);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
   assert.equal(c.owner.getSnapshot().threads[0].attention, false);
-  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
-  const reopened = c.owner.getSnapshot().notification;
-  assert.equal(reopened.message, "Conversation reopened.");
-  assert.notEqual(reopened.id, notification.id);
-  c.owner.commands.dismissNotification(notification.id);
-  assert.deepEqual(c.owner.getSnapshot().notification, reopened);
-  c.owner.commands.dismissNotification(reopened.id);
   assert.equal(c.owner.getSnapshot().notification, null);
   assert.equal(c.owner.getSnapshot().notice, "");
   await c.owner.commands.resolve(id);
   await c.f.mutate(c.ref, "set-thread-status", { threadId: id, status: "open" });
-  await assert.rejects(c.owner.commands.undoResolve(), /version|changed/i);
+  await assert.rejects(c.owner.commands.resolve(id), /version|changed/i);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
-  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
+  assert.equal(c.owner.getSnapshot().notification, null);
   await c.owner.commands.resolve(id);
   await c.f.mutate(c.ref, "end", { confirmUnsentReadOnly: true });
   await c.owner.refresh();
-  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
-  await assert.rejects(c.owner.commands.undoResolve(), /review has changed/i);
+  const count = c.calls.filter(body => body.operation === "set-thread-status").length;
+  await c.owner.commands.resolve(id);
+  assert.equal(c.calls.filter(body => body.operation === "set-thread-status").length, count);
 });
 
-test("Resolve dismisses only the adjacent popup and retains Feedback access and Undo", async (t) => {
+test("Resolve dismisses only the adjacent popup and retains Feedback access and explicit Reopen", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Ready to finish");
   await c.owner.commands.send();
@@ -717,9 +747,8 @@ test("Resolve dismisses only the adjacent popup and retains Feedback access and 
     assert.equal(state.focusId, host === "focus" ? id : null);
     assert.equal(state.threads[0].expanded, false);
     assert.deepEqual(state.filters, selectedFilters);
-    assert.equal(state.resolutionUndo.threadId, id);
     c.owner.commands.open();
-    await c.owner.commands.undoResolve();
+    await c.owner.commands.resolve(id);
     assert.equal(c.owner.getSnapshot().threads[0].thread.status, "open");
     if (host === "adjacent") c.owner.commands.filter("resolved");
   }
@@ -754,7 +783,7 @@ test("inventory returns temporarily reveal excluded threads without changing fil
   }
 });
 
-test("uncertain Resolve offers Undo only after its exact receipt is reconciled", async (t) => {
+test("uncertain Resolve changes presentation only after its exact receipt is reconciled", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Answered");
   await c.owner.commands.send();
@@ -772,14 +801,12 @@ test("uncertain Resolve offers Undo only after its exact receipt is reconciled",
   assert.equal(c.owner.getSnapshot().open, true);
   assert.equal(c.owner.getSnapshot().host, "adjacent");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, true);
-  assert.equal(c.owner.getSnapshot().resolutionUndo, null);
   const requestId = c.owner.getSnapshot().uncertain.requestId;
   await c.owner.commands.reconcile(false);
   assert.equal(c.owner.getSnapshot().threads[0].thread.status, "resolved");
   assert.equal(c.owner.getSnapshot().threads[0].expanded, false);
   assert.equal(c.owner.getSnapshot().open, false);
   assert.equal(c.owner.getSnapshot().host, "feedback");
-  assert.equal(c.owner.getSnapshot().resolutionUndo.threadId, id);
   assert.deepEqual(new Set(c.calls.filter(body => body.operation === "set-thread-status").map(body => body.requestId)), new Set([requestId]));
 });
 

@@ -56,27 +56,17 @@ export const ICON_NODES = Object.freeze({
       }
     ]
   ],
-  "panelRightOpen": [
+  "arrowRight": [
     [
-      "rect",
+      "path",
       {
-        "width": "18",
-        "height": "18",
-        "x": "3",
-        "y": "3",
-        "rx": "2"
+        "d": "M5 12h14"
       }
     ],
     [
       "path",
       {
-        "d": "M15 3v18"
-      }
-    ],
-    [
-      "path",
-      {
-        "d": "m10 15-3-3 3-3"
+        "d": "m12 5 7 7-7 7"
       }
     ]
   ],

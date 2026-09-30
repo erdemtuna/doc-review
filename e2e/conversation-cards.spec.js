@@ -176,15 +176,15 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
     })).toBe(false);
     const paint = await open.evaluate((element) => getComputedStyle(element).backgroundColor);
     expect(paint).not.toBe("rgba(0, 0, 0, 0)");
-    await expect(open.locator("svg")).toBeVisible();
+    await expect(open.locator("svg")).toHaveCount(0);
     await open.click(); await page.mouse.move(2, 2); await open.evaluate((element) => element.blur());
     await expect(card).toBeHidden();
     await expect.poll(() => open.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(paint);
-    await expect(open.locator("svg")).toBeHidden();
+    await expect(open.locator("svg")).toHaveCount(0);
     await expect(resolvedFilter).toHaveAttribute("aria-pressed", "true");
     await open.click(); await page.mouse.move(2, 2); await open.evaluate((element) => element.blur());
     await expect.poll(() => open.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(paint);
-    await expect(open.locator("svg")).toBeVisible();
+    await expect(open.locator("svg")).toHaveCount(0);
     await expect(card.locator(".conversation-thread-title")).toHaveAttribute("aria-expanded", "true");
     await resolvedFilter.click();
   }

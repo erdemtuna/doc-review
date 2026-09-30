@@ -35,6 +35,7 @@ interface Options {
 }
 type Confirmation = { action: "end" | "abandon" | "resolve" | "delete" | "revert"; id: string; version: number; description: string };
 type Pending = { body: Mutation; accepted: (receipt: HandlingReceipt) => void; message: string; draftId?: string };
+const reviewStage = (status: ReviewStatus) => status.review.state === "ended" ? "ended" : status.work ? "waiting" : "reviewing";
 
 export function createConversationController(options: Options) {
   const reference = { reviewId: options.reviewId, entryKey: options.entryKey };
@@ -57,8 +58,7 @@ export function createConversationController(options: Options) {
   let revealedMessage: { threadId: string; messageId: string } | null = null;
   let revealRequest = 0;
   let resolutionGuardId: string | null = null;
-  let resolutionUndo: { threadId: string; reviewVersion: number } | null = null;
-  let notification: { id: string; message: string; undoThreadId?: string } | null = null;
+  let notification: { id: string; message: string } | null = null;
   let note = conversationDraft();
   let newMessage: { pageKey: string; target: ConversationTarget; draft: ConversationDraft } | null = null;
   let filters = { open: true, resolved: false };
@@ -122,7 +122,6 @@ export function createConversationController(options: Options) {
     submissions: [...submissions.entries()].map(([id, value]) => ({ id, value })),
     note, newMessage, filters, focusId, host, open, error, notice, notification, captureNotice, connected, revealedMessage, revealedThreadId,
     resolutionGuard: currentResolutionGuard(),
-    resolutionUndo: review?.state === "open" && review.version === resolutionUndo?.reviewVersion ? resolutionUndo : null,
     confirmation, draftCancellation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
     busy: busy || confirming || dispatching, loading, savingDraftIds: [...savingDrafts], sendBlocked: sendBlocked(), draftCount: draftCount(), attentionCount: attention.size,
     selection: selectionSummary(), canComment: writable(),
@@ -201,6 +200,13 @@ export function createConversationController(options: Options) {
     const confirmed = await post({ operation: "status", ...reference }, reviewStatusSchema);
     if (JSON.stringify(nextStatus) !== JSON.stringify(confirmed)) { refreshAgain = true; return; }
     if (disposed) return;
+    const nextStage = reviewStage(nextStatus);
+    if (status && reviewStage(status) !== nextStage) {
+      const completed = status.work && nextSubmissions.get(status.work.submissionId)?.submission.state === "handled";
+      notification = { id: `${nextStatus.review.version}:${nextStage}`,
+        message: nextStage === "ended" ? "Review ended." : nextStage === "waiting" ? "Waiting for agent."
+          : completed ? "Agent response received. Ready to review." : "Reviewing resumed." };
+    }
     review = nextStatus.review; status = nextStatus; pages = nextPages; edits = nextEdits;
     for (const thread of nextThreads) {
       const id = thread.thread.threadId;
@@ -286,11 +292,6 @@ export function createConversationController(options: Options) {
     pending.accepted(result.receipt);
     if (pending.draftId) savingDrafts.delete(pending.draftId);
     uncertain = null;
-    const message = ["create-thread", "reply", "update-message"].includes(pending.body.operation) ? ""
-      : `${pending.body.operation === "send" ? "Feedback sent" : pending.body.operation === "end" ? "Shared review ended"
-        : pending.body.operation === "set-thread-status" ? (pending.body.status === "resolved" ? "Conversation resolved" : "Conversation reopened") : "Saved"}.`;
-    notification = message ? { id: result.receipt.requestId, message,
-      ...(pending.body.operation === "set-thread-status" && pending.body.status === "resolved" ? { undoThreadId: pending.body.threadId } : {}) } : null;
     notice = "";
     // Acceptance is independent of whether the subsequent read succeeds.
     try { await refresh(); } catch { notice = "Refresh failed; do not repeat accepted work."; }
@@ -476,18 +477,7 @@ export function createConversationController(options: Options) {
         resolutionGuardId = null; confirming = true; publish();
         const status = thread.thread.status === "open" ? "resolved" : "open";
         try {
-          await mutate("set-thread-status", { threadId: id, status }, receipt => {
-            resolutionUndo = status === "resolved" ? { threadId: id, reviewVersion: receipt.value.reviewVersion } : null;
-          }, review!.version);
-        } finally { confirming = false; publish(); }
-      },
-      async undoResolve() {
-        const undo = resolutionUndo;
-        if (!undo || busy || confirming || dispatching) return;
-        if (!writable() || review?.version !== undo.reviewVersion) throw new Error("The review has changed. Reopen the conversation explicitly instead of undoing an older action.");
-        confirming = true; publish();
-        try {
-          await mutate("set-thread-status", { threadId: undo.threadId, status: "open" }, () => { resolutionUndo = null; }, undo.reviewVersion);
+          await mutate("set-thread-status", { threadId: id, status }, undefined, review!.version);
         } finally { confirming = false; publish(); }
       },
       compose() { revealRequest++; revealedThreadId = null; if (newMessage) { open = true; focusId = null; host = "compose"; publish(); } },

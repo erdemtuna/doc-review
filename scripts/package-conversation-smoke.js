@@ -240,7 +240,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
 
     const thread = page.locator(`[data-thread="${first.messages[0].message.threadId}"]`);
     await threadAction(page, thread, "Resolve conversation");
-    await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
+    await expect(thread).toHaveAttribute("data-status", "resolved");
     const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
     await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
     await resolvedFilter.click();
