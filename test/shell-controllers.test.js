@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createReviewApi, ApiError } from "../lib/chrome-api.js";
+import { createReviewApi, ApiError, saveFailureMessage } from "../lib/chrome-api.js";
+import { contractFailure, rejectSave, failureSchema } from "../lib/contracts/validation.js";
 import { createFrameController } from "../lib/frame-controller.js";
 import { createSaveController } from "../lib/save-controller.js";
 import { createFeedbackController } from "../lib/feedback-controller.js";
@@ -150,8 +151,8 @@ test("frame controller correlates messages, holds policy, and completes replacem
   assert.equal(f.controller.state.execution, execution);
   assert.equal(f.controller.state.pendingReload, true);
   assert.ok(f.host.previous);
-  const configuration = f.controller.configure("edit", "writable");
-  f.controller.configured("edit", "writable");
+  const configuration = f.controller.configure("edit", "writable", true);
+  f.controller.configured("edit", "writable", true);
   assert.equal(await configuration, true);
   assert.equal(f.host.previous, null);
   assert.equal(f.messages.at(-1).origin, "*");
@@ -187,7 +188,7 @@ test("frame readiness has one five-second retry and disposal settles strict flus
   await ready.controller.ready();
   const flush = ready.controller.flush(true);
   const rejection = assert.rejects(flush, /did not finish saving/);
-  const configuration = ready.controller.configure("edit", "writable");
+  const configuration = ready.controller.configure("edit", "writable", true);
   ready.controller.dispose();
   await rejection;
   assert.equal(await configuration, false);
@@ -198,13 +199,34 @@ test("configuration timeout is visible and an old configuration waiter is settle
   const f = frameFixture();
   await f.start();
   await f.controller.ready();
-  const first = f.controller.configure("view", "writable");
-  const second = f.controller.configure("edit", "writable");
+  const first = f.controller.configure("view", "writable", true);
+  const second = f.controller.configure("edit", "writable", true);
   assert.equal(await first, false);
   await f.timers.tick(3000);
   assert.equal(await second, false);
   await f.timers.tick(2000);
   assert.match(f.failures[0], /review settings/);
+  f.controller.dispose();
+});
+
+test("comment capability must match the latest configuration independently of source permission", async () => {
+  const f = frameFixture();
+  await f.start();
+  await f.controller.ready();
+  const initial = f.controller.configure("view", "feedback-only", true);
+  assert.equal(f.controller.configured("view", "feedback-only"), false);
+  assert.equal(f.controller.configured("view", "feedback-only", false), false);
+  assert.equal(f.controller.configured("view", "feedback-only", true), true);
+  assert.equal(await initial, true);
+  const ended = f.controller.configure("view", "feedback-only", false);
+  assert.equal(f.messages.at(-1).message.canComment, false);
+  assert.equal(f.controller.configured("view", "feedback-only", true), false);
+  assert.equal(f.controller.configured("view", "feedback-only", false), true);
+  assert.equal(await ended, true);
+  const pending = f.controller.configure("view", "writable", true);
+  f.controller.begin("other-page");
+  assert.equal(await pending, false);
+  assert.equal(f.controller.configured("view", "writable", true), false);
   f.controller.dispose();
 });
 
@@ -217,8 +239,8 @@ for (const wait of [false, true]) {
     await f.controller.ready();
     const identity = f.controller.identity();
     const execution = f.controller.state.execution;
-    const configuration = f.controller.configure("view", "writable", wait);
-    assert.equal(f.controller.configured("view", "writable"), true);
+    const configuration = f.controller.configure("view", "writable", true, wait);
+    assert.equal(f.controller.configured("view", "writable", true), true);
     assert.equal(await configuration, true);
     await f.timers.tick(6000);
     assert.deepEqual(f.failures, []);
@@ -243,9 +265,9 @@ test("mismatched configuration cannot cancel the replacement deadline", async ()
   const f = frameFixture();
   await f.start();
   await f.controller.ready();
-  await f.controller.configure("view", "writable", false);
-  assert.equal(f.controller.configured("edit", "writable"), false);
-  assert.equal(f.controller.configured("view", "feedback-only"), false);
+  await f.controller.configure("view", "writable", true, false);
+  assert.equal(f.controller.configured("edit", "writable", true), false);
+  assert.equal(f.controller.configured("view", "feedback-only", true), false);
   await f.timers.tick(5000);
   assert.match(f.failures[0], /review settings/);
   assert.equal(f.controller.state.phase.kind, "failed");
@@ -258,10 +280,10 @@ test("a prior configuration paint cannot finish a newer configuration on the sam
   f.host.afterPaint = (callback) => paints.push(callback);
   await f.start();
   await f.controller.ready();
-  await f.controller.configure("view", "writable", false);
-  f.controller.configured("view", "writable");
-  await f.controller.configure("edit", "writable", false);
-  await f.controller.configure("view", "writable", false);
+  await f.controller.configure("view", "writable", true, false);
+  f.controller.configured("view", "writable", true);
+  await f.controller.configure("edit", "writable", true, false);
+  await f.controller.configure("view", "writable", true, false);
   paints.shift()();
   assert.ok(f.host.previous);
   await f.timers.tick(5000);
@@ -276,12 +298,12 @@ for (const transition of ["reload", "suspend", "dispose"]) {
     f.host.afterPaint = (callback) => paints.push(callback);
     await f.start();
     await f.controller.ready();
-    await f.controller.configure("view", "writable", false);
-    f.controller.configured("view", "writable");
+    await f.controller.configure("view", "writable", true, false);
+    f.controller.configured("view", "writable", true);
     if (transition === "reload") {
       await f.start();
       await f.controller.ready();
-      await f.controller.configure("view", "writable", false);
+      await f.controller.configure("view", "writable", true, false);
     } else {
       f.controller[transition]();
     }
@@ -503,8 +525,8 @@ test("retained iframe has only a theme channel, and removal cancels its deadline
   const f = frameFixture();
   await f.start();
   await f.controller.ready();
-  await f.controller.configure("view", "writable", false);
-  f.controller.configured("view", "writable");
+  await f.controller.configure("view", "writable", true, false);
+  f.controller.configured("view", "writable", true);
   const oldSource = f.source;
   const oldGeneration = f.controller.state.generation;
   await f.start();
@@ -542,21 +564,21 @@ test("replacement paints recheck latest theme and exact configuration before han
   f.host.afterPaint = (fn) => paints.push(fn);
   await f.start();
   await f.controller.ready();
-  await f.controller.configure("view", "writable", false);
-  f.controller.configured("view", "writable");
+  await f.controller.configure("view", "writable", true, false);
+  f.controller.configured("view", "writable", true);
   f.autoTheme = false;
   f.controller.setTheme("dark");
   paints.shift()();
   assert.ok(f.host.previous);
   f.ack();
   assert.equal(paints.length, 1);
-  await f.controller.configure("edit", "writable", false);
+  await f.controller.configure("edit", "writable", true, false);
   paints.shift()();
   assert.ok(f.host.previous);
   f.controller.setTheme("light");
   f.ack();
   assert.equal(paints.length, 0);
-  f.controller.configured("edit", "writable");
+  f.controller.configured("edit", "writable", true);
   paints.shift()();
   assert.equal(f.host.previous, null);
   f.controller.dispose();
@@ -566,8 +588,8 @@ test("a second replacement retains only the original visible theme channel and c
   const f = frameFixture();
   await f.start();
   await f.controller.ready();
-  await f.controller.configure("view", "writable", false);
-  f.controller.configured("view", "writable");
+  await f.controller.configure("view", "writable", true, false);
+  f.controller.configured("view", "writable", true);
   const visible = f.source;
   await f.start();
   await f.controller.ready();
@@ -664,6 +686,34 @@ test("source conflict blocks the save barrier without retries or losing dirty ed
   await assert.rejects(f.controller.barrier(), /save conflict/);
   assert.equal(calls, 1);
   f.controller.dispose();
+});
+
+for (const reason of ["source-changed", "source-unavailable", "evidence-mismatch", "unsafe-content"]) {
+  test(`save recovery carries ${reason} through the API, notice and barrier`, async () => {
+    let failure;
+    try { rejectSave(reason, "Detailed diagnostic"); } catch (error) { failure = contractFailure(error); }
+    const api = createReviewApi({ token: "test", fetch: async () => new Response(JSON.stringify(failure), { status: 409 }) });
+    let reported;
+    const f = saveFixture({ request: api.request, conflict: message => { reported = message; } });
+    assert.equal(await f.controller.save("unsaved"), false);
+    assert.equal(reported, saveFailureMessage(reason));
+    assert.equal(f.controller.state.dirty, true);
+    assert.doesNotMatch(reported, /\$:/);
+    await assert.rejects(f.controller.barrier(), error => error.message.includes(reported));
+    await assert.rejects(api.request("/save"), error => error.diagnosticMessage === "$: Detailed diagnostic" && error.saveReason === reason);
+    f.controller.reset();
+    assert.equal(f.controller.state.conflictMessage, "");
+    f.controller.dispose(); api.dispose();
+  });
+}
+
+test("save reasons reject invalid combinations and unknown legacy conflicts stay honest", () => {
+  assert.throws(() => failureSchema.parse({ ok: false, error: {
+    code: "VERSION_CONFLICT", status: 409, retryable: false, message: "changed", saveReason: "source-changed",
+  } }), /Save reason/);
+  const error = new ApiError("$: old server detail", 409, "SAVE_EVIDENCE_CONFLICT", []);
+  assert.match(error.message, /could not be determined/);
+  assert.doesNotMatch(error.message, /source changed|\$:/);
 });
 
 test("revert waits for queued saves and retains frame/hash identity", async () => {

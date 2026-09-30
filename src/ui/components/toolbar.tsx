@@ -1,85 +1,81 @@
-import { useRef, useSyncExternalStore } from "react";
-import type { ToolbarController } from "../../toolbar-controller.js";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { ToolbarController, ToolbarState } from "../../toolbar-controller.js";
+import type { CanonicalPage } from "../../contracts/page-boundary";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup,
-  DropdownMenuRadioItem, DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+import { ChoiceMenu } from "./ui/choice-menu";
+import { ReviewOptions } from "./review-options";
 import { Icon } from "./icon";
 import { Brand } from "./brand";
 
 export function Toolbar({ runtime }: { runtime: ToolbarController }) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
-  const commands = runtime.commands;
-  const modeTrigger = useRef<HTMLButtonElement>(null);
-  return <>
-    <div className="shell-destinations">
+  return <ToolbarControls state={state} commands={runtime.commands} />;
+}
+
+export function ToolbarControls({ state, commands, readOnlyNavigation = false, editDisabled = false, pagePicker, status, changesId = "conversationChanges", feedbackCount = state.feedbackCount, feedbackCountLabel = "feedback items", documentTarget, documentLoading = false, pageMenuOpen = false, onOptionsOpen }: {
+  state: ToolbarState;
+  commands: ToolbarController["commands"];
+  readOnlyNavigation?: boolean;
+  editDisabled?: boolean;
+  pagePicker?: ReactNode;
+  status?: ReactNode;
+  changesId?: string;
+  feedbackCountLabel?: string;
+  feedbackCount?: number | null;
+  documentTarget?: CanonicalPage["target"] | null;
+  documentLoading?: boolean;
+  pageMenuOpen?: boolean;
+  onOptionsOpen?(): void;
+}) {
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  useEffect(() => {
+    if (state.modeMenuOpen || pageMenuOpen) setOptionsOpen(false);
+  }, [state.modeMenuOpen, pageMenuOpen]);
+  const setOptions = (open: boolean) => {
+    if (open) { commands.setModeMenu(false); onOptionsOpen?.(); }
+    setOptionsOpen(open);
+  };
+  const destinations = <div className="shell-destinations">
       <Brand />
       <SegmentedControl aria-label="Review destination">
         <SegmentedControlItem id="latestVersion" selected={!state.comparing}
-          aria-controls="frame" disabled={state.ended}
+          aria-controls="frame" disabled={state.ended && !readOnlyNavigation}
           onClick={() => commands.setComparing(false)}>Review</SegmentedControlItem>
         <SegmentedControlItem id="seeChanges" selected={state.comparing}
-          aria-controls="historyPanel" disabled={state.ended}
+          aria-controls={changesId} disabled={state.ended && !readOnlyNavigation}
           onClick={() => commands.setComparing(true)}>Changes</SegmentedControlItem>
       </SegmentedControl>
-    </div>
-    <div className="shell-mode" role="group" aria-label="Page controls" hidden={state.comparing}>
-      <DropdownMenu modal={false} open={state.modeMenuOpen} onOpenChange={commands.setModeMenu}>
-        <DropdownMenuTrigger asChild>
-          <Button id="modeButton" ref={modeTrigger} variant="outline"
-            aria-controls={state.modeMenuOpen ? "modeMenu" : undefined}
-            disabled={state.modeDisabled || state.ended}>
-            <Icon name={state.mode === "edit" ? "pencil" : "eye"} />
-            <span id="modeLabel">{state.mode === "edit" ? "Edit" : "View"}</span>
-            <Icon name="chevronDown" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent id="modeMenu" aria-labelledby="modeButton" className="w-64" collisionPadding={12}
-          onEscapeKeyDown={(event) => event.stopPropagation()}
-          onInteractOutside={(event) => {
-            // The trigger owns toggling, including while the old menu is animating out.
-            if (event.target instanceof Node && modeTrigger.current?.contains(event.target)) event.preventDefault();
-          }}
-          onCloseAutoFocus={(event) => {
-            const latest = runtime.getSnapshot();
-            // A previous exit animation must not steal focus from a reopened menu.
-            if (latest.modeMenuOpen || !latest.restoreModeFocus) event.preventDefault();
-          }}>
-          <DropdownMenuRadioGroup value={state.mode} onValueChange={(mode) => {
-            if (mode === "view" || mode === "edit") commands.setMode(mode);
-          }}>
-            <DropdownMenuRadioItem value="view" data-mode="view" textValue="View" className="gap-2 p-2 pr-8">
-              <Icon name="eye" /><span><strong className="block font-medium">View</strong>
-                <small className="block text-xs text-muted-foreground">Editing off, comments enabled</small></span>
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="edit" data-mode="edit" textValue="Edit" className="gap-2 p-2 pr-8">
-              <Icon name="pencil" /><span><strong className="block font-medium">Edit</strong>
-                <small className="block text-xs text-muted-foreground">{state.editDescription}</small></span>
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-    <div className="shell-actions">
-      <Button id="commentsButton" variant={state.drawerOpen ? "secondary" : "ghost"}
+      {pagePicker}
+    </div>;
+  const modeControls = <div className="shell-mode" role="group" aria-label="Page controls" hidden={state.comparing}>
+      <ChoiceMenu id="modeButton" menuId="modeMenu" textId="modeLabel" label="Page mode"
+        value={state.mode} triggerLabel={state.mode === "edit" ? "Edit" : "View"}
+        icon={state.mode === "edit" ? "pencil" : "eye"} disabled={state.modeDisabled || state.ended}
+        open={state.modeMenuOpen && !state.comparing} restoreFocus={state.restoreModeFocus && !state.comparing}
+        options={[
+          { value: "view", label: "View", icon: "eye", description: "Editing off, comments enabled" },
+          { value: "edit", label: "Edit", icon: "pencil", description: state.editDescription, disabled: editDisabled },
+        ]}
+        onOpenChange={commands.setModeMenu}
+        onValueChange={mode => { if (mode === "view" || mode === "edit") commands.setMode(mode); }} />
+    </div>;
+  const feedback = <Button id="commentsButton" variant="ghost"
         aria-controls="drawer" aria-label="Feedback" aria-describedby="feedbackCountDescription" aria-expanded={state.drawerOpen}
-        hidden={state.comparing} disabled={state.ended} onClick={commands.openComments}>
+        hidden={state.comparing} disabled={state.ended && !readOnlyNavigation} onMouseDown={(event) => event.preventDefault()} onClick={commands.openComments}>
         <Icon name="messages" /><span className="shell-comments-label">Feedback</span>
-        <Badge id="toolbarCount" variant="secondary" title={`${state.feedbackCount} feedback items`}
-          aria-label={`${state.feedbackCount} feedback items`}>
-          {state.feedbackCount > 99 ? "99+" : state.feedbackCount}
+        <Badge id="toolbarCount" variant="secondary" title={feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`}
+          aria-label={feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`}>
+          {feedbackCount === null ? "…" : feedbackCount > 99 ? "99+" : feedbackCount}
         </Badge>
-        <span id="feedbackCountDescription" className="sr-only">{state.feedbackCount} feedback items</span>
-      </Button>
-      <Button id="theme" variant="ghost" size="icon" disabled={state.ended}
-        title={`Switch review tools to ${state.theme === "dark" ? "light" : "dark"}`}
-        aria-label={`Switch review tools to ${state.theme === "dark" ? "light" : "dark"}`}
-        onClick={commands.toggleTheme}>
-        <Icon name={state.theme === "dark" ? "sun" : "moon"} />
-      </Button>
-    </div>
+        <span id="feedbackCountDescription" className="sr-only">{feedbackCount === null ? "Count unavailable:" : feedbackCount} {feedbackCountLabel}</span>
+      </Button>;
+  const options = <ReviewOptions open={optionsOpen} onOpenChange={setOptions} disabled={state.ended && !readOnlyNavigation}
+    theme={state.theme} onThemeChange={commands.setTheme} target={documentTarget} loading={documentLoading} />;
+  return <>
+    {destinations}
+    {status && <div className="shell-status">{status}</div>}
+    <div className="shell-tools">{feedback}{modeControls}{options}</div>
   </>;
 }

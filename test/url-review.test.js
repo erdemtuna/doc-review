@@ -1,3 +1,4 @@
+import { openResponse, mutate, read, send, content, request as conversationRequest } from "./fixtures/review.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -74,13 +75,10 @@ test("a localhost route is visually editable and returns source-directed feedbac
   t.after(async () => review.dispose());
   const target = `http://localhost:${appPort}/wiki`;
 
-  const opened = await request(review.port, review.token, {
-    method: "POST",
-    route: "/api/session",
-    body: { target },
-  });
+  const opened = await openResponse({ port: review.port, token: review.token }, target);
   assert.equal(opened.status, 200, opened.raw);
   const { key, sessionId } = JSON.parse(opened.raw);
+  const scope = opened.body;
 
   const state = await request(review.port, review.token, { route: `/api/page/${key}` });
   const page = JSON.parse(state.raw);
@@ -100,54 +98,38 @@ test("a localhost route is visually editable and returns source-directed feedbac
   assert.match(artifact.raw, new RegExp(`src="http://127\\.0\\.0\\.1:${review.port}/sdk\\.js"`));
   assert.match(artifact.raw, new RegExp(`nonce="${render.capability}"`));
 
-  const save = await request(review.port, review.token, {
-    method: "POST",
-    route: `/api/page/${key}/save`,
-    body: { html: "<p>Do not write this response into Next.js</p>" },
+  const changed = await mutate(review, scope, "record-edit", {
+    pageKey: key, content: content("Original copy", "Clearer copy", { label: "Intro" }),
   });
-  assert.equal(save.status, 400);
-  assert.match(JSON.parse(save.raw).error, /app source/);
-
-  await request(review.port, review.token, {
-    method: "POST",
-    route: `/api/page/${key}/edit`,
-    body: { label: "Intro", kind: "edited", before: "Original copy", after: "Clearer copy" },
+  const save = await conversationRequest(review, {
+    operation: "save-edit", reviewId: scope.reviewId, entryKey: scope.entryKey,
+    requestId: "url-write-refusal", expectedVersion: (await read(review, scope)).version,
+    pageKey: key, editId: changed.value.editId, editVersion: 1,
+    expectedSourceHash: "0".repeat(40), html: "<p>Do not write this response into Next.js</p>",
   });
-  await request(review.port, review.token, {
-    method: "POST",
-    route: `/api/page/${key}/edit`,
-    body: { label: "Old card", kind: "deleted", before: "Old card", after: "" },
+  assert.equal(save.status, 409);
+  assert.equal(save.body.error.code, "SAVE_EVIDENCE_CONFLICT");
+  const deleted = await mutate(review, scope, "record-edit", {
+    pageKey: key, content: content("Old card", "", { label: "Old card", kind: "deleted", after_html: "" }),
   });
-  await request(review.port, review.token, {
-    method: "POST",
-    route: `/api/page/${key}/send`,
-    body: { sessionId, note: "Keep the rest of the layout." },
-  });
-
-  const polled = await request(review.port, review.token, {
-    route: `/api/poll?target=${encodeURIComponent(target)}`,
-  });
-  const batch = JSON.parse(polled.raw);
-  assert.equal(batch.status, "feedback");
-  assert.equal(batch.pages[0].kind, "url");
-  assert.equal(batch.pages[0].url, target);
-  assert.equal(batch.pages[0].file, target);
+  await send(review, scope, [], [changed, deleted].map(({ value }) => ({ pageKey: key, editId: value.editId, version: 1 })),
+    { overallNote: { body: "Keep the rest of the layout.", intent: "discuss" } });
+  const work = (await read(review, scope, "poll")).submission;
+  assert.deepEqual((await read(review, scope, "read-page", { pageKey: key })).page.target, { kind: "url", url: target });
   assert.deepEqual(
-    batch.pages[0].edits.map(({ kind, after }) => [kind, after]),
+    work.edits.map(({ content }) => [content.kind, content.after]),
     [
       ["edited", "Clearer copy"],
       ["deleted", ""],
     ]
   );
-  assert.match(batch.next_step, /Find the matching project source/);
+  assert.ok(work.edits.every((edit) => edit.source.state === "pending"));
 
-  const redirect = await request(review.port, review.token, {
-    method: "POST",
-    route: "/api/session",
-    body: { target: `http://localhost:${appPort}/redirect-away` },
-  });
-  assert.equal(redirect.status, 500);
-  assert.match(JSON.parse(redirect.raw).error, /limited to localhost/);
+  const redirect = await openResponse({ port: review.port, token: review.token }, `http://localhost:${appPort}/redirect-away`);
+  const redirectRender = await registerRender(review.port, review.token, redirect.body.sessionId, redirect.body.key);
+  const refused = await request(review.port, review.token, { route: redirectRender.path });
+  assert.equal(refused.status, 502);
+  assert.match(refused.raw, /limited to localhost/);
 });
 
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));

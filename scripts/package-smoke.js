@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
-import { execFile, fork } from "node:child_process";
+import { execFile, exec, fork } from "node:child_process";
+import http from "node:http";
 import { once } from "node:events";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import ts from "typescript";
+import { conversationSmoke } from "./package-conversation-smoke.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const run = promisify(execFile);
+const runShell = promisify(exec);
 const args = process.argv.slice(2);
 const browserRequested = args.includes("--browser");
 const tarballs = args.filter((arg) => arg !== "--browser");
@@ -26,17 +31,58 @@ const env = {
   HOME: home,
   USERPROFILE: home,
   DOC_REVIEW_STATE_DIR: path.join(work, "state"),
+  npm_config_cache: path.join(work, "npm-cache"),
 };
 let server;
 let browser;
 let serverLog = "";
+let succeeded = false;
+let installedServer;
+let info;
+let base;
+let installed;
+const keep = process.env.DOC_REVIEW_SMOKE_KEEP === "1";
+const evidenceDir = path.join(process.env.DOC_REVIEW_SMOKE_ARTIFACTS || root,
+  `.package-smoke-evidence-${Date.now()}-${process.pid}`);
 
-async function npmRun(arguments_, cwd = root) {
-  return run(process.execPath, [npm, ...arguments_], { cwd, env, timeout: 180_000, maxBuffer: 4 * 1024 * 1024 });
+async function stopServer() {
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
+  const child = server, exited = once(child, "exit");
+  if (child.connected) child.send("stop");
+  const timer = setTimeout(() => child.kill(), 5_000);
+  try { await exited; } finally { clearTimeout(timer); }
+}
+
+async function startServer(port = 0) {
+  server = fork(fileURLToPath(new URL("./package-smoke-server.js", import.meta.url)), [installedServer, String(port)], {
+    cwd: project, env, execPath: process.execPath, stdio: ["ignore", "pipe", "pipe", "ipc"],
+  });
+  const child = server;
+  child.stdout.on("data", (chunk) => { serverLog += chunk; });
+  child.stderr.on("data", (chunk) => { serverLog += chunk; });
+  [info] = await Promise.race([
+    once(child, "message", { signal: AbortSignal.timeout(15_000) }),
+    once(child, "exit").then(([code]) => { throw new Error(`Installed server exited ${code}: ${serverLog}`); }),
+  ]);
+  base = `http://127.0.0.1:${info.port}`;
+}
+
+async function npmRun(arguments_, cwd = root, extraEnv = {}, timeout = 300_000) {
+  return run(process.execPath, [npm, ...arguments_], { cwd, env: { ...env, ...extraEnv }, timeout, maxBuffer: 4 * 1024 * 1024 });
+}
+async function runtimeHashes(directory) {
+  const files = (await readdir(directory, { recursive: true, withFileTypes: true })).filter(entry => entry.isFile());
+  const hashes = {};
+  for (const entry of files.sort((a, b) => path.join(a.parentPath, a.name).localeCompare(path.join(b.parentPath, b.name)))) {
+    const file = path.join(entry.parentPath, entry.name);
+    hashes[path.relative(directory, file)] = createHash("sha256").update(await readFile(file)).digest("hex");
+  }
+  return hashes;
 }
 
 try {
-  await Promise.all([prefix, home, project].map((directory) => mkdir(directory)));
+  await Promise.all([prefix, home, project, evidenceDir].map((directory) => mkdir(directory, { recursive: true })));
+  await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "clean-doc-review-consumer", private: true }));
   let tarball = tarballs[0] && path.resolve(tarballs[0]);
   if (!tarball) {
     // prepack rebuilds; this local test archive is never a publishable candidate.
@@ -45,13 +91,25 @@ try {
     assert.equal(entries.length, 1);
     tarball = path.join(work, entries[0].filename);
   }
+  await copyFile(tarball, path.join(evidenceDir, path.basename(tarball)));
   await writeFile(path.join(prefix, "package.json"), JSON.stringify({
     name: "doc-review-installed-smoke",
     private: true,
     dependencies: { [expected.name]: `file:${tarball}` },
   }));
   await npmRun(["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"], prefix);
-  const installed = path.join(prefix, "node_modules", ...expected.name.split("/"));
+  installed = path.join(prefix, "node_modules", ...expected.name.split("/"));
+  const runtime = await runtimeHashes(path.join(installed, "lib"));
+  const repositoryRuntime = await runtimeHashes(path.join(root, "lib"));
+  assert.deepEqual(runtime, repositoryRuntime, "Installed tarball runtime must match the built repository runtime");
+  const approved = process.env.DOC_REVIEW_APPROVED_RUNTIME;
+  if (approved) assert.deepEqual(runtime, await runtimeHashes(approved), "Installed runtime must match the explicitly approved runtime");
+  await writeFile(path.join(evidenceDir, "installed-runtime.json"), JSON.stringify({
+    installed, prefix, project, state: env.DOC_REVIEW_STATE_DIR, work, kept: keep,
+    tarball: path.join(evidenceDir, path.basename(tarball)),
+    tarballSha256: createHash("sha256").update(await readFile(tarball)).digest("hex"),
+    runtime, repositoryEqual: true, ...(approved ? { approvedRuntime: approved, approvedEqual: true } : {}),
+  }, null, 2));
   const manifest = JSON.parse(await readFile(path.join(installed, "package.json"), "utf8"));
   assert.equal(manifest.version, expected.version);
   assert.equal(manifest.name, expected.name);
@@ -66,6 +124,7 @@ try {
   }
   for (const asset of [
     "cli.js", "server-entry.js", "server.js", "chrome.html", "sdk.js", "SKILL.md",
+    "references/response-contract.md", "references/source-edits.md", "references/context-and-recovery.md",
     "ui/chrome.js", "ui/chrome.css", "ui/THIRD_PARTY_NOTICES.md",
   ]) {
     await access(path.join(installed, "lib", asset));
@@ -81,15 +140,11 @@ try {
   }
   const shim = path.join(prefix, "node_modules", ".bin", process.platform === "win32" ? "doc-review.cmd" : "doc-review");
   await access(shim);
+  env.PATH = `${path.dirname(shim)}${path.delimiter}${process.env.PATH}`;
   const cli = path.join(installed, manifest.bin["doc-review"]);
   const cliRun = (arguments_) => run(process.execPath, [cli, ...arguments_], { cwd: project, env, timeout: 30_000 });
   assert.equal((await cliRun(["--version"])).stdout.trim(), expected.version);
-  if (process.platform !== "win32") {
-    assert.equal((await run(shim, ["--version"], { cwd: project, env })).stdout.trim(), expected.version);
-  } else {
-    const shimText = await readFile(shim, "utf8");
-    assert.match(shimText, /lib[\\/]cli\.js/);
-  }
+  assert.equal((await runShell("doc-review --version", { cwd: project, env })).stdout.trim(), expected.version);
   const help = (await cliRun(["--help"])).stdout;
   assert.match(help, /doc-review/);
   assert.doesNotMatch(help, /human-review/i);
@@ -97,41 +152,157 @@ try {
   for (const directory of [".claude", ".codex", ".agents"]) {
     const skill = await readFile(path.join(home, directory, "skills", "doc-review", "SKILL.md"), "utf8");
     assert.doesNotMatch(skill, /human-review/i);
-    for (const text of ["Use only when the user explicitly invokes /doc-review", "truncated_fields", "12 hours", "--ack b_0123456789abcdef"]) {
+    assert.ok(Buffer.byteLength(skill) <= 4096);
+    for (const text of ["Use only when the user explicitly invokes /doc-review", "12 hours", "--response-file response.json", "--review <reviewId> --entry <entryKey>"]) {
       assert.ok(skill.includes(text), `Installed skill missing ${text}`);
+    }
+    assert.doesNotMatch(skill, /--ack|There is no reply channel|fix every page/);
+    for (const match of skill.matchAll(/\]\((references\/[^)]+)\)/g)) {
+      const reference = await readFile(path.join(home, directory, "skills", "doc-review", match[1]), "utf8");
+      assert.ok(Buffer.byteLength(reference) <= 12 * 1024);
+      assert.doesNotMatch(reference, /npx -y @erdemtuna/);
     }
   }
   await cliRun(["setup"]);
   const guidance = await readFile(path.join(project, "AGENTS.md"), "utf8");
-  for (const text of ["<!-- BEGIN doc-review -->", "Start only when the user explicitly invokes /doc-review", "truncated_fields"]) {
+  assert.ok(Buffer.byteLength(guidance) <= 1024);
+  for (const text of ["<!-- BEGIN doc-review -->", "Start only when the user explicitly invokes /doc-review", ".agents/skills/doc-review/SKILL.md"]) {
     assert.ok(guidance.includes(text), `Project guidance missing ${text}`);
   }
   await cliRun(["setup"]);
   assert.equal(await readFile(path.join(project, "AGENTS.md"), "utf8"), guidance);
+  for (const directory of [".claude", ".agents"]) {
+    const skillRoot = path.join(project, directory, "skills", "doc-review");
+    const skill = await readFile(path.join(skillRoot, "SKILL.md"), "utf8");
+    for (const match of skill.matchAll(/\]\((references\/[^)]+)\)/g)) await access(path.join(skillRoot, match[1]));
+  }
 
-  server = fork(fileURLToPath(new URL("./package-smoke-server.js", import.meta.url)), [path.join(installed, "lib", "server.js")], {
-    cwd: project,
-    env,
-    execPath: process.execPath,
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
+  const obsolete = [
+    [path.join(env.DOC_REVIEW_STATE_DIR, "state.json"), '{"pages":{},"batches":{"old":{"batch_id":"old"}}}'],
+    [path.join(env.DOC_REVIEW_STATE_DIR, "history", "old.txt"), "Old history must remain untouched"],
+    [path.join(env.DOC_REVIEW_STATE_DIR, "pasted", "old.png"), "Old staged bytes"],
+  ];
+  for (const [file, bytes] of obsolete) {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, bytes);
+  }
+  installedServer = path.join(installed, "lib", "server.js");
+  await startServer();
+  const contracts = await import(pathToFileURL(path.join(installed, "lib", "contracts", "index.js")).href);
+  const agentTarget = path.join(project, "agent-review.html");
+  await writeFile(agentTarget, "<p>Explain this without changing it.</p>");
+  const agentOpen = contracts.agentOpenSchema.parse(JSON.parse((await cliRun([agentTarget, "--no-browser"])).stdout));
+  const scope = { reviewId: agentOpen.review.reviewId, entryKey: agentOpen.review.entryKey };
+  const scopeArgs = ["--review", scope.reviewId, "--entry", scope.entryKey];
+  const post = async (body) => {
+    const response = await fetch(`${base}/api/conversation`, {
+      method: "POST", headers: { "content-type": "application/json", "x-doc-review-token": info.token },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  };
+  const thread = contracts.acceptedMutationSchema.parse(await post({
+    operation: "create-thread", ...scope, requestId: "package-thread", expectedVersion: agentOpen.review.version,
+    pageKey: scope.entryKey, target: { kind: "selection", anchor: { quote: "Explain this", prefix: "", suffix: "" } },
+    body: "Why this wording?", intent: "discuss",
+  })).receipt;
+  await post({
+    operation: "send", ...scope, requestId: "package-send", expectedVersion: thread.value.reviewVersion,
+    pageKeys: [scope.entryKey], messages: [{ threadId: thread.value.threadId, messageId: thread.value.messageId, version: 1 }], edits: [],
   });
-  server.stdout.on("data", (chunk) => { serverLog += chunk; });
-  server.stderr.on("data", (chunk) => { serverLog += chunk; });
-  const [info] = await Promise.race([
-    once(server, "message", { signal: AbortSignal.timeout(15_000) }),
-    once(server, "exit").then(([code]) => { throw new Error(`Installed server exited ${code}: ${serverLog}`); }),
-  ]);
-  const base = `http://127.0.0.1:${info.port}`;
-  const target = path.join(project, "review.html");
-  await writeFile(target, "<!doctype html><html><head><title>Package smoke</title></head><body><h1>Installed package review</h1><p>Compiled runtime.</p></body></html>");
-  const opened = await fetch(`${base}/api/session`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-doc-review-token": info.token },
-    body: JSON.stringify({ target }),
-    signal: AbortSignal.timeout(10_000),
+  const agentWork = contracts.agentPollSchema.parse(JSON.parse((await cliRun(["poll", ...scopeArgs, "--timeout", "5"])).stdout));
+  const generated = (command) => runShell(command, { cwd: project, env, timeout: 60_000, maxBuffer: 1024 * 1024 });
+  assert.equal(JSON.parse((await generated(agentOpen.handoff.pollCommand)).stdout).submission.submissionId, agentWork.submission.submissionId);
+  const responseFile = path.join(project, "response.json");
+  await writeFile(responseFile, JSON.stringify(contracts.completeResponseSchema.parse({
+    operation: "respond", ...scope, requestId: "package-response", submissionId: agentWork.submission.submissionId,
+    expectedVersion: agentWork.submission.version,
+    responses: [{ threadId: thread.value.threadId, messageId: thread.value.messageId, messageVersion: 1,
+      body: "It introduces the topic.", outcome: "answered" }], editOutcomes: [], resultNote: "Explained; no source changed.",
+  })));
+  const accepted = contracts.acceptedMutationSchema.parse(JSON.parse((await cliRun([
+    "respond", ...scopeArgs, "--response-file", responseFile,
+  ])).stdout));
+  assert.equal(accepted.receipt.reviewId, scope.reviewId);
+  assert.equal(await readFile(agentTarget, "utf8"), "<p>Explain this without changing it.</p>");
+  const evidence = contracts.agentStatusSchema.parse(JSON.parse((await cliRun(["status", ...scopeArgs])).stdout));
+  assert.equal(evidence.latestSubmission.state, "handled");
+  assert.equal(JSON.parse((await generated(agentWork.submission.handoff.statusCommand)).stdout).latestSubmission.state, "handled");
+
+  // Serve the locally packed candidate to a genuinely transient npx install, never publish it.
+  const tarBytes = await readFile(tarball);
+  const registry = http.createServer((req, res) => {
+    if (req.url === "/candidate.tgz") { res.writeHead(200, { "content-type": "application/octet-stream" }); res.end(tarBytes); return; }
+    const url = `http://127.0.0.1:${registry.address().port}/candidate.tgz`;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      name: expected.name, "dist-tags": { latest: expected.version },
+      versions: { [expected.version]: { ...manifest, dist: {
+        tarball: url, integrity: `sha512-${createHash("sha512").update(tarBytes).digest("base64")}`,
+      } } },
+    }));
   });
-  assert.equal(opened.status, 200, await opened.clone().text());
-  const session = await opened.json();
+  await new Promise((resolve) => registry.listen(0, "127.0.0.1", resolve));
+  try {
+    const config = path.join(work, "npx.npmrc");
+    await writeFile(config, `@erdemtuna:registry=http://127.0.0.1:${registry.address().port}\n`);
+    const npxEnv = {
+      ...env, npm_config_userconfig: config, npm_config_prefix: path.join(work, "npx-global"),
+      PATH: [path.dirname(process.execPath), ...(process.platform === "win32"
+        ? [path.join(process.env.SystemRoot, "System32"), process.env.SystemRoot] : ["/usr/bin", "/bin"])].join(path.delimiter),
+    };
+    const npxRun = (command) => runShell(command, { cwd: project, env: npxEnv, timeout: 180_000, maxBuffer: 1024 * 1024 });
+    const npxOpen = JSON.parse((await npxRun(`npx -y ${expected.name} "${agentTarget}" --no-browser`)).stdout);
+    assert.match(npxOpen.handoff.statusCommand, /^npx -y @erdemtuna\/doc-review /);
+    const npxStatus = JSON.parse((await npxRun(npxOpen.handoff.statusCommand)).stdout);
+    assert.equal(npxStatus.latestSubmission.state, "handled");
+    assert.match(npxStatus.handoff.historyCommand, /^npx -y @erdemtuna\/doc-review /);
+    assert.equal(JSON.parse((await npxRun(npxStatus.latestSubmission.result.body.command)).stdout).text, "Explained; no source changed.");
+    const nextThread = (await post({
+      operation: "reply", ...scope, requestId: "npx-followup",
+      expectedVersion: (await post({ operation: "read-review", ...scope })).version,
+      threadId: thread.value.threadId, body: "Explain the earlier answer.", intent: "discuss",
+    })).receipt;
+    await post({
+      operation: "send", ...scope, requestId: "npx-send", expectedVersion: nextThread.value.reviewVersion,
+      pageKeys: [scope.entryKey], edits: [], messages: [{ threadId: thread.value.threadId, messageId: nextThread.value.messageId, version: 1 }],
+      overallNote: { body: "Summarize.", intent: "discuss" },
+    });
+    const npxWork = JSON.parse((await npxRun(npxOpen.handoff.pollCommand)).stdout).submission;
+    const npxCommands = [npxWork.handoff.submissionCommand, npxWork.handoff.historyCommand,
+      npxWork.inventory.items.find((item) => item.kind === "message").contextCommand];
+    for (const command of npxCommands) {
+      assert.match(command, /^npx -y @erdemtuna\/doc-review /);
+      assert.ok(Buffer.byteLength((await npxRun(command)).stdout) <= 16384);
+    }
+    const artifact = JSON.parse((await npxRun(npxWork.handoff.templateCommand)).stdout);
+    const template = JSON.parse(await readFile(artifact.path, "utf8"));
+    assert.throws(() => contracts.completeResponseSchema.parse(template));
+    template.responses.forEach((reply) => { reply.body = "Recovered the prior explanation."; reply.outcome = "answered"; });
+    template.overallOutcome = "answered"; template.resultNote = "Answered without source changes.";
+    await writeFile(artifact.path, JSON.stringify(template));
+    assert.equal(JSON.parse((await npxRun(npxWork.handoff.responseCommand)).stdout).ok, true);
+    await npxRun(`npx -y ${expected.name} setup`);
+    const npxSkill = await readFile(path.join(project, ".agents", "skills", "doc-review", "SKILL.md"), "utf8");
+    assert.match(npxSkill, /npx -y @erdemtuna\/doc-review poll/);
+    for (const match of npxSkill.matchAll(/\]\((references\/[^)]+)\)/g)) {
+      const reference = await readFile(path.join(project, ".agents", "skills", "doc-review", match[1]), "utf8");
+      if (reference.includes("doc-review content") || reference.includes("doc-review respond")) {
+        assert.match(reference, /npx -y @erdemtuna\/doc-review/);
+      }
+    }
+    // The server may have been launched by an installed command: CLI handoffs still retain the caller's invocation.
+    await writeFile(path.join(evidenceDir, "executable-handoffs.json"), JSON.stringify({
+      installed: agentOpen.handoff.pollCommand, npx: npxOpen.handoff.statusCommand,
+      installedExecuted: true, npxExecuted: true,
+    }, null, 2));
+  } finally {
+    registry.closeAllConnections();
+    await new Promise((resolve) => registry.close(resolve));
+  }
+
+  const session = { path: `/r/${scope.reviewId}` };
   const shell = await fetch(new URL(session.path, base), { signal: AbortSignal.timeout(10_000) });
   assert.equal(shell.status, 200);
   assert.match(await shell.text(), /chrome\.js/);
@@ -184,156 +355,83 @@ try {
   assert.equal(opaqueSdk.headers.get("access-control-allow-origin"), "null");
   if (browserRequested) {
     const { chromium, expect } = await import("@playwright/test");
+    const browserEnv = { XDG_CACHE_HOME: process.env.XDG_CACHE_HOME || path.join(homedir(), ".cache") };
+    const isolatedBrowser = await run(process.execPath, ["--input-type=module", "-e",
+      "import { chromium } from '@playwright/test'; process.stdout.write(chromium.executablePath());"], {
+      cwd: root, env: { ...env, ...browserEnv }, timeout: 10_000,
+    });
+    assert.equal(isolatedBrowser.stdout, chromium.executablePath(), "Isolated HOME must retain the installed browser cache");
     browser = await chromium.launch();
-    const page = await browser.newPage();
-    const errors = [];
-    const remoteRequests = [];
-    // The authored iframe uses the same server on a separate loopback origin.
-    const localOrigins = new Set([base, `http://localhost:${info.port}`]);
-    page.on("pageerror", (error) => errors.push(error.message));
-    page.on("request", (request) => {
-      const url = new URL(request.url());
-      if (["http:", "https:"].includes(url.protocol) && !localOrigins.has(url.origin)) remoteRequests.push(url.href);
+    await writeFile(path.join(evidenceDir, "browser-engine.json"), JSON.stringify({
+      engine: "Chromium", version: browser.version(), executable: chromium.executablePath(),
+      playwright: JSON.parse(await readFile(path.join(root, "node_modules", "@playwright", "test", "package.json"), "utf8")).version,
+      platform: process.platform, node: process.version,
+    }, null, 2));
+    await conversationSmoke({
+      browser, expect, project, state: env.DOC_REVIEW_STATE_DIR, evidenceDir, contracts, cliRun,
+      connection: () => ({ base, token: info.token }),
+      restart: async () => { const port = info.port; await stopServer(); await startServer(port); },
     });
-    await page.goto(new URL(session.path, base).href);
-    await page.locator('#frame[data-sdk-ready="true"]').waitFor({ timeout: 15_000 });
-    assert.equal(await page.frameLocator("#frame").locator("h1").textContent(), "Installed package review");
-    const originalFrame = await page.locator("#frame").elementHandle();
-    await page.locator("#seeChanges").click();
-    assert.equal(await page.locator("#historyPanel").isVisible(), true);
-    await page.locator("#theme").click();
-    assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
-    await page.locator("#latestVersion").click();
-    await page.locator("#modeButton").click();
-    await page.getByRole("menuitemradio", { name: /^Edit/ }).waitFor();
-    await page.keyboard.press("Escape");
-    await page.locator("#modeMenu").waitFor({ state: "hidden" });
-    await page.locator("#commentsButton").click();
-    await page.locator("#empty").waitFor();
-    assert.equal(await page.locator("#cards article").count(), 0);
-    await page.locator("#note").fill("Preserve installed-package feedback");
-    await page.locator("#drawerClose").click();
-    await page.locator("#drawer").waitFor({ state: "hidden" });
-    await page.locator("#commentsButton").click();
-    assert.equal(await page.locator("#note").inputValue(), "Preserve installed-package feedback");
-    await page.locator("#drawerClose").click();
-    const frame = page.frameLocator("#frame");
-    await frame.locator("p").evaluate((element) => {
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      const selection = document.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      document.dispatchEvent(new Event("selectionchange"));
-    });
-    await frame.locator("#commentAction").click();
-    await page.locator("#composeText").fill("Installed contextual feedback");
-    await page.locator("#composeAdd").click();
-    await page.locator("#compose").waitFor({ state: "hidden" });
-    await frame.locator("mark[data-eh-mark]").click();
-    await page.locator("#alignedCard").getByRole("button", { name: "Edit comment" }).click();
-    assert.equal(await page.locator("#alignedCard textarea").inputValue(), "Installed contextual feedback");
-    await page.locator("#alignedCard textarea").press("Escape");
-    const deleteAction = page.locator("#alignedCard").getByRole("button", { name: "Delete comment" });
-    await deleteAction.click();
-    await page.locator("#alignedCard").getByRole("button", { name: "Delete", exact: true }).waitFor();
-    await page.keyboard.press("Escape");
-    await deleteAction.waitFor();
-    assert.equal(await deleteAction.evaluate((element) => document.activeElement === element), true);
-    assert.equal(await page.locator("#frame").evaluate((element, original) => element === original, originalFrame), true);
-    await originalFrame.dispose();
-
-    await page.locator("#commentsButton").click();
-    const note = page.getByLabel("Overall note");
-    await expect(note).toHaveValue("Preserve installed-package feedback");
-    await page.locator("#endReview").click();
-    const confirmation = page.getByRole("alertdialog");
-    await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-    await expect(confirmation).toContainText("only in this tab");
-    await page.keyboard.press("Escape");
-    await expect(confirmation).toBeHidden();
-    await expect(page.locator("#endReview")).toBeFocused();
-    await expect(note).toHaveValue("Preserve installed-package feedback");
-    await expect(page.locator("#drawer")).toHaveClass(/open/);
-
-    await page.locator("#drawerClose").click();
-    await page.locator("#modeButton").click();
-    await page.getByRole("menuitemradio", { name: /^Edit/ }).click();
-    await page.locator("#modeMenu").waitFor({ state: "hidden" });
-    await expect(frame.locator("body")).toHaveAttribute("contenteditable", "true");
-    await frame.locator("h1").click();
-    await page.keyboard.press("End");
-    await page.keyboard.type(" Installed edit.");
-    await expect.poll(() => readFile(target, "utf8")).toContain("Installed package review Installed edit.");
-    await page.locator("#commentsButton").click();
-    await expect(page.locator("#editCount")).toHaveText("1");
-    await expect(page.locator("#saveText")).toContainText("Saved to");
-    await page.locator("#revert").click();
-    await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-    await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.locator("#revert")).toBeFocused();
-    await expect(page.locator("#editCount")).toHaveText("1");
-    await page.locator("#revert").click();
-    await confirmation.getByRole("button", { name: "Revert all", exact: true }).click();
-    await expect(confirmation).toBeHidden();
-    await expect(frame.locator("h1")).toHaveText("Installed package review");
-    await page.locator('#frame[data-sdk-ready="true"]').waitFor({ timeout: 15_000 });
-    await expect(note).toHaveValue("Preserve installed-package feedback");
-
-    const sent = page.waitForResponse((response) =>
-      response.request().method() === "POST" && /\/api\/page\/[^/]+\/send$/.test(new URL(response.url()).pathname));
-    await page.locator("#send").click();
-    const sentResponse = await sent;
-    assert.equal(sentResponse.status(), 200);
-    const sentBatch = await sentResponse.json();
-    assert.ok(sentBatch.roundId);
-    await expect(note).toHaveValue("");
-    await expect(page.locator("#send")).toBeDisabled();
-    await expect(page.locator("#send")).toHaveText(/Sent|Feedback delivered/);
-    await page.locator("#drawerClose").click();
-    const delivered = await fetch(`${base}/api/poll?target=${encodeURIComponent(target)}`, {
-      headers: { "x-doc-review-token": info.token }, signal: AbortSignal.timeout(10_000),
-    });
-    assert.equal(delivered.status, 200);
-    const batch = await delivered.json();
-    assert.ok(batch.batch_id);
-    await writeFile(target, "<!doctype html><html><head><title>Package smoke</title></head><body><h1>Installed package review</h1><p>Updated installed runtime.</p></body></html>");
-    const acknowledged = await fetch(`${base}/api/poll?target=${encodeURIComponent(target)}&ack=${batch.batch_id}`, {
-      headers: { "x-doc-review-token": info.token }, signal: AbortSignal.timeout(10_000),
-    });
-    assert.equal(acknowledged.status, 200);
-    await acknowledged.body.cancel();
-    await expect.poll(async () => {
-      const response = await fetch(`${base}/api/session/${session.sessionId}/history/${sentBatch.roundId}`, {
-        headers: { "x-doc-review-token": info.token }, signal: AbortSignal.timeout(10_000),
-      });
-      assert.equal(response.status, 200);
-      const result = await response.json();
-      return result.round?.targets[0]?.captureStatus;
-    }, { timeout: 30_000 }).toBe("ready");
-    await page.locator("#seeChanges").click();
-    await page.getByRole("button", { name: "Content", exact: true }).click();
-    await expect(page.locator("#changeDetail")).toContainText("Updated installed runtime.");
-    await page.getByRole("button", { name: "Source", exact: true }).click();
-    await expect(page.locator("#changeDetail")).toContainText("<p>");
-    assert.equal(await page.locator("#changeDetail script, #changeDetail iframe, #changeDetail img").count(), 0);
-    await page.locator("#latestVersion").click();
-    await page.locator("#commentsButton").click();
-    await page.locator("#endReview").click();
-    await confirmation.getByRole("button", { name: "End review", exact: true }).click();
-    await expect(page.locator(".ended")).toBeVisible();
-    await expect(confirmation).toBeHidden();
-    assert.deepEqual(errors, []);
-    assert.deepEqual(remoteRequests, [], "Installed shell must not require a CDN or development server");
+    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js|frontend-refinement.spec.js";
+    try {
+      const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=2",
+        `--output=${path.join(evidenceDir, "installed-parity")}`], root, {
+        DOC_REVIEW_TEST_RUNTIME: path.join(installed, "lib"),
+        DOC_REVIEW_TEST_ROOT: path.join(work, "parity-fixtures"),
+        DOC_REVIEW_TEST_KEEP: keep ? "1" : "0",
+        ...browserEnv,
+      }, 600_000);
+      await writeFile(path.join(evidenceDir, "installed-parity.log"), parity.stdout + parity.stderr);
+      console.log(parity.stdout.trim().split("\n").at(-1));
+    } catch (error) {
+      await writeFile(path.join(evidenceDir, "installed-parity.log"), (error.stdout || "") + (error.stderr || ""));
+      throw error;
+    }
   }
+  for (const [file, bytes] of obsolete) assert.equal(await readFile(file, "utf8"), bytes);
+  await access(path.join(env.DOC_REVIEW_STATE_DIR, "conversation-state.json"));
+  await assert.rejects(access(path.join(installed, "lib", "chrome-client.js")));
+  const recordPath = path.join(env.DOC_REVIEW_STATE_DIR, "server.json");
+  const lockPath = path.join(env.DOC_REVIEW_STATE_DIR, "server.lock");
+  const record = await readFile(recordPath, "utf8"), lock = await readFile(lockPath, "utf8");
+  const incompatible = JSON.stringify({ ...JSON.parse(record), protocol: 0 });
+  try {
+    await writeFile(recordPath, incompatible);
+    await assert.rejects(cliRun([agentTarget, "--no-browser", "--timeout", "3"]), (error) => {
+      const result = contracts.failureSchema.parse(JSON.parse(error.stdout));
+      return error.code === 1 && /[Ii]ncompatible.*protocol/.test(result.error.message);
+    });
+    assert.equal(await readFile(recordPath, "utf8"), incompatible);
+    assert.equal(await readFile(lockPath, "utf8"), lock);
+    assert.equal(server.exitCode, null);
+  } finally { await writeFile(recordPath, record); }
+  const corruptDir = path.join(work, "corrupt-state");
+  await mkdir(corruptDir);
+  const corruptPath = path.join(corruptDir, "conversation-state.json");
+  for (const bytes of ["{bad-json", '{"schemaVersion":999}']) {
+    await writeFile(corruptPath, bytes);
+    await assert.rejects(run(process.execPath, [cli, "status", ...scopeArgs], {
+      cwd: project, env: { ...env, DOC_REVIEW_STATE_DIR: corruptDir }, timeout: 10_000,
+    }), (error) => error.code === 1 && !!contracts.failureSchema.parse(JSON.parse(error.stdout)).error);
+    assert.equal(await readFile(corruptPath, "utf8"), bytes);
+    assert.deepEqual(await readdir(corruptDir), ["conversation-state.json"], "offline inspection must not start a server or acquire a lock");
+  }
+  await writeFile(path.join(evidenceDir, "adoption.json"), JSON.stringify({
+    obsoletePreserved: obsolete.map(([file]) => path.relative(env.DOC_REVIEW_STATE_DIR, file)),
+    distinctStore: "conversation-state.json", corruptAndUnsupportedRejected: true,
+    incompatibleLiveServerPreserved: true, lockUnchanged: true,
+  }, null, 2));
+  succeeded = true;
+  console.log(`Package evidence and archive: ${evidenceDir}`);
   console.log(`Installed package smoke passed: ${expected.name}@${expected.version}; ${seen.size} browser modules${browserRequested ? "; Chromium review ready" : ""}.`);
+} catch (error) {
+  console.error(`Failed installed-package fixture retained: ${work}`);
+  await writeFile(path.join(evidenceDir, "failure.log"), error.stack || String(error));
+  throw error;
 } finally {
   await browser?.close();
-  if (server && server.exitCode === null && server.signalCode === null) {
-    const exited = once(server, "exit");
-    if (server.connected) server.send("stop");
-    const timer = setTimeout(() => server.kill(), 5_000);
-    try { await exited; } finally { clearTimeout(timer); }
-  }
-  await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  await stopServer();
+  await writeFile(path.join(evidenceDir, "server.log"), serverLog);
+  if (succeeded && !keep) await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  else if (succeeded) console.log(`Installed runtime and disposable fixtures retained: ${work}`);
 }

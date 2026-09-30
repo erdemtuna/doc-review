@@ -80,3 +80,50 @@ it.each([false, true])("restores an asynchronously enabled trigger unless the us
   act(() => finish());
   await waitFor(() => expect(moveFocus ? outside : trigger).toHaveFocus());
 });
+
+it("supports rich disabled choices and label typeahead without selecting disabled entries", async () => {
+  const selected = vi.fn();
+  function RichChoices() {
+    const [open, setOpen] = useState(false);
+    return <ChoiceMenu id="mode" label="Mode" value="view" triggerLabel="View" open={open} onOpenChange={setOpen}
+      restoreFocus options={[
+        { value: "view", label: "View", icon: "eye", description: "Read and comment" },
+        { value: "edit", label: "Edit", icon: "pencil", description: "Source locked", disabled: true },
+        { value: "zoom", label: "Zoom", description: "A reachable last choice" },
+      ]} onValueChange={selected} />;
+  }
+  render(<RichChoices />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Mode: View" }));
+  const disabled = screen.getByRole("menuitemradio", { name: "Edit Source locked" });
+  expect(disabled).toHaveAttribute("aria-disabled", "true");
+  await user.click(disabled);
+  expect(selected).not.toHaveBeenCalled();
+  await user.keyboard("z");
+  await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Zoom A reachable last choice" })).toHaveFocus());
+  await user.keyboard("{Enter}");
+  expect(selected).toHaveBeenCalledExactlyOnceWith("zoom");
+});
+
+it.each(["hidden", "removed", "editor"] as const)("does not steal focus after a %s trigger handoff", async destination => {
+  function Handoff() {
+    const [open, setOpen] = useState(false);
+    const [selected, setSelected] = useState(false);
+    return <>
+      {(destination !== "removed" || !selected) && <div hidden={destination === "hidden" && selected}>
+        <ChoiceMenu id="handoff" label="Target" options={options} value="first" triggerLabel="First" open={open}
+          onOpenChange={setOpen} restoreFocus onValueChange={() => {
+            setSelected(true);
+            if (destination === "editor") document.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+          }} />
+      </div>}
+      <textarea aria-label="Editor" />
+    </>;
+  }
+  render(<Handoff />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /^Target:/ }));
+  await user.click(screen.getByRole("menuitemradio", { name: options[1].label }));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  expect(document.activeElement).toBe(destination === "editor" ? screen.getByRole("textbox") : document.body);
+});

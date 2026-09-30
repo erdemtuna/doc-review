@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, enterEditMode, openReview, reviewApi, waitForSdk, writeFile } from "./helpers.js";
+import { test, expect, enterEditMode, openReview, conversation, listed, sendPending, waitForSdk, writeFile, selectReviewMode } from "./helpers.js";
 
 test("external Markdown changes refresh the page but retain unsent browser edits", async ({ page, review }) => {
   const file = writeFile(review, "external-feedback.md", "# Draft\n\nOriginal paragraph.");
@@ -12,32 +12,24 @@ test("external Markdown changes refresh the page but retain unsent browser edits
     element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
   }, edited);
   await expect(frame.locator("p")).toHaveText(edited);
-  await page.locator("#modeButton").click();
-  await page.getByRole("menuitemradio", { name: /^View/ }).click();
+  await selectReviewMode(page, "View");
   await expect(page.locator("#modeLabel")).toHaveText("View");
-  await expect.poll(async () => {
-    const response = await reviewApi(review, `/api/page/${session.key}`);
-    return response.json().edits[0]?.after;
-  }).toBe(edited);
-  await expect(page.locator("#count")).toHaveText("0");
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
+  await expect.poll(async () => (await listed(review, session, "edits")).items[0]?.content.after).toBe(edited);
+  expect((await listed(review, session, "threads")).totalCount).toBe(0);
   await page.locator("#commentsButton").click();
-  await expect(page.locator("#send")).toHaveText("Send 1 to agent");
-  await page.locator("#editsContentToggle").click();
-  await expect(page.locator("#editsContent")).toBeHidden();
+  await expect(page.getByText("Source pending", { exact: true })).toHaveCount(1);
+  await expect(page.locator(".conversation-edit-details")).not.toHaveAttribute("open");
+  await expect(page.locator(".conversation-edit-details details")).not.toHaveAttribute("open");
 
   fs.writeFileSync(file, "# External revision\n\nA source editor changed this.");
   await expect(frame.locator("h1")).toHaveText("External revision");
   await waitForSdk(page);
-  await expect(page.locator("#toolbarCount")).toHaveText("1");
-  await expect(page.locator("#editsContentToggle")).toHaveAttribute("aria-expanded", "false");
-  const refreshed = await reviewApi(review, `/api/page/${session.key}`);
-  expect(refreshed.json().edits[0].after).toBe(edited);
-  const sent = await reviewApi(review, `/api/page/${session.key}/send`, {
-    method: "POST", body: { sessionId: session.sessionId, note: "" },
-  });
-  expect(sent.status).toBe(200);
-  const delivered = await reviewApi(review, `/api/poll?target=${encodeURIComponent(file)}`);
-  expect(delivered.json().pages[0].edits[0].after).toBe(edited);
+  await expect(page.getByText("Source pending", { exact: true })).toHaveCount(1);
+  await expect(page.locator(".conversation-edit-details")).not.toHaveAttribute("open");
+  await expect(page.locator(".conversation-edit-details details")).not.toHaveAttribute("open");
+  expect((await listed(review, session, "edits")).items[0].content.after).toBe(edited);
+  await sendPending(review, session);
+  const delivered = await conversation(review, session, "poll");
+  expect(delivered.submission.edits[0].content.after).toBe(edited);
   expect(fs.readFileSync(file, "utf8")).toContain("A source editor changed this.");
 });

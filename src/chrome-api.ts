@@ -1,13 +1,27 @@
+import { failureSchema, type SaveFailureReason } from "./contracts/validation.js";
+
+export function saveFailureMessage(reason?: SaveFailureReason) {
+  const cause = reason === "source-changed" ? "The source changed since this edit was recorded."
+    : reason === "source-unavailable" ? "The source is unavailable or no longer writable."
+    : reason === "evidence-mismatch" ? "The page contains changes that do not match the recorded edits."
+    : reason === "unsafe-content" ? "The edit includes executable content or review markup that cannot be saved."
+    : "The server rejected this save; the cause could not be determined.";
+  return `${cause} These page changes were not saved by this request. Inspect them before reloading; conversation drafts are kept.`;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly code: string | undefined,
     readonly targets: unknown[],
+    readonly saveReason?: SaveFailureReason,
   ) {
-    super(message);
+    super(code === "SAVE_EVIDENCE_CONFLICT" ? saveFailureMessage(saveReason) : message);
+    this.diagnosticMessage = message;
     this.name = "ApiError";
   }
+  readonly diagnosticMessage: string;
 }
 
 export function record(value: unknown): Record<string, unknown> {
@@ -19,8 +33,8 @@ export function record(value: unknown): Record<string, unknown> {
 
 export type Decoder<T> = (value: unknown) => T;
 export function createReviewApi({
-  token, fetch: request = globalThis.fetch,
-}: { token: string; fetch?: typeof globalThis.fetch }) {
+  token, fetch: request = globalThis.fetch, timeoutMs = 30_000,
+}: { token: string; fetch?: typeof globalThis.fetch; timeoutMs?: number }) {
   const pending = new Set<AbortController>();
   let disposed = false;
 
@@ -31,6 +45,7 @@ export function createReviewApi({
     if (options.signal?.aborted) abort();
     else options.signal?.addEventListener("abort", abort, { once: true });
     pending.add(controller);
+    const deadline = setTimeout(() => controller.abort(new Error("Request timed out; mutation acceptance may be unknown.")), timeoutMs);
     try {
       const headers = new Headers(options.headers);
       if (!headers.has("content-type")) headers.set("content-type", "application/json");
@@ -43,15 +58,19 @@ export function createReviewApi({
           if (controller.signal.aborted) throw error;
           // Preserve the HTTP failure even when the error body is not JSON.
         }
+        let failure: ReturnType<typeof failureSchema.parse> | null = null;
+        if (detail.ok === false) failure = failureSchema.parse(detail);
         throw new ApiError(
-          typeof detail.error === "string" ? detail.error : `Request failed (${response.status})`,
+          failure?.error.message ?? (typeof detail.error === "string" ? detail.error : `Request failed (${response.status})`),
           response.status,
-          typeof detail.code === "string" ? detail.code : undefined,
+          failure?.error.code ?? (typeof detail.code === "string" ? detail.code : undefined),
           Array.isArray(detail.targets) ? detail.targets : [],
+          failure?.error.saveReason,
         );
       }
       return await response.json();
     } finally {
+      clearTimeout(deadline);
       pending.delete(controller);
       options.signal?.removeEventListener("abort", abort);
     }
@@ -66,6 +85,7 @@ export function createReviewApi({
 
   return {
     request: requestJson,
+    setToken(value: string) { token = value; },
     dispose() {
       if (disposed) return;
       disposed = true;

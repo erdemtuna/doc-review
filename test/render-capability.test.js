@@ -1,3 +1,4 @@
+import { openResponse, mutate, read } from "./fixtures/review.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -53,11 +54,7 @@ test("render registrations are current, single-use, capability-bound, and expiri
 
   const file = path.join(root, "page.html");
   fs.writeFileSync(file, "<!doctype html><html><body><h1>Safe</h1></body></html>");
-  const opened = await request(review.port, review.token, {
-    method: "POST",
-    route: "/api/session",
-    body: { file },
-  });
+  const opened = await openResponse({ port: review.port, token: review.token }, file);
   const { sessionId, key } = JSON.parse(opened.raw);
 
   const register = (generation) =>
@@ -121,19 +118,17 @@ test("render registrations are current, single-use, capability-bound, and expiri
   assert.equal((await request(review.port, "", { route: expiring.path })).status, 410);
 
   const ending = JSON.parse((await register(5)).raw);
-  const ended = await request(review.port, review.token, {
-    method: "POST",
-    route: `/api/session/${sessionId}/end`,
-  });
-  assert.equal(ended.status, 200);
-  assert.equal((await request(review.port, "", { route: ending.path })).status, 410);
+  await mutate(review, opened.body, "end", { confirmUnsentReadOnly: true });
+  assert.equal((await read(review, opened.body)).state, "ended");
+  assert.equal((await request(review.port, "", { route: ending.path })).status, 200,
+    "End freezes mutations but keeps the document and observer available for late results");
 });
 
 test("a transient artifact fetch failure does not consume the render", async (t) => {
   let requests = 0;
   const app = http.createServer((_req, res) => {
     requests += 1;
-    if (requests === 2) {
+    if (requests === 1) {
       res.writeHead(503, { "content-type": "text/plain" });
       return res.end("not ready");
     }
@@ -145,11 +140,7 @@ test("a transient artifact fetch failure does not consume the render", async (t)
 
   const review = await start();
   t.after(async () => review.dispose());
-  const opened = await request(review.port, review.token, {
-    method: "POST",
-    route: "/api/session",
-    body: { target: `http://localhost:${appPort}/` },
-  });
+  const opened = await openResponse({ port: review.port, token: review.token }, `http://localhost:${appPort}/`);
   const { sessionId, key } = JSON.parse(opened.raw);
   const registered = await request(review.port, review.token, {
     method: "POST",

@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
-import { test, expect, openReview, waitForSdk, writeFile, enterEditMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, setReviewTheme } from "./helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
+import { TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
 
 const chromeOrigin = "http://127.0.0.1:32123";
 const artifactOrigin = "http://localhost:32123";
@@ -33,8 +34,8 @@ async function openSdk(page, background = "#ffffff") {
       </body></html>` });
       return;
     }
-    if (!/^\/[a-z-]+\.js$/.test(url.pathname)) { await route.abort(); return; }
-    const file = path.join(process.cwd(), "src", url.pathname.slice(1));
+    if (!TRUSTED_SDK_MODULE_PATHS.includes(url.pathname)) { await route.abort(); return; }
+    const file = path.join(process.cwd(), "src", ...url.pathname.slice(1).split("/"));
     let body;
     try {
       body = await fs.readFile(file, "utf8");
@@ -115,7 +116,7 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
   test(`${theme} SDK controls ignore opposing authored surfaces and preserve live DOM`, async ({ page }) => {
     const { frame, errors } = await openSdk(page, background);
     await command(page, { type: "eh:setTheme", theme, themeRevision: 1 });
-    await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable" });
+    await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable", canComment: true });
     await frame.evaluate(() => {
       const host = document.querySelector("[data-eh-ui]");
       const shadow = host.shadowRoot;
@@ -152,9 +153,10 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
       for (const selector of [".chip:not(.danger)", ".chip.danger", ".linkbox", ".linkbox input", ".grip", ".hint", ".mover",
         ".dropline", ".comment-action", ".block-badge", ".block-marker", ".outline", ".active", ".selection-cue"]) {
         const css = getComputedStyle(shadow.querySelector(selector));
-        styles[selector] = { color: css.color, background: css.backgroundColor, border: css.borderTopColor, shadow: css.boxShadow, opacity: css.opacity };
+        styles[selector] = { color: css.color, background: css.backgroundColor, border: css.borderTopColor, borderStyle: css.borderTopStyle, shadow: css.boxShadow, opacity: css.opacity };
       }
-      styles.mark = { background: getComputedStyle(document.querySelector("mark")).backgroundColor };
+      const markStyle = getComputedStyle(document.querySelector("mark"));
+      styles.mark = { background: markStyle.backgroundColor, outline: markStyle.outlineColor, outlineStyle: markStyle.outlineStyle };
       styles.selection = { background: getComputedStyle(document.querySelector("#target"), "::selection").backgroundColor };
       styles.placeholder = { color: getComputedStyle(shadow.querySelector("input"), "::placeholder").color };
       return styles;
@@ -164,6 +166,8 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
       const palette = REVIEW_PALETTE[selected];
       await expect.poll(async () => (await measure())[".mover"].background).toBe(rgb(palette.card));
       const styles = await measure();
+      expect(styles[".outline"].borderStyle).toBe("dashed");
+      expect(styles[".outline"].shadow).toBe("none");
       for (const selector of [".chip:not(.danger)", ".linkbox", ".grip", ".hint", ".mover"]) {
         expect(styles[selector].background, selector).toBe(rgb(palette.card));
         expect(styles[selector].shadow, selector).not.toBe("none");
@@ -176,7 +180,9 @@ for (const [theme, background] of [["light", "#111111"], ["dark", "#ffffff"]]) {
       expect(styles[".dropline"].border).toBe(rgb(palette.primary));
       expect(styles[".active"].border).toBe(rgb(palette["annotation-border"]));
       expect(styles[".block-badge"].background).toBe(rgb(palette["annotation-background"]));
-      expect(styles.mark.background).toBe(rgb(palette["annotation-background"]));
+      expect(styles.mark.background).toBe("rgba(0, 0, 0, 0)");
+      expect(styles.mark.outline).toBe(rgb(palette["annotation-border"]));
+      expect(styles.mark.outlineStyle).toBe("dashed");
       expect(styles.selection.background).toBe(rgb(palette["annotation-active"]));
       expect(await frame.evaluate(() => ({
         nodes: saved.host === document.querySelector("[data-eh-ui]") && saved.input === saved.host.shadowRoot.querySelector("#linkInput") &&
@@ -246,31 +252,33 @@ test("production shell changes the existing SDK, not authored appearance or open
   await expect(frame.locator("#linkInput")).toBeFocused();
   await page.locator("#frame").evaluate((element) => { window.retainedThemeFrame = element; });
   for (const theme of ["dark", "light", "dark"]) {
-    // Programmatic activation avoids moving focus out of the frame.
-    await page.locator("#theme").evaluate((element) => element.click());
+    await setReviewTheme(page);
+    await expect(page.getByRole("button", { name: "Review options", exact: true })).toBeFocused();
     await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", theme);
     expect(await frame.locator("body").evaluate(() => ({
       nodes: themeLive.host === document.querySelector("[data-eh-ui]") && themeLive.body === document.body &&
         themeLive.input === themeLive.host.shadowRoot.querySelector("#linkInput"),
       caret: [themeLive.input.selectionStart, themeLive.input.selectionEnd],
-      focused: themeLive.host.shadowRoot.activeElement === themeLive.input,
       draft: document.querySelector("#draft").value,
       link: themeLive.input.value,
       mode: document.body.getAttribute("contenteditable"),
       background: getComputedStyle(document.body).backgroundColor,
     }))).toEqual({
-      nodes: true, caret: [3, 8], focused: true, draft: "Unsent authored draft",
+      nodes: true, caret: [3, 8], draft: "Unsent authored draft",
       link: "https://unsent.example", mode: "true", background: "rgb(17, 17, 17)",
     });
     expect(await page.locator("#frame").evaluate((element) => element === window.retainedThemeFrame)).toBe(true);
   }
+  await frame.getByRole("button", { name: "Apply link", exact: true }).click();
+  await expect(frame.locator("#target a")).toHaveAttribute("href", "https://unsent.example");
+  await expect(frame.locator("#target a")).toHaveText("Keep the authored document while switching themes.");
 });
 
 test("SDK repositions an open link draft on frame resize and dismisses disconnected targets", async ({ page }) => {
   const { frame, errors } = await openSdk(page);
   await page.locator("iframe").evaluate((element) => { element.style.width = "800px"; element.style.height = "500px"; });
   await command(page, { type: "eh:setTheme", theme: "light", themeRevision: 1 });
-  await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable" });
+  await command(page, { type: "eh:configureReview", mode: "edit", savePolicy: "writable", canComment: true });
   await frame.locator("#target").click();
   await frame.locator("#target").evaluate((element) => {
     const range = document.createRange();

@@ -2,6 +2,8 @@ import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } 
 import { createPortal } from "react-dom";
 import type { ComparisonMode } from "../../contracts/history.js";
 import { ComparisonBlock } from "../comparison/blocks";
+import { Button } from "./ui/button";
+import { Icon } from "./icon";
 import { blockFor, projectComparison, sourceLine, type ComparisonInput, type ComparisonProjection, type ComparisonUnit, type ContextGroup, type Side } from "../comparison/projection";
 
 export type { ComparisonInput } from "../comparison/projection";
@@ -70,15 +72,15 @@ function Context({ group, projection, mode, selectedId }: {
       focusAfterExpansion.current = false;
     }
   }, [remaining]);
-  const label = `↕ Show ${Math.min(20, remaining)} of ${remaining} unchanged ${mode === "source" ? "lines" : "blocks"}`;
+  const label = `Show ${Math.min(20, remaining)} of ${remaining} unchanged ${mode === "source" ? "lines" : "blocks"}`;
   return <>
     {projection.units.slice(group.start, group.start + count).map((unit) =>
       <Unit key={unit.key} unit={unit} projection={projection} mode={mode} selectedId={selectedId}
         register={(element) => { if (element) lastRow.current = element; }} />)}
-    {remaining > 0 && <button type="button" className="comparison-expand" aria-label={label} onClick={() => {
+    {remaining > 0 && <Button type="button" variant="secondary" className="comparison-context-row" aria-label={label} onClick={() => {
       focusAfterExpansion.current = true;
       setCount((count) => Math.min(group.end - group.start, count + 20));
-    }}>{label}</button>}
+    }}><Icon name="chevronDown" />{label}</Button>}
   </>;
 }
 

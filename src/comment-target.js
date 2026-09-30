@@ -1,5 +1,11 @@
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
+export function sameThreadTarget(one, two) {
+  return one?.state === "found" && two?.state === "found" && one.rects.length === two.rects.length &&
+    one.rects.every((rect, index) => ["left", "top", "right", "bottom"].every((key) =>
+      Math.abs(rect[key] - two.rects[index][key]) < 1));
+}
+
 export function groupCommentTargets(targets) {
   const groups = new Map();
   for (const [id, element] of targets) {

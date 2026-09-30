@@ -1,4 +1,4 @@
-import { decodePage, record } from "./chrome-api.js";
+import { ApiError, decodePage, record, saveFailureMessage } from "./chrome-api.js";
 import { createControllerStore } from "./controller-store.js";
 import type { RenderIdentity } from "./frame-controller.js";
 import type { PageResponse, SavePolicy } from "./contracts/page.js";
@@ -8,6 +8,7 @@ interface SaveState {
   savedAt: string;
   baseHash: string | null;
   conflict: boolean;
+  conflictMessage: string;
   dirty: boolean;
   dynamic: boolean;
 }
@@ -21,10 +22,14 @@ interface Options {
   send: (message: Record<string, unknown>) => void;
   sourceHash: (hash: string | null) => void;
   pageChanged: (page: PageResponse) => void;
-  conflict: () => void;
+  conflict: (message: string) => void;
   failed: (message: string) => void;
   diagnostic: (event: string) => void;
   sending: () => boolean;
+  conversation?: {
+    record(key: string, payload: Record<string, unknown>): Promise<unknown>;
+    save(key: string, html: string, sourceHash: string): Promise<{ hash: string }>;
+  };
   clock?: () => string;
   setTimer?: typeof globalThis.setTimeout;
   clearTimer?: typeof globalThis.clearTimeout;
@@ -32,12 +37,12 @@ interface Options {
 
 export function createSaveController({
   sessionId, current, policy, request, flush, send, sourceHash, pageChanged,
-  conflict, failed, diagnostic, sending,
+  conflict, failed, diagnostic, sending, conversation,
   clock = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
   setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout,
 }: Options) {
   const state: SaveState = {
-    status: "idle", savedAt: "", baseHash: null, conflict: false, dirty: false, dynamic: false,
+    status: "idle", savedAt: "", baseHash: null, conflict: false, conflictMessage: "", dirty: false, dynamic: false,
   };
   const store = createControllerStore(() => state);
   const pipelines = new Map<string, Promise<boolean>>();
@@ -92,12 +97,12 @@ export function createSaveController({
     const flight = previous.then(async () => {
       if (disposed) return false;
       try {
-        const result = record(await request(`/api/page/${key}/edit`, {
+        const result = conversation ? await conversation.record(key, original) : record(await request(`/api/page/${key}/edit`, {
           method: "POST", body: JSON.stringify(payload),
         }));
         if (ownedBacklog.get(id) === payload) ownedBacklog.delete(id);
         errors.delete(key);
-        if (matches(identity)) pageChanged(decodePage(result.page));
+        if (!conversation && matches(identity)) pageChanged(decodePage(record(result).page));
         return true;
       } catch (error) {
         errors.set(key, error);
@@ -119,6 +124,7 @@ export function createSaveController({
     await pipelines.get(key);
     if (disposed) throw new Error("Review ended");
     if (backlogs.get(key)?.size) {
+      if (conversation) throw errors.get(key) || new Error("Reconcile the failed edit before continuing.");
       const retry = [...(backlogs.get(key)?.values() || [])];
       errors.delete(key);
       for (const payload of retry) void persistEdit(key, payload);
@@ -135,7 +141,8 @@ export function createSaveController({
       return false;
     }
     try {
-      const result = record(await request(`/api/page/${identity.key}/save`, {
+      if (conversation) await settleEdits(identity.key);
+      const result = conversation ? await conversation.save(identity.key!, html, state.baseHash) : record(await request(`/api/page/${identity.key}/save`, {
         method: "POST",
         body: JSON.stringify({
           html, baseHash: state.baseHash, renderId: identity.renderId,
@@ -158,15 +165,16 @@ export function createSaveController({
         state.baseHash = null;
         state.status = "idle";
         state.conflict = true;
+        state.conflictMessage = saveFailureMessage(error instanceof ApiError ? error.saveReason : undefined);
         publish();
-        conflict();
+        conflict(state.conflictMessage);
         diagnostic("save-conflict");
         return false;
       }
       state.status = "failed";
       publish();
-      if (attempts < 2) { await delay(500); return saveHtml(html, identity, attempts + 1); }
-      if (!sending()) failed("Couldn't save. Retry before sending feedback; your edits remain on this page.");
+      if (!conversation && attempts < 2) { await delay(500); return saveHtml(html, identity, attempts + 1); }
+      if (!sending()) failed(conversation && error instanceof Error ? error.message : "Couldn't save. Retry before sending feedback; your edits remain on this page.");
       return false;
     }
   }
@@ -195,13 +203,13 @@ export function createSaveController({
     const identity = current();
     await flushEdits(true);
     await activeSave;
-    if (state.status === "failed" && !state.conflict && lastSave && matches(lastSave.identity)) {
+    if (!conversation && state.status === "failed" && !state.conflict && lastSave && matches(lastSave.identity)) {
       await save(lastSave.html);
     }
     await settleEdits(identity.key);
     applyClean();
     if (!matches(identity)) throw new Error("The page changed while saving. Retry on the latest page.");
-    if (state.conflict) throw new Error("Resolve the save conflict: the source changed outside this review. Reload latest; your comment drafts will be kept.");
+    if (state.conflict) throw new Error(`Resolve the save conflict: ${state.conflictMessage || saveFailureMessage()}`);
     if (state.status === "failed" || (policy() === "writable" && !state.dynamic && state.dirty)) {
       throw new Error("Your page edits have not finished saving. They have not been sent.");
     }
@@ -233,9 +241,15 @@ export function createSaveController({
     save, persistEdit, settleEdits, flush: flushEdits, barrier, captureStable,
     applyClean, queued, cancelRetries,
     async settled() { await activeSave; },
+    async discardLocal(key: string | null) {
+      if (!key) return;
+      await pipelines.get(key);
+      await activeSave;
+      backlogs.delete(key); errors.delete(key);
+    },
     markEdit() { editSequence++; },
     markSaving() { state.dirty = true; state.status = "saving"; publish(); },
-    markDynamic() { state.dynamic = true; publish(); },
+    markDynamic() { state.dynamic = true; if (state.status === "saving" && !pending) state.status = "idle"; publish(); },
     observeClean() { clean = { identity: current(), sequence, editSequence }; applyClean(); },
     baseline(hash: string | null) { state.baseHash = hash; publish(); },
     hold() {
@@ -251,7 +265,7 @@ export function createSaveController({
       clean = null;
       lastSave = null;
       sequence++;
-      Object.assign(state, { status: "idle", savedAt: "", baseHash: null, conflict: false, dirty: false, dynamic: false });
+      Object.assign(state, { status: "idle", savedAt: "", baseHash: null, conflict: false, conflictMessage: "", dirty: false, dynamic: false });
       publish();
     },
     async revert() {

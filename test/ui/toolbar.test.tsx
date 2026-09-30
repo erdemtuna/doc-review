@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createToolbarController, type ToolbarState } from "../../src/toolbar-controller.js";
-import { Toolbar } from "@/components/toolbar";
+import { Toolbar, ToolbarControls } from "@/components/toolbar";
 
 afterEach(cleanup);
 
@@ -18,7 +18,7 @@ function fixture() {
     setMode: vi.fn((value: "view" | "edit") => { state.mode = value; runtime.publish(); }),
     setModeMenu: vi.fn((value: boolean) => { state.modeMenuOpen = value; runtime.publish(); }),
     openComments: vi.fn(() => { state.drawerOpen = true; runtime.publish(); }),
-    toggleTheme: vi.fn(() => { state.theme = state.theme === "light" ? "dark" : "light"; runtime.publish(); }),
+    setTheme: vi.fn((theme: "light" | "dark") => { state.theme = theme; runtime.publish(); }),
   };
   const runtime = createToolbarController(() => state, commands);
   return { state, runtime, commands };
@@ -33,19 +33,23 @@ it("owns accessible destinations with stable controls and one command per Strict
   expect(brand).toHaveAttribute("height", "32");
   expect(brand).not.toHaveAttribute("tabindex");
   expect(screen.getByRole("group", { name: "Review destination" })).not.toContainElement(brand);
+  expect([...document.querySelectorAll(".shell-tools button")].map(button => button.getAttribute("aria-label")))
+    .toEqual(["Feedback", "Page mode: View", "Review options"]);
   const review = screen.getByRole("button", { name: "Review" });
   const changes = screen.getByRole("button", { name: "Changes" });
   expect(review).toHaveAttribute("aria-controls", "frame");
   expect(review).toHaveAttribute("aria-pressed", "true");
-  expect(changes).toHaveAttribute("aria-controls", "historyPanel");
+  expect(changes).toHaveAttribute("aria-controls", "conversationChanges");
   await user.click(changes);
   expect(commands.setComparing).toHaveBeenCalledExactlyOnceWith(true);
   expect(changes).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Feedback" })).toBeNull();
   await user.click(review);
-  const theme = screen.getByRole("button", { name: "Switch review tools to dark" });
+  const theme = screen.getByRole("button", { name: "Review options" });
   await user.click(theme);
-  expect(screen.getByRole("button", { name: "Switch review tools to light" })).toBe(theme);
+  await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
+  expect(commands.setTheme).toHaveBeenCalledExactlyOnceWith("dark");
+  expect(screen.getByRole("button", { name: "Review options" })).toBe(theme);
   act(() => { state.feedbackCount = 1000; runtime.publish(); });
   expect(screen.getByTitle("1000 feedback items")).toHaveTextContent("99+");
   expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("1000 feedback items");
@@ -60,7 +64,7 @@ it("uses a nonmodal keyboard mode menu with selected policy and focus restoratio
   const { runtime, commands } = fixture();
   const user = userEvent.setup();
   render(<Toolbar runtime={runtime} />);
-  const trigger = screen.getByRole("button", { name: "View" });
+  const trigger = screen.getByRole("button", { name: "Page mode: View" });
   trigger.focus();
   await user.keyboard("{Enter}");
   expect(trigger).toHaveAttribute("aria-controls", "modeMenu");
@@ -75,7 +79,7 @@ it("uses a nonmodal keyboard mode menu with selected policy and focus restoratio
   await user.click(trigger);
   await user.click(screen.getByRole("menuitemradio", { name: /^Edit/ }));
   expect(commands.setMode).toHaveBeenCalledExactlyOnceWith("edit");
-  expect(screen.getByRole("button", { name: "Edit" })).toBe(trigger);
+  expect(screen.getByRole("button", { name: "Page mode: Edit" })).toBe(trigger);
 });
 
 it("blocks unavailable and ended commands even before a stale snapshot is republished", () => {
@@ -89,13 +93,39 @@ it("blocks unavailable and ended commands even before a stale snapshot is republ
   expect(commands.setMode).not.toHaveBeenCalled();
   expect(commands.setModeMenu).not.toHaveBeenCalled();
   act(() => { runtime.publish(); });
-  expect(screen.getByRole("button", { name: "View" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
   expect(snapshot.modeDisabled).toBe(false);
   state.ended = true;
   runtime.commands.setComparing(true);
   runtime.commands.openComments();
-  runtime.commands.toggleTheme();
+  runtime.commands.setTheme("dark");
   expect(commands.setComparing).not.toHaveBeenCalled();
   expect(commands.openComments).not.toHaveBeenCalled();
-  expect(commands.toggleTheme).not.toHaveBeenCalled();
+  expect(commands.setTheme).not.toHaveBeenCalled();
+});
+
+it("extends the former controls with ended read-only navigation without mounting the legacy controller", async () => {
+  const { state, commands } = fixture();
+  state.ended = true;
+  const user = userEvent.setup();
+  render(<ToolbarControls state={state} commands={commands} readOnlyNavigation changesId="conversationChanges" />);
+  expect(screen.getByRole("button", { name: "Page mode: View" })).toBeDisabled();
+  const changes = screen.getByRole("button", { name: "Changes" });
+  expect(changes).toHaveAttribute("aria-controls", "conversationChanges");
+  await user.click(changes); await user.click(screen.getByRole("button", { name: "Review" }));
+  await user.click(screen.getByRole("button", { name: "Feedback" }));
+  await user.click(screen.getByRole("button", { name: "Review options" }));
+  await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
+  expect(commands.setComparing.mock.calls).toEqual([[true], [false]]);
+  expect(commands.openComments).toHaveBeenCalledTimes(1);
+  expect(commands.setTheme).toHaveBeenCalledExactlyOnceWith("dark");
+});
+
+it("write exclusion disables only Edit in the open menu and accurately labels attention evidence", () => {
+  const { state, commands } = fixture();
+  state.modeMenuOpen = true;
+  render(<ToolbarControls state={state} commands={commands} editDisabled readOnlyNavigation feedbackCountLabel="conversations with new activity" />);
+  expect(screen.getByRole("menuitemradio", { name: /^Edit/ })).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("menuitemradio", { name: /^View/ })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("3 conversations with new activity");
 });

@@ -36,16 +36,21 @@ test("a review keeps the CLI invocation resolved when its server starts", async 
     process.env.PATH = locatorPath;
     const port = review.server.address().port;
     const headers = { "x-doc-review-token": review.token, "content-type": "application/json" };
-    const opened = await fetch(`http://127.0.0.1:${port}/api/session`, {
+    const { receipt } = await fetch(`http://127.0.0.1:${port}/api/conversation`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ file }),
+      body: JSON.stringify({ operation: "open", target: file, requestId: "cached-command" }),
+    }).then((response) => response.json());
+    const opened = await fetch(`http://127.0.0.1:${port}/api/conversation/session`, {
+      method: "POST", headers,
+      body: JSON.stringify({ operation: "read-review", reviewId: receipt.reviewId, entryKey: receipt.entryKey }),
     }).then((response) => response.json());
     const stateResponse = await fetch(`http://127.0.0.1:${port}/api/session/${opened.sessionId}/page`, { headers }).then((response) =>
       response.json(),
     );
 
     assert.match(stateResponse.page.pollCommand, /^doc-review poll /);
+    assert.ok(stateResponse.page.pollCommand.includes(`--review ${receipt.reviewId} --entry ${receipt.entryKey}`));
   } finally {
     await review.dispose();
     process.env.PATH = originalPath;

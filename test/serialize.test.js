@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { keepBodyInReviewMode } from "../lib/review-mode.js";
 import { serializeDocument, UI_ATTR, MARK_ATTR } from "../lib/serialize.js";
+import { injectSdk } from "../lib/html-transform.js";
 
 // jsdom (a dev dependency) needs Node 22+; the library itself supports Node 20.
 // On older Node these DOM tests skip rather than fail the whole suite.
@@ -16,6 +17,21 @@ const skip = JSDOM ? false : "jsdom unavailable on this Node version";
 const PAGE = `<!DOCTYPE html>
 <html><head><title>Spec</title></head>
 <body><h1>Plan</h1><p>Ship the <strong>review loop</strong> this week.</p></body></html>`;
+
+test("safe-prefix injection preserves parser whitespace without trimming authored content", { skip }, () => {
+  const source = '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>Whitespace</title>\n</head>\n<body><pre>  exact\\n spacing  </pre><p>A  B</p></body></html>';
+  const parse = (html) => new JSDOM(html).window.document;
+  const live = parse(injectSdk(source, "page"));
+  const raw = serializeDocument(parse(source));
+  const former = source.replace("<!DOCTYPE html>", '<!DOCTYPE html><script data-eh-sdk></script>');
+  assert.notEqual(serializeDocument(parse(former)), raw, "former pre-html injection redistributed whitespace");
+  assert.equal(serializeDocument(live), raw);
+  assert.match(raw, /<pre>  exact\\n spacing  <\/pre><p>A  B<\/p>/);
+  live.querySelector("p").textContent = "A B";
+  assert.notEqual(serializeDocument(live), raw, "authored whitespace mutations still count");
+  live.querySelector("p").textContent = "Script-rendered content";
+  assert.notEqual(serializeDocument(live), raw, "script output still counts");
+});
 
 test("serialization strips everything doc-review added to the live page", { skip }, () => {
   const dom = new JSDOM(PAGE);

@@ -1,3 +1,4 @@
+import { openResponse, mutate, read, list, content, send, request as conversationRequest } from "./fixtures/review.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -30,9 +31,21 @@ async function fixture(t, name, source = "<p>Original</p>") {
 }
 
 async function open(review, file) {
-  const result = await api(review, "/api/session", { file });
+  const result = await openResponse(review, file);
   assert.equal(result.status, 200, JSON.stringify(result.body));
   return result.body;
+}
+
+async function saveAttempt(review, session, before, after, expectedSourceHash, extra = {}) {
+  const recorded = await mutate(review, session, "record-edit", {
+    pageKey: session.key, content: content(before, after, extra.content),
+  });
+  return conversationRequest(review, {
+    operation: "save-edit", reviewId: session.reviewId, entryKey: session.entryKey,
+    requestId: crypto.randomUUID(), expectedVersion: (await read(review, session)).version,
+    pageKey: session.key, editId: recorded.value.editId, editVersion: 1,
+    expectedSourceHash, html: extra.html ?? `<p>${after}</p>`,
+  });
 }
 
 function controlSourceWatcher(t, file) {
@@ -86,9 +99,9 @@ test("automatic inline execution, application bounds, Markdown, and served-byte 
   assert.match(served.ready.executionNotice, /feedback-only/);
   assert.match(served.csp, /script-src 'unsafe-inline'/);
   assert.match(served.csp, /connect-src 'none'/);
-  const forbidden = await api(review, `/api/page/${session.key}/save`, { ...served.identity, html: "<p>Runtime</p>" });
+  const forbidden = await saveAttempt(review, session, "Original", "Runtime", served.identity.baseHash);
   assert.equal(forbidden.status, 409);
-  assert.equal(forbidden.body.code, "file_feedback_only");
+  assert.equal(forbidden.body.error.code, "SAVE_EVIDENCE_CONFLICT");
   notifySourceChange();
   assert.equal(review.store.page(session.key).pristine, "<p>Now static</p>");
   assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${served.renderId}/asset.css`)).status, 410);
@@ -192,8 +205,9 @@ test("execution endpoint validates input, retires approval, and isolates recover
   assert.equal(recovery.ready.executionMode, "static");
   assert.equal(recovery.ready.savePolicy, "feedback-only");
   assert.match(recovery.ready.executionNotice, /interactions are disabled/);
-  assert.equal((await api(review, `/api/page/${session.key}/save`, { ...recovery.identity, html: "<p>Unsafe</p>" })).body.code, "file_feedback_only");
-  await api(review, `/api/session/${session.sessionId}/goto`, { key: other.key });
+  assert.equal((await saveAttempt(review, session, "Original", "Unsafe", recovery.identity.baseHash)).body.error.code, "SAVE_EVIDENCE_CONFLICT");
+  await mutate(review, session, "join-page", { target: otherFile });
+  assert.equal((await api(review, `/api/session/${session.sessionId}/goto`, { key: other.key })).status, 200);
   await api(review, `/api/session/${session.sessionId}/goto`, { key: session.key });
   assert.equal((await api(review, `/api/session/${session.sessionId}/page`)).body.page.executionPreference, "static");
   const freshSession = await open(review, file);
@@ -202,126 +216,106 @@ test("execution endpoint validates input, retires approval, and isolates recover
   assert.equal((await frame(review, session, 3)).ready.executionMode, "interactive");
 });
 
-test("static saves and revert require exact writable frame and SHA1 source preconditions", async (t) => {
+test("static saves and revert require exact edit identity, review ownership and SHA1 source preconditions", async (t) => {
   const { review, file, session } = await fixture(t, "writes.html");
   const rendered = await frame(review, session);
-  const saveRoute = `/api/page/${session.key}/save`;
-  const revertRoute = `/api/page/${session.key}/revert`;
-  const payload = { ...rendered.identity, html: "<p>Edited</p>" };
-  for (const field of ["baseHash", "sessionId", "renderId", "generation"]) {
-    const invalid = { ...payload };
-    delete invalid[field];
-    assert.equal((await api(review, saveRoute, invalid)).status, 400, field);
-    assert.equal((await api(review, revertRoute, invalid)).status, 400, field);
+  const recorded = await mutate(review, session, "record-edit", { pageKey: session.key, content: content("Original", "Edited") });
+  const payload = {
+    operation: "save-edit", reviewId: session.reviewId, entryKey: session.entryKey,
+    requestId: "save-current", expectedVersion: (await read(review, session)).version,
+    pageKey: session.key, editId: recorded.value.editId, editVersion: 1,
+    expectedSourceHash: rendered.identity.baseHash, html: "<p>Edited</p>",
+  };
+  for (const field of ["expectedSourceHash", "reviewId", "entryKey", "editId", "editVersion"]) {
+    const invalid = { ...payload }; delete invalid[field];
+    assert.equal((await conversationRequest(review, invalid)).status, 400, field);
   }
-  for (const baseHash of [null, true, "", "not-a-sha1"]) {
-    assert.equal((await api(review, saveRoute, { ...payload, baseHash })).status, 400);
+  for (const expectedSourceHash of [null, true, ""]) {
+    assert.equal((await conversationRequest(review, { ...payload, expectedSourceHash })).status, 400);
   }
-  assert.equal((await api(review, saveRoute, { ...payload, html: " " })).status, 400);
-  assert.equal((await api(review, saveRoute, "{broken", { raw: true })).status, 400);
-  assert.equal((await api(review, revertRoute, "{broken", { raw: true })).status, 400);
-  for (const identity of [{ renderId: "unknown" }, { sessionId: "unknown" }, { generation: 2 }, { baseHash: "0".repeat(40) }]) {
-    assert.equal((await api(review, saveRoute, { ...payload, ...identity })).status, 409);
+  for (const [fields, code] of [[{ editId: "unknown" }, "NOT_FOUND"], [{ editVersion: 2 }, "VERSION_CONFLICT"],
+    [{ expectedSourceHash: "0".repeat(40) }, "SAVE_EVIDENCE_CONFLICT"]]) {
+    assert.equal((await conversationRequest(review, { ...payload, ...fields })).body.error.code, code);
+    assert.equal(fs.readFileSync(file, "utf8"), "<p>Original</p>");
   }
-  const saved = await api(review, saveRoute, payload);
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  assert.equal(saved.body.hash, hash(payload.html));
+  assert.equal((await conversationRequest(review, payload)).status, 200);
+  const page = await read(review, session, "read-page", { pageKey: session.key });
+  assert.equal(page.page.sourceHash, hash(payload.html));
   assert.equal(fs.readFileSync(file, "utf8"), payload.html);
-  assert.equal((await api(review, revertRoute, rendered.identity)).status, 409, "pre-revert source hash is required");
-  assert.equal((await api(review, revertRoute, { ...rendered.identity, baseHash: saved.body.hash })).status, 200);
+  const revert = { operation: "revert", reviewId: session.reviewId, entryKey: session.entryKey,
+    requestId: "revert-current", expectedVersion: (await read(review, session)).version,
+    pageKey: session.key, baselineRevisionId: page.revert.baselineRevisionId, expectedSourceHash: rendered.identity.baseHash };
+  assert.equal((await conversationRequest(review, revert)).body.error.code, "SAVE_EVIDENCE_CONFLICT");
+  assert.equal((await conversationRequest(review, { ...revert, expectedSourceHash: page.page.sourceHash })).status, 200);
   assert.equal(fs.readFileSync(file, "utf8"), "<p>Original</p>");
-  assert.equal((await api(review, saveRoute, payload)).status, 409, "revert invalidates the old render");
+  assert.equal((await read(review, session, "read-page", { pageKey: session.key })).canRevert, false);
+  assert.equal((await list(review, session, "edits")).items[0].source.state, "pending");
 });
 
-test("intentional script additions persist once; stale static and scripted frames never overwrite source", async (t) => {
+test("executable additions stay source-pending; old scripted observations never overwrite reclassified source", async (t) => {
   const notifySourceChange = controlSourceWatcher(t, path.join(root, "transitions.html"));
   const { review, file, session } = await fixture(t, "transitions.html");
   const staticFrame = await frame(review, session);
-  const saveRoute = `/api/page/${session.key}/save`;
   const scriptedSource = "<p>Edited</p><script>run()</script>";
-  const saved = await api(review, saveRoute, { ...staticFrame.identity, html: scriptedSource });
-  assert.equal(saved.status, 200);
+  const saved = await saveAttempt(review, session, "Original", "Edited", staticFrame.identity.baseHash,
+    { html: scriptedSource, content: { after_html: scriptedSource } });
+  assert.equal(saved.status, 409, JSON.stringify(saved.body));
+  assert.equal(saved.body.error.code, "SAVE_EVIDENCE_CONFLICT");
+  assert.equal(fs.readFileSync(file, "utf8"), "<p>Original</p>");
+  fs.writeFileSync(file, scriptedSource);
   assert.equal(fs.readFileSync(file, "utf8"), scriptedSource);
-  assert.equal((await api(review, saveRoute, { ...staticFrame.identity, baseHash: saved.body.hash, html: "<p>Runtime</p>" })).status, 409);
   const scriptedFrame = await frame(review, session, 2);
   assert.equal(scriptedFrame.ready.savePolicy, "feedback-only");
+  assert.equal((await saveAttempt(review, session, "Edited", "Runtime", hash(scriptedSource))).body.error.code, "SAVE_EVIDENCE_CONFLICT");
   fs.writeFileSync(file, "<p>Static again</p>");
   const sibling = await open(review, file);
   notifySourceChange();
   const writable = await frame(review, sibling);
-  assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${scriptedFrame.renderId}/asset.css`)).status, 404,
-    "the old scripted frame is still current while another session has a writable static frame");
-  const next = await api(review, saveRoute, { ...writable.identity, html: "<p>Writable despite old interactive render</p>" });
+  const next = await saveAttempt(review, sibling, "Static again", "Writable despite old interactive render", writable.identity.baseHash);
   assert.equal(next.status, 200, JSON.stringify(next.body));
-  assert.equal((await api(review, saveRoute, { ...scriptedFrame.identity, baseHash: next.body.hash, html: "<p>Runtime</p>" })).status, 409);
+  const source = fs.readFileSync(file, "utf8");
+  assert.equal((await saveAttempt(review, session, "Edited", "Runtime", scriptedFrame.identity.baseHash)).status, 409);
+  assert.equal(fs.readFileSync(file, "utf8"), source);
   fs.writeFileSync(file, scriptedSource);
-  const stale = await api(review, saveRoute, { ...writable.identity, baseHash: next.body.hash, html: "<p>Stale static edit</p>" });
-  assert.equal(stale.status, 409);
+  assert.equal((await saveAttempt(review, sibling, "Writable despite old interactive render", "Stale", hash(source))).status, 409);
   assert.equal(fs.readFileSync(file, "utf8"), scriptedSource);
   notifySourceChange();
 });
 
-test("scripted local images preview, remain page-scoped across reclassification, and ship staged references", async (t) => {
+test("scripted image previews stay page-scoped and staged across source reclassification and submission", async (t) => {
   const { review, file, session } = await fixture(t, "paste.html", "<script>run()</script>");
   const rendered = await frame(review, session);
   const png = Buffer.from("image-bytes");
-  const upload = await fetch(`http://127.0.0.1:${review.port}/api/page/${session.key}/asset?type=image/png`, {
-    method: "POST", headers: { "x-doc-review-token": review.token }, body: png,
-  });
-  assert.equal(upload.status, 200);
-  const asset = await upload.json();
-  assert.ok(asset.stagedId);
-  const preview = await fetch(`http://127.0.0.1:${review.port}/artifact/${rendered.renderId}/${asset.src}`);
+  const uploaded = await conversationRequest(review, {
+    reviewId: session.reviewId, entryKey: session.entryKey, pageKey: session.key,
+    type: "image/png", base64: png.toString("base64"),
+  }, "/api/conversation/asset");
+  assert.equal(uploaded.status, 200);
+  const asset = uploaded.body;
+  const preview = await fetch(`http://127.0.0.1:${review.port}/artifact/${rendered.renderId}/${asset.preview_src}`);
   assert.equal(preview.status, 200);
   assert.deepEqual(Buffer.from(await preview.arrayBuffer()), png);
-  const edit = await api(review, `/api/page/${session.key}/edit`, {
-    label: "Image", after_html: `<img src="${asset.src}">`, staged_assets: [{ id: asset.stagedId, preview_src: asset.src }],
-  });
-  assert.equal(edit.body.page.edits[0].feedback_only, true);
-  assert.equal(edit.body.page.edits[0].staged_assets.length, 1);
+  const edit = await mutate(review, session, "record-edit", { pageKey: session.key,
+    content: content("", "", { label: "Image", before_html: "", after_html: `<img src="${asset.preview_src}">`, staged_assets: [asset] }) });
   fs.writeFileSync(file, "<p>Now static</p>");
   const deadline = Date.now() + 10000;
-  while (review.store.page(session.key).pristine !== "<p>Now static</p>" && Date.now() < deadline) {
+  while (review.store.page(session.key).pristine !== "<p>Now static</p>" && Date.now() < deadline)
     await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  assert.equal(review.store.page(session.key).pristine, "<p>Now static</p>", "the source watcher finishes invalidating old renders before replacement");
-  const heldQuery = new URLSearchParams({
-    type: "image/png", sessionId: session.sessionId, renderId: rendered.renderId, generation: String(rendered.generation),
-  });
-  const heldUpload = await fetch(`http://127.0.0.1:${review.port}/api/page/${session.key}/asset?${heldQuery}`, {
-    method: "POST", headers: { "x-doc-review-token": review.token }, body: png,
-  });
-  assert.ok((await heldUpload.json()).stagedId, "invalidated held frames retain source-directed image staging from identity alone");
-  const heldEdit = await api(review, `/api/page/${session.key}/edit`, {
-    ...rendered.identity, label: "Held frame", after: "Keep this edit",
-  });
-  assert.equal(heldEdit.body.page.edits.find((entry) => entry.label === "Held frame").feedback_only, true);
+  assert.equal(review.store.page(session.key).pristine, "<p>Now static</p>");
   const reclassified = await frame(review, session, 2);
-  assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${reclassified.renderId}/${asset.src}`)).status, 200);
-  const staticQuery = new URLSearchParams({
-    type: "image/png", sessionId: session.sessionId, renderId: reclassified.renderId, generation: String(reclassified.generation),
-  });
-  const staticUpload = await fetch(`http://127.0.0.1:${review.port}/api/page/${session.key}/asset?${staticQuery}`, {
-    method: "POST", headers: { "x-doc-review-token": review.token }, body: png,
-  });
-  const staticAsset = await staticUpload.json();
-  assert.match(staticAsset.src, /^assets\//, "a current writable static frame keeps direct assets");
-  assert.equal(staticAsset.stagedId, undefined);
-  const staticEdit = await api(review, `/api/page/${session.key}/edit`, {
-    ...reclassified.identity, label: "Current static frame", after: "Already saved",
-  });
-  assert.equal(staticEdit.body.page.edits.find((entry) => entry.label === "Current static frame").feedback_only, undefined);
+  assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${reclassified.renderId}/${asset.preview_src}`)).status, 200);
+  const records = (await list(review, session, "edits")).items;
+  assert.equal(records[0].source.state, "pending", "reclassification never invents source-save evidence");
   const otherFile = path.join(root, "paste-other.html");
   fs.writeFileSync(otherFile, "<p>Other</p>");
   const other = await frame(review, await open(review, otherFile));
-  assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${other.renderId}/${asset.src}`)).status, 404);
+  assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${other.renderId}/${asset.preview_src}`)).status, 404);
   assert.equal((await fetch(`http://127.0.0.1:${review.port}/artifact/${reclassified.renderId}/__doc_review_paste__/bad%5Cname.png`)).status, 403);
-  const sent = await api(review, `/api/page/${session.key}/send`, { sessionId: session.sessionId, note: "", history: { allowUnavailable: true } });
-  assert.equal(sent.status, 200, JSON.stringify(sent.body));
-  const delivered = await api(review, `/api/poll?target=${encodeURIComponent(file)}`);
-  const shipped = delivered.body.pages[0].edits[0];
-  assert.equal(shipped.feedback_only, true);
-  assert.deepEqual(shipped.staged_assets, [{ path: path.join(process.env.DOC_REVIEW_STATE_DIR, "pasted", session.key, asset.stagedId), preview_src: asset.src }]);
+  await send(review, session, [], [{ pageKey: session.key, editId: edit.value.editId, version: 1 }]);
+  const work = (await read(review, session, "poll")).submission;
+  assert.equal(work.edits[0].source.state, "pending");
+  assert.equal(work.edits[0].assets[0].path, path.join(process.env.DOC_REVIEW_STATE_DIR, "conversation-pasted", session.key, asset.id));
+  assert.equal(work.edits[0].assets[0].preview_src, asset.preview_src);
 });
 
 test("unreadable source is an explicit error, never a writable fallback", async (t) => {

@@ -1,0 +1,118 @@
+import fs from "node:fs";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, setReviewTheme } from "./helpers.js";
+import { threadAction } from "./conversation-actions.js";
+
+test("formatted replies remain readable and inert across themes, Focus and reload", async ({ page, review }, info) => {
+  const ref = await openReview(page, review, writeFile(review, "formatted-reading.html", '<p id="copy">Earlier decisions remain available.</p>'));
+  await waitForSdk(page);
+  const { threadId, messageId } = await seedThread(review, ref, "Please **explain** the exact `<b>` markup.");
+  await sendPending(review, ref);
+  await handled(review, ref, {
+    responses: [{ threadId, messageId, messageVersion: 1, outcome: "answered",
+      body: "**Preserved:** the exact <b>earlier decisions</b> markup.\n\n- Keep the human edit\n- Read `prior context`\n\n<script>alert('never')</script>" }],
+    resultNote: "**Discussion only.** No source changes.",
+  });
+  await feedback(page);
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  for (const [theme, width] of [["light", 1366], ["dark", 720]]) {
+    await page.setViewportSize({ width, height: 800 });
+    await setReviewTheme(page, theme);
+    await expect(card.locator(".conversation-response .conversation-body strong")).toHaveText("Preserved:");
+    await expect(card.locator(".conversation-response li")).toHaveCount(2);
+    await expect(card.locator(".conversation-response code").first()).toHaveText("<b>");
+    await expect(card.locator(".conversation-response b, .conversation-response script")).toHaveCount(0);
+    expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`formatted-${theme}.png`), caret: "initial" });
+  }
+  await (await threadAction(page, card, "Focus")).click();
+  await expect(card.locator(".conversation-response .conversation-body strong")).toBeVisible();
+  await page.reload(); await waitForSdk(page); await feedback(page);
+  await expect(card.locator(".conversation-response .conversation-body strong")).toHaveText("Preserved:");
+});
+
+test("reading fixture retains the four reported conversation states", async ({ page, review }, info) => {
+  const ref = await openReview(page, review, writeFile(review, "reading.html", `<!doctype html>
+<html><head><style>body{max-width:800px;margin:64px auto;padding:0 28px;font:19px/1.65 Georgia;background:#f7f5ed;color:#243b38}h1{font-size:48px}p{margin:32px 0}</style></head>
+<body><h1>Field Notes: less noise, better decisions</h1>
+<p id="intro" tabindex="0">A shared place for small teams to turn scattered observations into clear next steps.</p>
+<h2>Why this exists</h2><p>Useful customer observations often disappear into meeting notes and chat threads.</p>
+<input aria-label="Document input"><div style="height:900px"></div></body></html>`));
+  await waitForSdk(page);
+  const metrics = [];
+  async function capture(state) {
+    for (const [theme, width] of [["light", 1366], ["dark", 720]]) {
+      await page.setViewportSize({ width, height: 800 });
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
+      await expect.poll(() => page.locator(".conversation-panel").evaluate(n => n.getAnimations({ subtree: true })
+        .some(animation => animation.playState === "running"))).toBe(false);
+      metrics.push(await page.evaluate(({ state, theme, width }) => {
+        const panel = document.querySelector(".conversation-panel"), card = panel.querySelector("[data-thread]:not([hidden])");
+        const color = selector => getComputedStyle(document.querySelector(selector)).backgroundColor;
+        return { state, theme, width, panel: panel.getBoundingClientRect().toJSON(),
+          card: card?.getBoundingClientRect().toJSON(), stageInert: document.querySelector(".stage").inert,
+          toolbarColor: color(".shell-toolbar"), inventoryColor: color(".conversation-inventory"),
+          messages: [...panel.querySelectorAll(".conversation-body")].map(n => n.textContent) };
+      }, { state, theme, width }));
+      await page.screenshot({ path: info.outputPath(`${state}-${theme}-${width}.png`), caret: "initial" });
+    }
+  }
+  await feedback(page);
+  await capture("empty");
+  const { threadId } = await seedThread(review, ref, "do you like this prose?",
+    { kind: "element", anchor: { selector: "#intro", label: "Introduction" } });
+  const card = page.locator(`[data-thread="${threadId}"]`);
+  await expect(card).toBeVisible();
+  await capture("short-sidebar");
+  const pending = metrics.find(item => item.state === "short-sidebar" && item.theme === "light");
+  expect(pending.inventoryColor).toBe(pending.toolbarColor);
+  expect(pending.card.height).toBeLessThan(180);
+  const title = await card.locator(".conversation-thread-title").boundingBox();
+  const jump = await card.getByRole("button", { name: "Show in document", exact: true }).boundingBox();
+  expect(Math.abs(title.y - jump.y)).toBeLessThan(8);
+  await expect(card.getByRole("button", { name: "Focus", exact: true })).toHaveCount(0);
+  await (await threadAction(page, card, "Focus")).click();
+  await (await threadAction(page, card, "Open in Feedback")).click();
+  await (await threadAction(page, card, "Beside target")).click();
+  await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "adjacent");
+  await capture("short-in-place");
+  await page.locator("#commentsButton").click();
+  await feedback(page);
+  await sendPending(review, ref);
+  await handled(review, ref);
+  await expect(card.locator(".conversation-response")).toBeVisible();
+  await mutate(review, ref, "reply", { threadId, body: "what could be the alternatives?", intent: "discuss" });
+  await expect(card).toContainText("what could be the alternatives?");
+  await expect(card.locator(".conversation-response")).toContainText("The explanation preserves the original meaning.");
+  await expect(card.getByRole("button", { name: "Show earlier replies" })).toHaveCount(0);
+  await capture("followup");
+  await page.reload();
+  await waitForSdk(page);
+  await feedback(page);
+  await expect(card.locator(".conversation-response")).toContainText("The explanation preserves the original meaning.");
+  await expect(card).toContainText("what could be the alternatives?");
+  fs.writeFileSync(info.outputPath("reading-metrics.json"), JSON.stringify(metrics, null, 2));
+});
+
+test("docking keeps the current passage and document selection while Feedback stays interactive", async ({ page, review }) => {
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await openReview(page, review, writeFile(review, "reading-anchor.html", `<!doctype html>
+    <style>body{font:18px/1.6 Georgia;margin:32px}p{margin:24px 0}</style>
+    <p>${"Earlier reading context. ".repeat(240)}</p><p id="passage" tabindex="0">Keep this passage in view.</p>
+    <input aria-label="Document input"><p>${"Later reading context. ".repeat(240)}</p>`));
+  const frame = await waitForSdk(page);
+  await frame.locator("#passage").evaluate(node => {
+    node.scrollIntoView({ block: "center" });
+    const range = document.createRange(); range.selectNodeContents(node);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+  });
+  const top = () => frame.locator("#passage").evaluate(node => node.getBoundingClientRect().top);
+  const before = await top();
+  await feedback(page);
+  await expect.poll(top).toBeCloseTo(before, 0);
+  expect(await frame.locator("body").evaluate(() => getSelection().toString())).toBe("Keep this passage in view.");
+  await frame.getByLabel("Document input").fill("Keep typing with Feedback open");
+  await expect(page.locator(".conversation-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Close feedback", exact: true }).click();
+  await expect.poll(top).toBeCloseTo(before, 0);
+  await expect(frame.getByLabel("Document input")).toHaveValue("Keep typing with Feedback open");
+});

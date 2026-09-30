@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, enterEditMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, setReviewTheme } from "./helpers.js";
 
 const source = `<!doctype html><html><head><title>Theme recovery</title></head>
   <body><p id="target">Keep this document and its unsent editing state.</p>
@@ -59,17 +59,17 @@ test("initial theme timeout offers Retry theme without repeating registration or
   expect(requests).toEqual({ registrations: 1, confirmations: 1 });
   expect(await frame.locator("body").evaluate(() =>
     window.themeRecoveryCommands.filter((message) => message.type === "eh:configureReview").length)).toBe(0);
-  await expect(page.locator("#themeNotice")).toBeVisible({ timeout: 6000 });
-  await expect(page.locator("#themeNotice [role=alert]")).toContainText("synchronization was not confirmed");
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeVisible({ timeout: 6000 });
+  await expect(page.locator(".conversation-global-status [role=alert]")).toContainText("synchronization was not confirmed");
   await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeEnabled();
-  await expect(page.locator("#reloadNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Reload source (discard local page edits)", exact: true })).toBeHidden();
   await expectSameFrame(page, src);
   // A late acknowledgment was not mistaken for success and there was no automatic retry.
   expect(await page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(1);
   await page.evaluate(() => { window.themeRecovery.blocked = false; });
   await page.getByRole("button", { name: "Retry theme", exact: true }).click();
   await waitForSdk(page);
-  await expect(page.locator("#themeNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(2);
   const acknowledgments = await page.evaluate(() => window.themeRecovery.acknowledgments);
   expect(acknowledgments[1]).toEqual(acknowledgments[0]);
@@ -108,15 +108,15 @@ test("live theme timeout preserves drafts and retries the latest theme without r
   const initialAckCount = await page.evaluate(() => window.themeRecovery.acknowledgments.length);
   await page.evaluate(() => { window.themeRecovery.blocked = true; });
   for (const theme of ["dark", "light", "dark"]) {
-    await page.locator("#theme").evaluate((button) => button.click());
+    await setReviewTheme(page);
     await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", theme);
-    await expect(frame.locator("#linkInput")).toBeFocused();
+    await expect(page.getByRole("button", { name: "Review options", exact: true })).toBeFocused();
   }
   await expect.poll(() => page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(initialAckCount + 3);
-  await expect(page.locator("#themeNotice")).toBeVisible({ timeout: 6000 });
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeVisible({ timeout: 6000 });
   await expect(page.locator("#frame")).toHaveAttribute("data-sdk-ready", "true");
   await expect(frame.locator("#linkInput")).toBeVisible();
-  await expect(frame.locator("#linkInput")).toBeFocused();
+  await expect(page.getByRole("button", { name: "Review options", exact: true })).toBeFocused();
   await expectSameFrame(page, src);
   const preservedState = () => frame.locator("body").evaluate(() => ({
     sameNodes: window.themeRecoveryNodes.body === document.body &&
@@ -134,10 +134,17 @@ test("live theme timeout preserves drafts and retries the latest theme without r
   };
   expect(await preservedState()).toEqual(expectedState);
   expect(requests).toEqual(initialRequests);
+  // Resume the retained editor through real input. The delayed acknowledgment
+  // and retry must not steal this newer focus handoff.
+  await frame.locator("#linkInput").click();
+  await frame.locator("#linkInput").press("Home");
+  await frame.locator("#linkInput").press("ArrowRight");
+  await expect(frame.locator("#linkInput")).toBeFocused();
+  expectedState.caret = [1, 1];
   await page.evaluate(() => { window.themeRecovery.blocked = false; });
   // Activate without moving focus out of the SDK editor.
   await page.getByRole("button", { name: "Retry theme", exact: true }).evaluate((button) => button.click());
-  await expect(page.locator("#themeNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Retry theme", exact: true })).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.themeRecovery.acknowledgments.length)).toBe(initialAckCount + 4);
   const acknowledgments = await page.evaluate(() => window.themeRecovery.acknowledgments);
   expect(acknowledgments.at(-1)).toEqual(acknowledgments.at(-2));

@@ -1,5 +1,10 @@
 import type { FeedbackComment, FeedbackEdit } from "./feedback.js";
 
+// Keep the currently served page guard self-contained until consumer integration.
+export type {
+  CanonicalPage, ConversationPage, ConversationReview, ReviewItems, ReviewScope, ReviewStatus,
+} from "./page-boundary.js";
+
 export type ReviewMode = "view" | "edit";
 export type SavePolicy = "writable" | "feedback-only";
 export type ExecutionMode = "static" | "interactive" | "application";

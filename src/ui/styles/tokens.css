@@ -1,10 +1,11 @@
 @import "./review-colors.css";
 
-.review-ui {
+:root, .review-ui {
   --radius: 0.5rem;
   --radius-md: var(--radius);
   --review-control-height: 2rem;
-  --review-control-height-touch: 2.5rem;
+  --review-control-height-sm: 1.75rem;
+  --review-control-height-xs: 1.5rem;
   --review-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --review-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   --review-text-xs: 0.75rem;

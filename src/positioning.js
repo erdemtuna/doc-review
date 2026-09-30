@@ -105,3 +105,53 @@ export function alignedCardPosition(rects, { frameRect, viewport, width = 300, h
     top: Math.max(viewport.top + 12, Math.min(viewport.top + viewport.height - height - 12, top)),
   };
 }
+
+/** Popovers may cover unselected prose, never any visible part of their target. */
+function placeLocalSurface(geometry, { frameRect, viewport, surfaceWidth, surfaceHeight, minHeight = surfaceHeight, toolbarHeight = 48 }) {
+  if (!geometry || geometry.relation === "unavailable") return null;
+  const bounds = { left: viewport.left + GAP, right: viewport.left + viewport.width - GAP,
+    top: viewport.top + toolbarHeight + GAP, bottom: viewport.top + viewport.height - GAP };
+  const width = Math.min(surfaceWidth, bounds.right - bounds.left);
+  if (width < 240 || bounds.bottom - bounds.top < minHeight) return null;
+  const height = Math.min(surfaceHeight, bounds.bottom - bounds.top);
+  const clip = geometry.clip ? frameRectToChrome(geometry.clip, frameRect) : bounds;
+  const rects = geometry.rects.map(rect => frameRectToChrome(rect, frameRect)).map(rect => ({
+    left: Math.max(rect.left, clip.left, bounds.left - GAP), right: Math.min(rect.right, clip.right, bounds.right + GAP),
+    top: Math.max(rect.top, clip.top, bounds.top - GAP), bottom: Math.min(rect.bottom, clip.bottom, bounds.bottom + GAP),
+  })).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
+  if (!rects.length) {
+    if (!["above", "below"].includes(geometry.relation)) return null;
+    const horizontal = Number.isFinite(geometry.horizontal) ? frameRect.left + geometry.horizontal : clip.left;
+    return { kind: geometry.relation === "above" ? "edge-top" : "edge-bottom",
+      left: clamp(horizontal, bounds.left, bounds.right - width),
+      top: clamp(geometry.relation === "above" ? clip.top + GAP : clip.bottom - height - GAP, bounds.top, bounds.bottom - height),
+      width, height };
+  }
+  const target = { left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)),
+    top: Math.min(...rects.map(rect => rect.top)), bottom: Math.max(...rects.map(rect => rect.bottom)) };
+  const x = clamp(target.left, bounds.left, bounds.right - width);
+  const y = clamp(target.top, bounds.top, bounds.bottom - height);
+  const below = Math.min(height, bounds.bottom - target.bottom - GAP);
+  const above = Math.min(height, target.top - GAP - bounds.top);
+  const candidates = [
+    { left: target.right + GAP, top: y, height },
+    { left: target.left - width - GAP, top: y, height },
+    { left: x, top: target.bottom + GAP, height: below },
+    { left: x, top: target.top - GAP - above, height: above },
+  ];
+  const fit = candidates.find(candidate => candidate.height >= minHeight &&
+    candidate.left >= bounds.left && candidate.left + width <= bounds.right &&
+    candidate.top >= bounds.top && candidate.top + candidate.height <= bounds.bottom &&
+    rects.every(rect => candidate.left >= rect.right + GAP || candidate.left + width <= rect.left - GAP ||
+      candidate.top >= rect.bottom + GAP || candidate.top + candidate.height <= rect.top - GAP));
+  return fit ? { kind: "attached", ...fit, width } : null;
+}
+
+export function placeNewMessageSurface(geometry, options) {
+  return placeLocalSurface(geometry, options);
+}
+
+export function placeConversationSurface(state, { frameRect, viewport, toolbarHeight = 48, width = 360, height = 260, minHeight = 160 }) {
+  if (state?.state !== "found") return null;
+  return placeLocalSurface(state, { frameRect, viewport, toolbarHeight, surfaceWidth: width, surfaceHeight: height, minHeight });
+}

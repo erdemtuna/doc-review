@@ -17,8 +17,8 @@ test("canonical palette generation is deterministic, checked and embedded withou
   assert.equal(BRAND_COLORS.bubble, "#FFFDF7");
   assert.doesNotMatch(source, /import .*review-palette/);
   assert.doesNotMatch(source, /data-dark|darkSurface|activeBox\.style\.borderColor/);
-  assert.match(first.shell, /--diff-accent: var\(--review-modified-foreground\)/);
-  assert.doesNotMatch(first.shell, /--overlay:/);
+  assert.match(first.shell, /--review-modified-foreground:/);
+  assert.doesNotMatch(first.shell, /--(?:diff-[a-z-]+|canvas|panel|hair|txt|focus-ring|review-shadow|overlay):/);
   for (const colors of Object.values(REVIEW_PALETTE)) {
     for (const kind of ["added", "removed", "modified"]) {
       assert.equal(colors[`review-count-${kind}`], colors[`review-${kind}-foreground`]);
@@ -74,6 +74,7 @@ test("opaque text and essential boundaries meet contrast targets in both themes"
     for (const [ink, background] of [
       ["foreground", "background"], ["card-foreground", "card"], ["muted-foreground", "card"],
       ["primary-foreground", "primary"], ["accent-foreground", "accent"],
+      ["secondary-foreground", "secondary"], ["popover-foreground", "popover"],
       ["destructive", "card"], ["destructive-foreground", "destructive"],
       ["annotation-foreground", "annotation-background"], ["annotation-foreground", "annotation-active"],
       ["review-added-foreground", "review-added"], ["review-removed-foreground", "review-removed"],
@@ -83,4 +84,16 @@ test("opaque text and essential boundaries meet contrast targets in both themes"
       assert.ok(contrast(palette[ink], palette[background]) >= 3, `${theme}: ${ink}/${background}`);
     }
   }
+});
+
+test("current comparison styles and density tokens do not depend on retired host IDs", async () => {
+  const styles = await readFile(new URL("../src/ui/styles/comparison.css", import.meta.url), "utf8");
+  const shell = await readFile(new URL("../src/ui/styles/shell.css", import.meta.url), "utf8");
+  const tokens = await readFile(new URL("../src/ui/styles/tokens.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles + shell, /#historyPanel|@import.*chrome\.css/);
+  for (const selector of ["blockquote", "hr", "mark", ".saved-link", ".saved-table", ".comparison-current"]) assert.ok(styles.includes(selector));
+  for (const [name, size] of [["height", "2rem"], ["height-sm", "1.75rem"], ["height-xs", "1.5rem"]]) {
+    assert.ok(tokens.includes(`--review-control-${name}: ${size}`));
+  }
+  assert.doesNotMatch(tokens, /height-touch/);
 });

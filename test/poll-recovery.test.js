@@ -1,258 +1,177 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { fileURLToPath } from "node:url";
+import { fixture, responseFor, scopeArgs } from "./fixtures/agent-loop.js";
+import * as c from "../lib/contracts/index.js";
 import { SERVER_PROTOCOL } from "../lib/paths.js";
 
-const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-async function fixture(t, poll, { protocol = SERVER_PROTOCOL, health } = {}) {
-  const dir = fs.mkdtempSync(path.join(project, ".doc-review-recovery-"));
-  const state = path.join(dir, "state");
-  fs.mkdirSync(state);
-  const file = path.join(dir, "review.html");
-  fs.writeFileSync(file, "<p>Review</p>");
-  const children = [];
-  let record;
-  const server = http.createServer((req, res) => {
-    if (req.url === "/health") {
-      if (health) return health(req, res, record);
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ ok: true, ...record }));
-    }
-    return poll(req, res, record);
-  });
-  const dispose = async () => {
-    await Promise.all(children.map(async (child) => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      const closed = once(child, "close");
-      child.kill();
-      await closed;
-    }));
-    server.closeAllConnections();
-    if (server.listening) await new Promise((resolve) => server.close(resolve));
-    fs.rmSync(dir, { recursive: true, force: true });
-  };
-  t.after(dispose);
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  record = {
-    pid: process.pid, instance_id: path.basename(dir),
-    port: server.address().port, protocol, token: "isolated-test-token",
-  };
-  const lock = JSON.stringify({ pid: record.pid, instance_id: record.instance_id });
-  fs.writeFileSync(path.join(state, "server.json"), JSON.stringify(record));
-  fs.writeFileSync(path.join(state, "server.lock"), lock);
-  return {
-    record, server, state, lock, dispose,
-    cli(...args) {
-      const child = spawn(process.execPath, [path.join(project, "lib", "cli.js"), ...args], {
-        cwd: dir,
-        env: { ...process.env, DOC_REVIEW_STATE_DIR: state },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      children.push(child);
-      return new Promise((resolve, reject) => {
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", (chunk) => { stdout += chunk; });
-        child.stderr.on("data", (chunk) => { stderr += chunk; });
-        child.on("error", reject);
-        child.on("close", (code) => resolve({ code, stdout, stderr }));
-      });
-    },
-    file,
-  };
+async function queued(f) {
+  const file = f.file(), opened = await f.open(file);
+  const ref = { reviewId: opened.review.reviewId, entryKey: opened.review.entryKey };
+  await f.send(ref, [await f.thread(ref)]);
+  return { file, ref };
 }
 
-test("failure-path fixture cleanup stops a still-waiting CLI and response timer", { timeout: 5000 }, async (t) => {
-  let started;
-  const listening = new Promise((resolve) => { started = resolve; });
-  let timerClosed = false;
-  const review = await fixture(t, (_req, res) => {
-    res.writeHead(200);
-    res.write(" ");
-    const timer = setInterval(() => res.write(" "), 10);
-    res.once("close", () => {
-      clearInterval(timer);
-      timerClosed = true;
-    });
-    started();
-  });
-  const pending = review.cli("poll", review.file);
-  await listening;
-  await review.dispose();
-  assert.notEqual((await pending).code, 0);
-  assert.equal(fs.existsSync(review.state), false);
-  assert.equal(timerClosed, true);
-});
-
-test("CLI recovers after four drops and repeats an uncertain ack before and after persistence", { timeout: 15000 }, async (t) => {
-  const ackIds = [];
-  let committed = 0;
-  const batch = {
-    status: "feedback", batch_id: "b_newer", pages: [{
-      file: "review.html", comments: [{ feedback: "x".repeat(250000) }], edits: [],
-    }],
+test("response persistence failure retries the exact request with no partial publication", async (t) => {
+  const f = await fixture(t), { ref } = await queued(f);
+  const answer = responseFor((await f.poll(ref)).submission);
+  const before = f.server.store.data, write = f.server.store.write;
+  let failed = false;
+  f.server.store.write = (file, bytes) => {
+    if (!failed && bytes.includes(answer.requestId)) {
+      failed = true;
+      assert.equal(f.server.store.data, before);
+      throw new Error("Injected response persistence failure.");
+    }
+    return write(file, bytes);
   };
-  const review = await fixture(t, (req, res) => {
-    const url = new URL(req.url, "http://127.0.0.1");
-    assert.equal(url.pathname, "/api/poll");
-    assert.equal(req.headers["x-doc-review-token"], "isolated-test-token");
-    ackIds.push(url.searchParams.get("ack"));
-    if (ackIds.length === 1) return req.socket.destroy(); // Request lost before persistence.
-    if (!committed) committed++;
-    if (ackIds.length < 5) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.write('{"status":"feedback","batch_id":"b_newer","pages":[');
-      return setImmediate(() => res.destroy()); // Ack persisted, response incomplete.
-    }
-    res.end(JSON.stringify(batch));
-  });
-  const result = await review.cli("poll", review.file, "--ack", "b_explicit", "--timeout", "10");
+  const result = await f.respond(ref, answer);
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), batch, "large stdout must be complete JSON");
-  assert.deepEqual(ackIds, Array(5).fill("b_explicit"));
-  assert.equal(committed, 1);
-  assert.equal((result.stderr.match(/retrying/g) || []).length, 4);
+  assert.equal(failed, true);
+  assert.match(result.stderr, /retrying the identical request/);
+  const persisted = c.submissionReadSchema.parse(await f.read(ref, "submission", { submissionId: answer.submissionId }));
+  assert.equal(persisted.result.responses.length, 1);
+  assert.equal(persisted.receipt.requestId, answer.requestId);
 });
 
-test("CLI rediscovery adopts a matching replacement identity after a mid-wait disconnect", { timeout: 5000 }, async (t) => {
-  let first = true;
-  const batch = { status: "feedback", batch_id: "b_redelivered", pages: [] };
-  const review = await fixture(t, (req, res, record) => {
-    if (first) {
-      first = false;
-      record.instance_id += "-replacement";
-      fs.writeFileSync(path.join(review.state, "server.json"), JSON.stringify(record));
-      fs.writeFileSync(path.join(review.state, "server.lock"), JSON.stringify({
-        pid: record.pid, instance_id: record.instance_id,
-      }));
-      return req.socket.destroy();
+test("lost response before/after persistence retries a frozen body, not source work, and replays after restart", { timeout: 15000 }, async (t) => {
+  const f = await fixture(t), { file, ref } = await queued(f);
+  const { submission } = await f.poll(ref);
+  const answer = responseFor(submission), requests = [];
+  const sourceBefore = fs.readFileSync(file), sourceTime = fs.statSync(file).mtimeMs;
+  await f.proxy(async ({ req, res, body, forward }) => {
+    assert.equal(req.headers["x-doc-review-token"], f.server.token);
+    requests.push(body);
+    if (requests.length === 1) return res.destroy();
+    const output = await forward();
+    if (requests.length === 2) {
+      fs.writeFileSync(path.join(f.root, "response.json"), JSON.stringify({ ...answer, resultNote: "Do not reread during retry." }));
     }
-    res.end(JSON.stringify(batch));
+    if (requests.length < 4) { res.writeHead(200); res.write('{"ok":'); return res.destroy(); }
+    if (requests.length === 4) return res.end("malformed");
+    res.writeHead(output.status); res.end(output.text);
   });
-  const result = await review.cli("poll", review.file, "--timeout", "2");
+  const result = await f.respond(ref, answer);
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), batch);
+  c.acceptedMutationSchema.parse(result.body);
+  assert.equal(requests.length, 5);
+  assert.equal(new Set(requests).size, 1);
+  assert.deepEqual(JSON.parse(requests[0]), answer);
+  assert.deepEqual(fs.readFileSync(file), sourceBefore);
+  assert.equal(fs.statSync(file).mtimeMs, sourceTime);
+  assert.equal(Object.keys(f.server.store.data.conversations.reviews[ref.reviewId].results).length, 1);
+  await f.restart();
+  const replay = await f.respond(ref, answer);
+  assert.deepEqual(replay.body, result.body);
 });
 
-test("a gracefully ended heartbeat-only poll reconnects with the same acknowledgement", { timeout: 5000 }, async (t) => {
-  const acknowledgements = [];
-  const batch = { status: "feedback", batch_id: "b_after_shutdown", pages: [] };
-  const review = await fixture(t, (req, res) => {
-    acknowledgements.push(new URL(req.url, "http://127.0.0.1").searchParams.get("ack"));
-    if (acknowledgements.length === 1) {
-      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      res.write(" ");
-      return res.end();
-    }
-    res.end(JSON.stringify(batch));
+test("unknown acceptance exits 2, receipt miss is not success, and the original file later recovers", async (t) => {
+  const f = await fixture(t), { ref } = await queued(f);
+  const answer = responseFor((await f.poll(ref)).submission);
+  let allow = false;
+  await f.proxy(async ({ res, body, forward }) => {
+    if (JSON.parse(body).operation === "respond" && !allow) return res.destroy();
+    const result = await forward(); res.writeHead(result.status); res.end(result.text);
   });
-  const result = await review.cli("poll", review.file, "--ack", "b_explicit", "--timeout", "2");
+  fs.writeFileSync(path.join(f.root, "response.json"), JSON.stringify(answer));
+  const unknown = await f.cli("respond", ...scopeArgs(ref), "--response-file", "response.json", "--timeout", "0.4");
+  assert.equal(unknown.code, 2);
+  c.transportOutcomeSchema(c.acceptedMutationSchema).parse(unknown.body);
+  assert.equal(unknown.body.state, "unknown");
+  assert.equal(unknown.body.requestId, answer.requestId);
+  const absent = await f.cli("receipt", ...scopeArgs(ref), "--request-id", answer.requestId);
+  assert.equal(absent.body.state, "not-found");
+  assert.equal((await f.read(ref, "submission", { submissionId: answer.submissionId })).submission.state, "delivered");
+  allow = true;
+  const accepted = await f.cli("respond", ...scopeArgs(ref), "--response-file", "response.json");
+  assert.equal(accepted.code, 0, accepted.stderr);
+  const receipt = await f.cli("receipt", ...scopeArgs(ref), "--request-id", answer.requestId);
+  assert.deepEqual(receipt.body.receipt, accepted.body.receipt);
+});
+
+test("unknown acceptance after a committed response recovers exactly rather than resubmitting new work", async (t) => {
+  const f = await fixture(t), { ref } = await queued(f);
+  const answer = responseFor((await f.poll(ref)).submission);
+  let allow = false;
+  await f.proxy(async ({ res, forward }) => {
+    const output = await forward();
+    if (!allow) return res.destroy();
+    res.writeHead(output.status); res.end(output.text);
+  });
+  fs.writeFileSync(path.join(f.root, "response.json"), JSON.stringify(answer));
+  const unknown = await f.cli("respond", ...scopeArgs(ref), "--response-file", "response.json", "--timeout", "0.4");
+  assert.equal(unknown.code, 2);
+  assert.equal((await f.read(ref, "submission", { submissionId: answer.submissionId })).submission.state, "handled");
+  allow = true;
+  const result = await f.cli("respond", ...scopeArgs(ref), "--response-file", "response.json");
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), batch);
-  assert.deepEqual(acknowledgements, ["b_explicit", "b_explicit"]);
+  c.acceptedMutationSchema.parse(result.body);
+  assert.equal(Object.keys(f.server.store.data.conversations.reviews[ref.reviewId].results).length, 1);
+});
+
+test("an active review poll rediscovers a restarted producer and keeps its original durable identity", async (t) => {
+  const f = await fixture(t), opened = await f.open(f.file());
+  const ref = { reviewId: opened.review.reviewId, entryKey: opened.review.entryKey };
+  await f.proxy(async ({ res, forward }) => {
+    await forward();
+    await f.restart();
+    await f.send(ref, [await f.thread(ref)]);
+    res.destroy();
+  });
+  const result = await f.cli("poll", ...scopeArgs(ref), "--timeout", "5");
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(c.agentPollSchema.parse(result.body).review.reviewId, ref.reviewId);
   assert.match(result.stderr, /retrying/);
 });
 
-test("an older live protocol fails actionably without changing its matching lock or record", { timeout: 5000 }, async (t) => {
-  let polls = 0;
-  const review = await fixture(t, () => { polls++; }, { protocol: SERVER_PROTOCOL - 1 });
-  const before = fs.readFileSync(path.join(review.state, "server.json"), "utf8");
-  const result = await review.cli("poll", review.file);
-  assert.equal(result.code, 1);
-  assert.equal(result.stdout, "");
-  assert.match(result.stderr, /Incompatible live.*protocol/);
-  assert.match(result.stderr, /End active reviews.*stop\/restart/);
-  assert.doesNotMatch(result.stderr, /Lost the connection/);
-  assert.equal(polls, 0);
-  assert.equal(fs.readFileSync(path.join(review.state, "server.lock"), "utf8"), review.lock);
-  assert.equal(fs.readFileSync(path.join(review.state, "server.json"), "utf8"), before);
-  const response = await fetch(`http://127.0.0.1:${review.record.port}/health`);
-  assert.equal(response.status, 200, "the incompatible server is still alive");
+test("incompatible live discovery never changes a lock, kills the producer, or reads a legacy fallback", async (t) => {
+  const f = await fixture(t), { ref } = await queued(f);
+  const recordPath = path.join(f.state, "server.json"), lockPath = path.join(f.state, "server.lock");
+  const record = JSON.parse(fs.readFileSync(recordPath));
+  fs.writeFileSync(recordPath, JSON.stringify({ ...record, protocol: SERVER_PROTOCOL - 1 }));
+  const beforeRecord = fs.readFileSync(recordPath), beforeLock = fs.readFileSync(lockPath);
+  for (const command of ["poll", "status"]) {
+    const result = await f.cli(command, ...scopeArgs(ref), "--timeout", "1");
+    assert.equal(result.code, 1);
+    assert.match(result.body.error.message, /Incompatible live.*protocol/);
+    assert.doesNotMatch(result.stderr, /Lost the connection|Response uncertain/);
+    assert.deepEqual(fs.readFileSync(recordPath), beforeRecord);
+    assert.deepEqual(fs.readFileSync(lockPath), beforeLock);
+  }
+  assert.equal((await fetch(`http://127.0.0.1:${f.server.port}/health`)).status, 200);
 });
 
 for (const [label, status, body] of [
-  ["authorization", 403, '{"error":"Forbidden"}'],
-  ["invalid target", 400, '{"error":"Invalid target"}'],
-  ["persistence failure", 500, '{"error":"Cannot persist acknowledgement"}'],
-  ["malformed JSON", 200, '{"status":'],
-  ["empty response", 200, ""],
-  ["unexpected shape", 200, '{"ok":true}'],
-  ["missing receipt", 200, '{"status":"feedback","pages":[]}'],
+  ["authorization", 401, c.contractFailure(new c.ContractError("UNAUTHORIZED", "No access"))],
+  ["wrong scope", 403, c.contractFailure(new c.ContractError("SCOPE_MISMATCH", "Wrong review"))],
+  ["malformed JSON", 200, "{incomplete"],
+  ["unknown shape", 200, { ok: true }],
 ]) {
-  test(`CLI treats ${label} as terminal even without an explicit timeout`, { timeout: 5000 }, async (t) => {
-    let polls = 0;
-    const review = await fixture(t, (_req, res) => {
-      polls++;
-      res.writeHead(status);
-      res.end(body);
+  test(`poll treats ${label} as a typed terminal failure`, async (t) => {
+    const f = await fixture(t), { ref } = await queued(f);
+    let calls = 0;
+    await f.proxy(async ({ res }) => {
+      calls++; res.writeHead(status); res.end(typeof body === "string" ? body : JSON.stringify(body));
     });
-    const result = await review.cli("poll", review.file);
+    const result = await f.cli("poll", ...scopeArgs(ref));
     assert.equal(result.code, 1);
-    assert.equal(result.stdout, "");
+    c.failureSchema.parse(result.body);
+    assert.equal(calls, 1);
     assert.doesNotMatch(result.stderr, /retrying/);
-    assert.match(result.stderr, /HTTP|Malformed/);
-    assert.equal(polls, 1);
   });
 }
 
-test("malformed health and health identity mismatches are terminal", { timeout: 5000 }, async (t) => {
-  for (const body of ["not json", JSON.stringify({ pid: -1, instance_id: "wrong", protocol: SERVER_PROTOCOL })]) {
-    const review = await fixture(t, () => assert.fail("must not poll"), {
-      health: (_req, res) => res.end(body),
-    });
-    const result = await review.cli("poll", review.file);
-    assert.equal(result.code, 1);
-    assert.equal(result.stdout, "");
-    assert.match(result.stderr, /Malformed|identity/);
-    assert.doesNotMatch(result.stderr, /retrying/);
-  }
-});
-
-test("a short explicit cutoff bounds stalled discovery health probes", { timeout: 5000 }, async (t) => {
-  let probes = 0;
-  const review = await fixture(t, () => assert.fail("must not poll"), {
-    health: () => { probes++; },
-  });
-  const start = performance.now();
-  const result = await review.cli("poll", review.file, "--timeout", "0.1");
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).status, "timeout");
-  assert.equal(JSON.parse(result.stdout).waited_seconds, 0.1);
-  assert.equal(probes, 1);
-  assert.ok(performance.now() - start < 2000, "discovery did not take its usual probe/startup budget");
-});
-
-test("heartbeats and incomplete JSON cannot extend an explicit response cutoff", { timeout: 5000 }, async (t) => {
-  const review = await fixture(t, (_req, res) => {
-    res.writeHead(200);
-    res.write('{"status":');
+test("absolute poll cutoff covers stalled discovery and partial response bytes", async (t) => {
+  const f = await fixture(t), { ref } = await queued(f);
+  await f.proxy(async ({ res }) => {
+    res.writeHead(200); res.write('{"state":');
     const timer = setInterval(() => res.write(" "), 10);
     res.once("close", () => clearInterval(timer));
-  });
-  const result = await review.cli("poll", review.file, "--timeout", "0.15");
+  }, { interceptHealth: true });
+  const start = performance.now();
+  const result = await f.cli("poll", ...scopeArgs(ref), "--timeout", "0.15");
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout).status, "timeout");
-  assert.equal(JSON.parse(result.stdout).waited_seconds, 0.15);
-});
-
-test("closed responses and CLI help retain their machine/human identities", { timeout: 5000 }, async (t) => {
-  const review = await fixture(t, (_req, res) => res.end('{"status":"closed","next_step":"Stop polling."}'));
-  const result = await review.cli("poll", review.file);
-  assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { status: "closed", next_step: "Stop polling." });
-  const help = await review.cli("--help");
-  assert.equal(help.code, 0);
-  assert.match(help.stdout, /^doc-review \d/);
-  assert.match(help.stdout, /default 12 hours \(43200 seconds\)/);
-  assert.match(help.stdout, /--ack <batch_id>/);
-  assert.doesNotMatch(help.stdout, /doc-feedback|agent-review/);
+  assert.equal(c.agentPollSchema.parse(result.body).state, "timeout");
+  assert.ok(performance.now() - start < 2000);
 });

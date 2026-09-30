@@ -172,7 +172,7 @@ test("stale pages and pages whose file vanished are pruned on load", () => {
 });
 
 function statePathFor() {
-  return path.join(process.env.DOC_REVIEW_STATE_DIR, "state.json");
+  return path.join(process.env.DOC_REVIEW_STATE_DIR, "conversation-state.json");
 }
 
 test("sent batches persist across a restart, and an ack stays acked", () => {
@@ -295,13 +295,13 @@ test("failed acknowledgement preserves batch, page contents, and staged cleanup"
   assert.equal(fs.readFileSync(statePathFor(), "utf8"), beforeDisk);
 });
 
-test("legacy batches get a stable ID, require redelivery, and make edits corrections", () => {
+test("obsolete batches remain untouched and are not imported into the new store", () => {
   const file = page("legacy.html", "<p>x</p>");
   const key = targetKey(file);
   const now = Date.now();
   fs.mkdirSync(process.env.DOC_REVIEW_STATE_DIR, { recursive: true });
   fs.writeFileSync(
-    statePathFor(),
+    path.join(process.env.DOC_REVIEW_STATE_DIR, "state.json"),
     JSON.stringify({
       pages: {
         [key]: {
@@ -326,20 +326,12 @@ test("legacy batches get a stable ID, require redelivery, and make edits correct
       },
     })
   );
-
+  const oldPath = path.join(process.env.DOC_REVIEW_STATE_DIR, "state.json");
+  const oldBytes = fs.readFileSync(oldPath, "utf8");
   const loaded = new Store();
-  const id = loaded.batch(key).batch_id;
-  assert.match(id, /^b_[a-f0-9]+$/);
-  assert.equal(loaded.batch(key).delivery_state, "possibly_delivered");
-  assert.equal(loaded.acknowledgeBatch(key, id).acknowledged, false);
-  const correction = loaded.reviseComment(key, "legacy-comment", "corrected", { replacementId: "replacement-comment" });
-  assert.equal(correction.delivery, "correction");
-  assert.equal(loaded.page(key).comments[0].id, "replacement-comment");
-
-  const restarted = new Store();
-  assert.equal(restarted.batch(key).batch_id, id, "the recovered receipt ID survives another restart");
-  restarted.markBatchDelivered(key);
-  assert.equal(restarted.batch(key).delivery_state, "delivered");
+  assert.equal(loaded.batch(key), null);
+  assert.equal(loaded.page(key), null);
+  assert.equal(fs.readFileSync(oldPath, "utf8"), oldBytes);
 });
 
 test("resolveAsset refuses to escape the artifact's directory", () => {

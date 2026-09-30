@@ -29,6 +29,19 @@ test("matching is exact correlation, not a payload or message-type assertion", a
     assert.equal(channel.matchesFrameMessage(value), false);
   }
 });
+test("SDK envelopes echo projection revisions without repurposing frame generation", async () => {
+  const channel = await freshChannel();
+  channel.initializeChannel("secret", 7, "page");
+  for (const type of ["eh:threadAnchorStates", "eh:threadAction"]) {
+    for (const projectionRevision of [1, 2, 19]) {
+      const value = channel.frameMessage(type, { generation: 999, projectionRevision });
+      assert.equal(value.generation, 7);
+      assert.equal(value.projectionRevision, projectionRevision);
+      assert.equal(channel.matchesFrameMessage(value), true);
+    }
+    assert.equal("projectionRevision" in channel.frameMessage(type), false, "The channel must not invent a revision for old SDK payloads.");
+  }
+});
 
 test("document bootstrap is removed before validation and cannot reinitialize a channel", async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, "document");

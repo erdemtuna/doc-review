@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { openReview } from "./fixtures/review.js";
 
 const root = path.join(process.cwd(), `.doc-review-redirect-test-${process.pid}`);
 fs.rmSync(root, { recursive: true, force: true });
@@ -25,33 +26,16 @@ function close(server) {
   return new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
 }
 
-function openTarget(review, target) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ target });
-    const req = http.request(
-      {
-        host: "127.0.0.1",
-        port: review.port,
-        method: "POST",
-        path: "/api/session",
-        headers: {
-          "x-doc-review-token": review.token,
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let raw = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          raw += chunk;
-        });
-        res.on("end", () => resolve({ status: res.statusCode, raw }));
-      }
-    );
-    req.on("error", reject);
-    req.end(body);
+async function openTarget(review, target) {
+  const opened = await openReview(review, target);
+  const registered = await fetch(`http://127.0.0.1:${review.port}/api/session/${opened.sessionId}/render`, {
+    method: "POST", headers: { "x-doc-review-token": review.token, "content-type": "application/json" },
+    body: JSON.stringify({ key: opened.key, generation: 1 }),
   });
+  assert.equal(registered.status, 200);
+  const render = await registered.json();
+  const artifact = await fetch(`http://127.0.0.1:${review.port}${render.path}`);
+  return { status: artifact.status, raw: await artifact.text() };
 }
 
 test("localUrl always accepts the three explicit loopback host forms", () => {
@@ -107,16 +91,16 @@ test("redirects reuse localUrl validation across schemes, hosts, credentials, an
 
   for (const route of ["/external-http", "/external-https", "/protocol-relative"]) {
     const result = await openTarget(review, target(route));
-    assert.equal(result.status, 500);
-    assert.match(JSON.parse(result.raw).error, /limited to localhost/);
+    assert.equal(result.status, 502);
+    assert.match(result.raw, /limited to localhost/);
   }
 
-  assert.match(JSON.parse((await openTarget(review, target("/non-http"))).raw).error, /must use HTTP or HTTPS/);
-  assert.match(JSON.parse((await openTarget(review, target("/credentials"))).raw).error, /cannot contain credentials/);
-  assert.match(JSON.parse((await openTarget(review, target("/missing"))).raw).error, /without a location/);
-  assert.match(JSON.parse((await openTarget(review, target("/malformed"))).raw).error, /Invalid URL/);
-  assert.match(JSON.parse((await openTarget(review, target("/loop-a"))).raw).error, /Too many redirects/);
-  assert.match(JSON.parse((await openTarget(review, target("/bounded/0"))).raw).error, /Too many redirects/);
+  assert.match((await openTarget(review, target("/non-http"))).raw, /must use HTTP or HTTPS/);
+  assert.match((await openTarget(review, target("/credentials"))).raw, /cannot contain credentials/);
+  assert.match((await openTarget(review, target("/missing"))).raw, /without a location/);
+  assert.match((await openTarget(review, target("/malformed"))).raw, /Invalid URL/);
+  assert.match((await openTarget(review, target("/loop-a"))).raw, /Too many redirects/);
+  assert.match((await openTarget(review, target("/bounded/0"))).raw, /Too many redirects/);
   assert.equal((await openTarget(review, target("/allowed/0"))).status, 200);
   assert.equal((await openTarget(review, target("/to-ipv4"))).status, 200);
   assert.equal((await openTarget(review, target("/to-localhost", "127.0.0.1"))).status, 200);

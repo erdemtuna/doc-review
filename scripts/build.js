@@ -38,6 +38,9 @@ for (const config of checks) {
 }
 await mkdir(output, { recursive: true });
 await Promise.all(assets.map((asset) => copyFile(path.join(source, asset), path.join(output, asset))));
+await mkdir(path.join(output, "references"), { recursive: true });
+await Promise.all((await readdir(path.join(source, "references"))).map((name) =>
+  copyFile(path.join(source, "references", name), path.join(output, "references", name))));
 const ui = spawnSync(process.execPath, [path.join(root, "node_modules", "vite", "bin", "vite.js"), "build"], {
   cwd: root,
   // Keep prepack stdout clean for consumers of npm pack --json.

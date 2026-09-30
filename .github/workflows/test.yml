@@ -38,7 +38,7 @@ jobs:
 
   chromium:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,3 +50,13 @@ jobs:
       - run: npm run browser:install:ci
       - run: npm run test:browser
       - run: npm run test:package:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: chromium-failure-evidence
+          path: |
+            test-results
+            .package-smoke-evidence-*/installed-parity
+            .package-smoke-evidence-*/installed-parity.log
+          include-hidden-files: true
+          retention-days: 7

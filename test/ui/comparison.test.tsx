@@ -49,7 +49,7 @@ describe("Content projection", () => {
       block("", "img", { attributes: { src: "https://invalid.example/tracker.png?token=saved", alt: "After image" } }),
       block("<script>window.bad=false</script>", "script"),
     ]);
-    expect(container.querySelector("script, style, img, iframe, a, input, button:not(.comparison-expand), [href], [src], [onclick]")).toBeNull();
+    expect(container.querySelector("script, style, img, iframe, a, input, button:not(.comparison-context-row), [href], [src], [onclick]")).toBeNull();
     expect(container.textContent).toContain("Link destination: /old");
     expect(container.textContent).toContain("Image not loaded");
     expect(container.textContent).toContain("<script>window.bad=false</script>");
@@ -215,7 +215,7 @@ describe("Content projection", () => {
       ...["hr", "pre", "address", "dt", "dd", "caption", "figcaption"].map((tag) => block(tag === "hr" ? "" : `Saved ${tag}`, tag)),
     ];
     const { container } = setup(blocks, blocks);
-    while (container.querySelector(".comparison-expand")) fireEvent.click(container.querySelector(".comparison-expand")!);
+    while (container.querySelector(".comparison-context-row")) fireEvent.click(container.querySelector(".comparison-context-row")!);
     expect(container.querySelectorAll(".comparison-row")).toHaveLength(7);
     expect(container.querySelectorAll(".comparison-before hr")).toHaveLength(1);
     expect(text(container, ".comparison-before pre")).toBe("Saved pre");
@@ -235,7 +235,7 @@ describe("context and React ownership", () => {
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(5);
     const first = view.container.querySelector(".comparison-row");
     const paragraph = first?.querySelector("p");
-    fireEvent.click(view.container.querySelector(".comparison-expand")!);
+    fireEvent.click(view.container.querySelector(".comparison-context-row")!);
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(23);
     expect(paragraph?.firstChild).toBeTruthy();
     const selection = window.getSelection();
@@ -261,13 +261,13 @@ describe("context and React ownership", () => {
 
   it("reveals at most twenty context units per click and transfers focus when exhausted", () => {
     const view = render(<ComparisonView comparison={contextFixture(80, 50)} />);
-    const button = view.container.querySelector(".comparison-expand")!;
-    expect(button.textContent).toBe("↕ Show 20 of 48 unchanged blocks");
+    const button = view.container.querySelector(".comparison-context-row")!;
+    expect(button.textContent).toBe("Show 20 of 48 unchanged blocks");
     fireEvent.click(button);
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(25);
-    expect(button.textContent).toBe("↕ Show 20 of 28 unchanged blocks");
+    expect(button.textContent).toBe("Show 20 of 28 unchanged blocks");
     fireEvent.click(button);
-    expect(button.textContent).toBe("↕ Show 8 of 8 unchanged blocks");
+    expect(button.textContent).toBe("Show 8 of 8 unchanged blocks");
     fireEvent.click(button);
     expect(button.isConnected).toBe(false);
     expect(document.activeElement?.getAttribute("data-row-id")).toBe(view.container.querySelectorAll(".comparison-row")[47].getAttribute("data-row-id"));
@@ -277,13 +277,13 @@ describe("context and React ownership", () => {
   it("resets expansion on round/target, mode or saved content change, but not selection", () => {
     const value = contextFixture();
     const view = render(<ComparisonView comparison={value} comparisonKey="round:target" />);
-    fireEvent.click(view.container.querySelector(".comparison-expand")!);
+    fireEvent.click(view.container.querySelector(".comparison-context-row")!);
     view.rerender(<ComparisonView comparison={value} comparisonKey="another:target" />);
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(5);
-    fireEvent.click(view.container.querySelector(".comparison-expand")!);
+    fireEvent.click(view.container.querySelector(".comparison-context-row")!);
     view.rerender(<ComparisonView comparison={value} comparisonKey="another:target" mode="source" />);
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(5);
-    fireEvent.click(view.container.querySelector(".comparison-expand")!);
+    fireEvent.click(view.container.querySelector(".comparison-context-row")!);
     view.rerender(<ComparisonView comparison={contextFixture(45, 21)} comparisonKey="another:target" mode="source" />);
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(5);
   });
@@ -322,7 +322,7 @@ describe("context and React ownership", () => {
     const unchanged = Array.from({ length: 10 }, (_, index) => block(`Same ${index}`));
     view.rerender(<ComparisonView comparison={comparison(unchanged, unchanged)} />);
     expect(view.container.querySelectorAll(".comparison-row")).toHaveLength(3);
-    expect(view.container.querySelector(".comparison-expand")?.textContent).toBe("↕ Show 7 of 7 unchanged blocks");
+    expect(view.container.querySelector(".comparison-context-row")?.textContent).toBe("Show 7 of 7 unchanged blocks");
   });
 
   it("fails the original 120000-node budget explicitly rather than rendering a truncated view", () => {
@@ -331,7 +331,7 @@ describe("context and React ownership", () => {
     }));
     const { container } = render(<ComparisonView comparison={{ rows }} />);
     expect(container.querySelector(".comparison-budget")?.textContent).toContain("Comparison rendering limit exceeded");
-    expect(container.querySelector(".comparison-row, .comparison-headings, .comparison-expand")).toBeNull();
+    expect(container.querySelector(".comparison-row, .comparison-headings, .comparison-context-row")).toBeNull();
   });
 
   it("moves the controlled active class without replacing either changed row or their text", () => {
@@ -408,10 +408,10 @@ describe("Source projection", () => {
     const after = `inserted\n${before}`;
     const { container } = render(<ComparisonView comparison={compareSources(before, after)} mode="source" />);
     expect(container.querySelectorAll(".comparison-row")).toHaveLength(3);
-    expect(container.querySelector(".comparison-expand")?.textContent).toBe("↕ Show 20 of 53 unchanged lines");
+    expect(container.querySelector(".comparison-context-row")?.textContent).toBe("Show 20 of 53 unchanged lines");
     expect(text(container, ".comparison-row:nth-of-type(3) .comparison-before .comparison-gutter")).toBe("1 ");
     expect(text(container, ".comparison-row:nth-of-type(3) .comparison-after .comparison-gutter")).toBe("2 ");
-    fireEvent.click(container.querySelector(".comparison-expand")!);
+    fireEvent.click(container.querySelector(".comparison-context-row")!);
     expect(container.querySelectorAll(".comparison-row")).toHaveLength(23);
   });
 });
