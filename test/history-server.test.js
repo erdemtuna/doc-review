@@ -14,6 +14,12 @@ async function setup(t, source = html("Before"), name = "review.html") {
   const f = await fixture(t), file = f.file(name, source), ref = refFor(await f.open(file));
   return { f, file, ref };
 }
+async function waitForSourceReload(f, ref, source) {
+  const deadline = Date.now() + 5000;
+  while (f.server.store.page(ref.entryKey).pristine !== source && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(f.server.store.page(ref.entryKey).pristine, source, "File watcher must finish before registering a replacement frame");
+}
 async function frame(f, ref, pageKey = ref.entryKey) {
   const { sessionId } = await f.ok({ operation: "read-review", ...ref }, "/api/conversation/session");
   const api = async (route, body) => {
@@ -58,6 +64,7 @@ test("note-only Send freezes its baseline and response source separately from de
   assert.equal(source.available, true);
   assert.equal(source.counts.modified, 1);
   assert.equal((await compare(f, ref, work.submissionId, "content")).available, false);
+  await waitForSourceReload(f, ref, html("After"));
   assert.equal((await capture(f, ref, await frame(f, ref), "After", work.submissionId)).status, 200);
   assert.equal((await comparisons(f, ref, work.submissionId))[0].status, "ready");
   const completed = await compare(f, ref, work.submissionId);
@@ -168,6 +175,7 @@ test("known tab mismatch and missing identity cannot freeze a misleading rendere
   assert.equal((await capture(f, ref, await frame(f, ref), "Before", null, { view: view("product", "Product") })).status, 200);
   const work = await note(f, ref);
   fs.writeFileSync(file, html("After")); await complete(f, work);
+  await waitForSourceReload(f, ref, html("After"));
   const current = await frame(f, ref);
   for (const fields of [{ view: view("screens", "Screens") }, {}]) {
     const result = await capture(f, ref, current, "Screens", work.submissionId, fields);
@@ -186,6 +194,7 @@ test("a scripted baseline can capture an updated static source without renewed a
   const baseline = (await comparisons(f, ref, work.submissionId))[0].baselineRevisionId;
   assert.equal(f.server.store.revisions.get(baseline).semantic.provenance.feedbackOnlyEdits, true);
   fs.writeFileSync(file, html("After")); await complete(f, work);
+  await waitForSourceReload(f, ref, html("After"));
   assert.equal((await capture(f, ref, await frame(f, ref), "After", work.submissionId)).status, 200);
   assert.equal((await compare(f, ref, work.submissionId, "content")).available, true);
 });
