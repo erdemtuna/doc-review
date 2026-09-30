@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, setReviewTheme } from "./helpers.js";
 import { fieldNotes, summaryFeedback, actionFeedback } from "../test/fixtures/readme-review.js";
 import { approvedUiParity } from "../test/fixtures/approved-ui-parity.js";
 
@@ -14,12 +14,12 @@ test("approved Field Notes toolbar and readable card hierarchy survive the accep
   const samples = [];
   for (const size of approvedUiParity.sizes) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width: size.width, height: size.height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
-    else await page.locator("#theme").focus();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
+    else await page.locator("#reviewOptions").focus();
     await page.mouse.move(0, 0);
     // The lifecycle badge now shares the mode row rather than adding a third row.
     await expect.poll(() => page.locator(".shell-toolbar").evaluate(node => node.getBoundingClientRect().height)).toBe(size.width <= 760 ? 89 : 49);
-    await expect(page.locator("#theme")).toBeFocused();
+    await expect(page.locator("#reviewOptions")).toBeFocused();
     const geometry = await body.evaluate(node => {
       const range = document.createRange(); range.selectNodeContents(node);
       const line = [...range.getClientRects()].find(rect => rect.width && rect.height);
@@ -51,7 +51,7 @@ test("approved Field Notes toolbar and readable card hierarchy survive the accep
     await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("#send")).toHaveText("Send to agent (2)");
     await expect(page.locator("#commentsButton")).toContainText("2 saved pending feedback items");
-    const hit = await page.locator("#theme").evaluate(node => {
+    const hit = await page.locator("#reviewOptions").evaluate(node => {
       const box = node.getBoundingClientRect();
       return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
     });

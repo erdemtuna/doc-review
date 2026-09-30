@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { Brand } from "@/components/brand";
-import { ConversationAuthor, ConversationIntent, ConversationSource, ConversationTime, ConversationMenu } from "@/components/conversation-controls";
+import { ConversationAuthor, ConversationIntent, ConversationStatus, ConversationSource, ConversationTime, ConversationMenu } from "@/components/conversation-controls";
+import { ReviewOptions } from "@/components/review-options";
+import { DisclosureTrigger } from "@/components/ui/disclosure-trigger";
 import { ResultPreview } from "@/components/conversation-results";
 import { ComparisonView } from "@/components/comparison";
 import type { ComparisonInput } from "@/components/comparison";
@@ -51,14 +53,14 @@ export function initialTheme(): "light" | "dark" {
 
 export function Gallery() {
   const [theme, setTheme] = useState(initialTheme);
+  const [optionsOpen, setOptionsOpen] = useState(false), [expanded, setExpanded] = useState(true);
   const [note, setNote] = useState("Keep the introduction concise and make the next step clearer.");
   const [format, setFormat] = useState("content");
   const [round, setRound] = useState("2"), [roundOpen, setRoundOpen] = useState(false);
   const [filters, setFilters] = useState({ open: true, resolved: false });
   const [intent, setIntent] = useState(false);
   const [notice, setNotice] = useState("Sample controls only. No review data is changed.");
-  function switchTheme() {
-    const next = theme === "dark" ? "light" : "dark";
+  function switchTheme(next: "light" | "dark") {
     localStorage.setItem("doc-review:theme", next);
     document.documentElement.dataset.theme = next;
     setTheme(next);
@@ -69,9 +71,7 @@ export function Gallery() {
         <Brand />
         <div><p className="text-sm font-semibold">doc review</p><p className="text-xs text-muted-foreground">Design foundations</p></div>
       </div>
-      <Button variant="outline" size="sm" onClick={switchTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
-        <Icon name={theme === "dark" ? "sun" : "moon"} /><span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"} theme</span>
-      </Button>
+      <ReviewOptions open={optionsOpen} onOpenChange={setOptionsOpen} theme={theme} onThemeChange={switchTheme} />
     </header>
     <main className="preview-main">
       <div className="preview-intro">
@@ -195,15 +195,23 @@ export function Gallery() {
             <p className="text-xs text-muted-foreground">Text labels and marks accompany color. {format === "content" ? "Content" : "Source"} is selected in the sample format control.</p>
           </Section>
           <Section title="Conversations and results" description="Shared informational hints, commands, unboxed messages and lifecycle evidence.">
-            <article className="conversation-thread inventory-card">
+            <article className="conversation-thread inventory-card" data-expanded={expanded}>
               <header><div className="conversation-thread-toolbar">
                 <ConversationSource target={{ kind: "element", anchor: { selector: "p", label: "Sample passage" } }} />
                 <IconButton aria-label="Show in document" onClick={() => setNotice("Sample Locate action; no document is attached.")}><Icon name="locate" /></IconButton>
                 <ConversationMenu actions={[{ label: "Focus", run: () => setNotice("Sample Focus action; use the live shell to move a conversation.") },
                   { label: "Delete thread", destructive: true, disabled: true, run() {} }]} />
+                <DisclosureTrigger iconOnly expanded={expanded} controls="sample-conversation"
+                  aria-label={expanded ? "Collapse conversation" : "Expand conversation"} onClick={() => setExpanded(value => !value)} />
               </div></header>
-              <div className="conversation-meta"><ConversationAuthor role="You" /><ConversationTime value={Date.UTC(2026, 8, 29)} /><ConversationIntent /></div>
+              <div id="sample-conversation" hidden={!expanded}>
+              <div className="conversation-meta"><ConversationAuthor role="You" /><ConversationTime value={Date.UTC(2026, 8, 29)} />
+                <IconButton aria-label="Edit message" onClick={() => setNotice("Sample Edit action; use the live shell to edit saved feedback.")}><Icon name="pencil" /></IconButton>
+                <ConversationIntent /><ConversationStatus kind="not-sent" /></div>
               <p className="conversation-body">Keep this message unboxed inside its conversation card.</p>
+              <div className="preview-row" aria-label="Informational outcome vocabulary">
+                {(["resolved", "answered", "applied", "clarification-needed", "deferred"] as const).map(kind => <ConversationStatus key={kind} kind={kind} />)}
+              </div></div>
             </article>
             <Timeline aria-label="Sample review timeline"><TimelineItem tone="response" icon={<Icon name="messages" />}>
               <strong>Agent response</strong>

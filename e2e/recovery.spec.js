@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, selectText, selectReviewMode, expectEditBlocked } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, selectText, selectReviewMode, expectEditBlocked, setReviewTheme } from "./helpers.js";
 
 const source = `<!doctype html><html><head><style>
 body{margin:24px;color:#263142;background:white;font:17px/1.6 system-ui}
@@ -16,7 +16,7 @@ async function exposeRecovery(page, review, name) {
 }
 async function captureWidths(page, info, name) {
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(async () => {

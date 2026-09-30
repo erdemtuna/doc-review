@@ -1,10 +1,11 @@
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ToolbarController, ToolbarState } from "../../toolbar-controller.js";
+import type { CanonicalPage } from "../../contracts/page-boundary";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import { ChoiceMenu } from "./ui/choice-menu";
-import { IconButton } from "./ui/icon-button";
+import { ReviewOptions } from "./review-options";
 import { Icon } from "./icon";
 import { Brand } from "./brand";
 
@@ -13,7 +14,7 @@ export function Toolbar({ runtime }: { runtime: ToolbarController }) {
   return <ToolbarControls state={state} commands={runtime.commands} />;
 }
 
-export function ToolbarControls({ state, commands, readOnlyNavigation = false, editDisabled = false, pagePicker, status, changesId = "conversationChanges", feedbackCount = state.feedbackCount, feedbackCountLabel = "feedback items" }: {
+export function ToolbarControls({ state, commands, readOnlyNavigation = false, editDisabled = false, pagePicker, status, changesId = "conversationChanges", feedbackCount = state.feedbackCount, feedbackCountLabel = "feedback items", documentTarget, documentLoading = false, pageMenuOpen = false, onOptionsOpen }: {
   state: ToolbarState;
   commands: ToolbarController["commands"];
   readOnlyNavigation?: boolean;
@@ -23,7 +24,19 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
   changesId?: string;
   feedbackCountLabel?: string;
   feedbackCount?: number | null;
+  documentTarget?: CanonicalPage["target"] | null;
+  documentLoading?: boolean;
+  pageMenuOpen?: boolean;
+  onOptionsOpen?(): void;
 }) {
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  useEffect(() => {
+    if (state.modeMenuOpen || pageMenuOpen) setOptionsOpen(false);
+  }, [state.modeMenuOpen, pageMenuOpen]);
+  const setOptions = (open: boolean) => {
+    if (open) { commands.setModeMenu(false); onOptionsOpen?.(); }
+    setOptionsOpen(open);
+  };
   const destinations = <div className="shell-destinations">
       <Brand />
       <SegmentedControl aria-label="Review destination">
@@ -49,7 +62,7 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
         onValueChange={mode => { if (mode === "view" || mode === "edit") commands.setMode(mode); }} />
     </div>;
   const actions = <div className="shell-actions">
-      <Button id="commentsButton" variant={state.drawerOpen ? "secondary" : "ghost"}
+      <Button id="commentsButton" variant="ghost"
         aria-controls="drawer" aria-label="Feedback" aria-describedby="feedbackCountDescription" aria-expanded={state.drawerOpen}
         hidden={state.comparing} disabled={state.ended && !readOnlyNavigation} onMouseDown={(event) => event.preventDefault()} onClick={commands.openComments}>
         <Icon name="messages" /><span className="shell-comments-label">Feedback</span>
@@ -59,11 +72,8 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
         </Badge>
         <span id="feedbackCountDescription" className="sr-only">{feedbackCount === null ? "Count unavailable:" : feedbackCount} {feedbackCountLabel}</span>
       </Button>
-      <IconButton id="theme" size="icon" disabled={state.ended && !readOnlyNavigation}
-        aria-label={`Switch review tools to ${state.theme === "dark" ? "light" : "dark"}`}
-        onClick={commands.toggleTheme}>
-        <Icon name={state.theme === "dark" ? "sun" : "moon"} />
-      </IconButton>
+      <ReviewOptions open={optionsOpen} onOpenChange={setOptions} disabled={state.ended && !readOnlyNavigation}
+        theme={state.theme} onThemeChange={commands.setTheme} target={documentTarget} loading={documentLoading} />
     </div>;
   return <>
     {destinations}

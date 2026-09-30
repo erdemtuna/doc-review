@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
-import { renderedContrast } from "./helpers.js";
+import { renderedContrast, setReviewTheme } from "./helpers.js";
 
 test.describe.configure({ mode: "serial" });
 let server;
@@ -60,7 +60,7 @@ test("G1 controls preserve draft selection, theme preference and focus", async (
   const note = page.getByLabel("Note to agent");
   await note.fill("Keep this selected draft.");
   await note.evaluate((element) => element.setSelectionRange(5, 9));
-  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await setReviewTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(note).toHaveValue("Keep this selected draft.");
   expect(await note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);
@@ -94,7 +94,7 @@ test("G1 populated controls and overlays fit both themes at required widths", as
   await page.goto(base);
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) {
-      await page.getByRole("button", { name: `Switch to ${theme} theme` }).click();
+      await setReviewTheme(page, theme);
     }
     for (const name of ["Send feedback", "Capture result", "Selected context", "Cancel", "Delete thread", "Abandon"]) {
       const button = page.getByRole("button", { name, exact: true });
@@ -114,13 +114,20 @@ test("G1 populated controls and overlays fit both themes at required widths", as
       }
     }
     const picker = page.getByRole("button", { name: /^Submission:/ });
-    expect(await renderedContrast(picker, "borderTopColor")).toBeGreaterThanOrEqual(3);
-    await picker.hover();
-    expect(await renderedContrast(picker, "borderTopColor")).toBeGreaterThanOrEqual(3);
-    await picker.click();
+    const border = await picker.evaluate(node => getComputedStyle(node).borderTopColor);
+    await expect(page.getByRole("group", { name: "Sample conversation filters" })).toHaveCSS("box-shadow", `${border} 0px 0px 0px 1px inset`);
+    for (const state of ["rest", "hover", "expanded"]) {
+      if (state === "hover") await picker.hover();
+      if (state === "expanded") await picker.click();
+      await expect(picker).toHaveCSS("border-top-color", border);
+      expect(await renderedContrast(picker)).toBeGreaterThanOrEqual(4.5);
+      expect(await renderedContrast(picker.locator("svg").first())).toBeGreaterThanOrEqual(3);
+    }
     await expect(picker).toHaveAttribute("aria-expanded", "true");
-    expect(await renderedContrast(picker, "borderTopColor")).toBeGreaterThanOrEqual(3);
     await page.keyboard.press("Escape");
+    await expect(picker).toBeFocused();
+    expect(await renderedContrast(picker, "outlineColor")).toBeGreaterThanOrEqual(3);
+    expect(await renderedContrast(page.getByRole("textbox", { name: "Note to agent" }), "borderTopColor")).toBeGreaterThanOrEqual(3);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.evaluate(() => scrollTo(0, 0));

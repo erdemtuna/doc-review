@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, setReviewTheme } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 test("reading fixture retains the four reported conversation states", async ({ page, review }, info) => {
@@ -14,7 +14,7 @@ test("reading fixture retains the four reported conversation states", async ({ p
   async function capture(state) {
     for (const [theme, width] of [["light", 1366], ["dark", 720]]) {
       await page.setViewportSize({ width, height: 800 });
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await expect.poll(() => page.locator(".conversation-panel").evaluate(n => n.getAnimations({ subtree: true })
         .some(animation => animation.playState === "running"))).toBe(false);
       metrics.push(await page.evaluate(({ state, theme, width }) => {
@@ -43,7 +43,7 @@ test("reading fixture retains the four reported conversation states", async ({ p
   expect(Math.abs(title.y - jump.y)).toBeLessThan(8);
   await expect(card.getByRole("button", { name: "Focus", exact: true })).toHaveCount(0);
   await (await threadAction(page, card, "Focus")).click();
-  await card.getByRole("button", { name: "Back to Feedback", exact: true }).click();
+  await (await threadAction(page, card, "Open in Feedback")).click();
   await (await threadAction(page, card, "Beside target")).click();
   await expect(page.locator(".conversation-panel")).toHaveAttribute("data-host", "adjacent");
   await capture("short-in-place");

@@ -62,7 +62,7 @@ export function ChoiceMenu(props: Props) {
     props.onOpenChange(next);
   }}>
     <DropdownMenuTrigger asChild>
-      <Button id={props.id} ref={trigger} variant="outline" size={props.size} className="choice-trigger min-w-0 shrink border-input"
+      <Button id={props.id} ref={trigger} variant="outline" size={props.size} className="choice-trigger min-w-0 shrink"
         data-value={props.value} disabled={props.disabled}
         aria-label={`${props.label}: ${props.valueLabel || selected?.label || props.triggerLabel}`}
         aria-controls={open ? menuId : undefined}>

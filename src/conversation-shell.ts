@@ -721,8 +721,9 @@ export function createConversationShell() {
         catch (cause) { mode = previous; throw cause; }
         finally { publish(); }
       },
-      theme() {
-        theme = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; frame.setTheme(theme);
+      theme(next: "light" | "dark") {
+        if (next === theme) return;
+        theme = next; document.documentElement.dataset.theme = theme; frame.setTheme(theme);
         try { localStorage.setItem("doc-review:theme", theme); } catch (cause) { owner.report(`Theme preference not saved: ${String(cause)}`); }
         publish();
       },

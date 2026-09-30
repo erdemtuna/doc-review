@@ -1,8 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ControlHint, IconButton } from "./ui/icon-button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./ui/dropdown-menu";
-import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
-import { Icon } from "./icon";
+import { Icon, type IconName } from "./icon";
 import type { ConversationTarget } from "../../contracts/feedback";
 
 type ConversationAction = { label: string; disabled?: boolean; destructive?: boolean; run(): void };
@@ -11,10 +10,27 @@ export function ConversationAuthor({ role }: { role: "You" | "Agent" }) {
   return <span className="conversation-author"><span className="conversation-avatar" aria-hidden="true">{role === "You" ? "Y" : "A"}</span><strong>{role}</strong></span>;
 }
 
-export function ConversationIntent() {
-  return <ControlHint hint="Change requested"><span className="conversation-intent-icon" role="img" aria-label="Change requested" tabIndex={0}>
-    <Icon name="filePenLine" size={14} />
+const statuses = {
+  "not-sent": { icon: "circleDashed", label: "Not sent", hint: "Saved feedback. Not sent until you choose Send.", modified: false },
+  "request-change": { icon: "messageSquareDiff", label: "Change requested", hint: "A request and permission to change the document, not a reported edit.", modified: true },
+  resolved: { icon: "circleCheck", label: "Resolved", hint: "This conversation is resolved.", modified: false },
+  answered: { icon: "messageSquareCheck", label: "Answered", hint: "The agent answered. This does not indicate source changes or resolve the conversation.", modified: false },
+  applied: { icon: "filePenLine", label: "Change reported", hint: "The agent reported a change. This is not independent verification of a source save.", modified: true },
+  "clarification-needed": { icon: "messageCircleQuestion", label: "Needs clarification", hint: "The agent needs your input before continuing.", modified: true },
+  deferred: { icon: "circlePause", label: "Deferred", hint: "The agent deferred this request. It is not currently being processed.", modified: false },
+} satisfies Record<string, { icon: IconName; label: string; hint: string; modified: boolean }>;
+
+export function ConversationStatus({ kind, ended = false }: { kind: keyof typeof statuses; ended?: boolean }) {
+  const status = statuses[kind];
+  const hint = kind === "not-sent" && ended ? "Not sent; this review has ended and this saved message is read-only." : status.hint;
+  return <ControlHint hint={<>{status.label}. {hint}</>}><span className="conversation-status-icon" data-status-icon={kind}
+    data-modified={status.modified} role="img" aria-label={status.label} tabIndex={0}>
+    <Icon name={status.icon} size={14} />
   </span></ControlHint>;
+}
+
+export function ConversationIntent() {
+  return <ConversationStatus kind="request-change" />;
 }
 
 export function ConversationSource({ target }: { target: ConversationTarget }) {
@@ -71,19 +87,6 @@ export function ConversationTime({ value }: { value: number }) {
   const minutes = Math.max(0, Math.floor((Date.now() - value) / 60000));
   const age = minutes < 1 ? "just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440
     ? `${Math.floor(minutes / 60)}h ago` : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-  const [open, setOpen] = useState(false);
-  const trigger = useRef<HTMLTimeElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const leaveFrame = (event: PointerEvent) => {
-      if (event.target instanceof HTMLIFrameElement && document.activeElement !== trigger.current) setOpen(false);
-    };
-    document.addEventListener("pointerover", leaveFrame, true);
-    return () => document.removeEventListener("pointerover", leaveFrame, true);
-  }, [open]);
-  return <TooltipProvider delayDuration={300}><Tooltip open={open} onOpenChange={setOpen}>
-    <TooltipTrigger asChild><time ref={trigger} className="conversation-time" tabIndex={0}
-      dateTime={date.toISOString()} aria-label={full}>{age}</time></TooltipTrigger>
-    <TooltipContent onEscapeKeyDown={(event) => event.stopPropagation()}>{full}</TooltipContent>
-  </Tooltip></TooltipProvider>;
+  return <ControlHint hint={full}><time className="conversation-time" tabIndex={0}
+    dateTime={date.toISOString()} aria-label={full}>{age}</time></ControlHint>;
 }

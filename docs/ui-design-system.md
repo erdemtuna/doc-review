@@ -33,33 +33,50 @@ Their shared segmented controls retain selected paint without hover or focus.
 Each discussion has one gently rounded bordered card over a subtly different
 inventory background, with clear inter-card gaps. Reviewer and agent messages
 are unboxed, share author/avatar/time metadata and retain 13px body text.
-Cards use 8px padding, with only 4px additional inset in the adjacent panel.
-Focused transcripts reserve a 4px horizontal paint gutter for complete textarea
-focus outlines without indenting message content or changing editor identity.
-Ordinary Discussion and answered states have no pill. A document-and-pencil icon
-with a Change requested tooltip and accessible name represents explicit edit
-permission; a secondary Pending badge identifies unsent messages. Ended pending
-messages retain read-only context in their tooltip and screen-reader text.
-Non-default response outcomes remain per-message.
+Cards start from 8px inner padding and a common 12px outer rail. Actual scrolling
+inventories and focused transcripts use balanced native scrollbar gutters; the
+non-scrolling Focus/adjacent inventory reserves none. ResizeObserver shares the
+measured native gutter with fixed siblings, retaining the measurement across
+non-scrolling hosts and absorbing it into the existing inset
+rather than adding a second full scrollbar width. Header, filters, Comments, cards,
+Your edits and footer controls share the leading rail. Focused transcripts retain
+4px focus-paint clearance without indenting metadata from the header.
+
+Conversation and message states use named, keyboard-focusable informational
+icons with visible explanations, never fake buttons or pill backgrounds:
+Not sent (`circle-dashed`), Change requested (`message-square-diff`),
+Resolved (`circle-check`), Answered (`message-square-check`), Change reported
+(`file-pen-line`), Needs clarification (`message-circle-question-mark`) and
+Deferred (`circle-pause`). Request/report/clarification use established amber
+ink; ordinary delivery/resolution/outcome information uses muted foreground.
+Not sent and Change requested may coexist. Ended unsent messages explicitly
+explain that they remain read-only and were not delivered. A request is permission,
+not reported source work; a reported change is not independent save verification.
+Toolbar lifecycle, History, warnings, filters and edit evidence remain text-led.
 Shared `ConversationSource` shows a one-line excerpt beside the compact action row,
 without verbose source-type labels. Full source descriptions remain in tooltips.
 Legacy generated location labels use their heading stem without rewriting anchors.
-Sidebar, Focus and adjacent discussions use the same source, collapse, navigation
-and resolution controls; host styling changes geometry, not message anatomy.
+Sidebar, Focus and adjacent discussions share one mounted card and message tree.
 Readable timestamps expose the full date/time through a keyboard-
 accessible, hoverable tooltip. The thread's Conversation actions menu holds
 eligible Delete thread and host transfers; this is not a
 restoration of the removed global More menu. Focus is a named menu action and Edit
-is a compact icon control; every card has an icon-only **Show in document** and
-**Resolve/Reopen** actions. Collapse/Expand is a separate named icon button.
-Header order is source title with unread dot, Locate, Resolve/Reopen, More,
-then Collapse/Expand. Resolve uses a check-circle and Reopen a return arrow;
-both retain accessible action names and explanatory tooltips.
-Reply is a quiet visible action, sharing the last pending message's action row.
-The bottom action row also offers icon-and-text Resolve on the left, opposite
+is a compact icon beside each eligible message's timestamp. Editing substitutes
+Close edit at that exact location, without a pinned last-message special case.
+Sidebar/Focus headers contain source and state, then Locate, More, Collapse/Expand.
+Adjacent headers contain source and state, then Open in Feedback, More, Close.
+Popup Collapse/Expand and Focus's Open in Feedback live in More. There is no
+duplicate header Resolve or misleading Back to Feedback row. Genuine Back to
+replies navigation is retained. Close hides the popup without discarding drafts.
+Open in Feedback returns to the actual inventory without changing Open/Resolved
+filters. A named, dismissible temporary reveal shows an excluded originating
+thread; changing filters or leaving this inventory context expires the exception.
+
+The bottom action row offers icon-and-text Resolve on the left, opposite
 Reply on the right, so finishing a long discussion does not require returning to
 the header. Expanded resolved threads offer Reopen there. These actions share
-the header's guards and Undo behavior; a local draft replaces the bottom row.
+the controller's guards and Undo behavior; a local draft replaces the bottom row.
+Collapsed cards and cards with drafts keep guarded Resolve/Reopen in More.
 Draft permissions use the shared Checkbox primitive. There are no batch-selection
 or exclusion controls; Send includes all saved pending messages and edits.
 Each exchange associates its original reviewer message with the actual reply.
@@ -230,11 +247,16 @@ All six single-value pickers use the nonmodal `ChoiceMenu`: View/Edit, review
 page, submission, comparison page, jump-to-change and shared-target conversation.
 Rich options support an icon, explanation and disabled state; disabled values
 are guarded in both rendering and dispatch. Label typeahead, selected-item
-reachability and essential `--input` boundaries are shared. Async page selection
+reachability and subtle 1px `--border` outlines are shared with segmented controls.
+These button-like outlines are decorative; readable labels/chevrons and interaction
+paint identify the control. Real editable fields retain essential `--input`
+boundaries and all controls retain distinct `--ring` keyboard focus. Async page selection
 returns focus only if the trigger is still available and the user has not moved
 to an editor, dialog or another control. Outside/iframe clicks, hidden/removed
 triggers and immediate reopening must not steal focus. `ConversationMenu` holds
 commands, not choices, over the same low-level Radix menu foundation.
+The mixed Review options utility menu uses that foundation too, not a seventh
+ChoiceMenu or a new control family.
 
 Four segmented groups share one family: Review/Changes, Feedback/History and
 Document/Source are single-choice; Open/Resolved is independent multiple choice
@@ -248,6 +270,15 @@ remain focusable information, not fake commands. Escape dismisses a visible hint
 before a subsequent Escape reaches the outer panel. Menu Escape and editor
 cancellation/IME remain separate contracts. The unread-dot command is explicitly
 named **Mark conversation as read**.
+Native focus scrolling does not immediately dismiss the focused informational
+hint; hover-only hints still dismiss on scrolling. Returning from a Review options
+command focuses its trigger without reopening an obstructing hint; later keyboard
+entry still exposes the hint normally.
+
+Feedback and binary disclosures use subtle neutral expanded fills with strong
+neutral labels, icons and counts. Teal distinguishes selected destinations/filters,
+not generic expansion. Feedback's count inherits its label ink while retaining a
+distinct neutral capsule at rest and when expanded; other Badge tokens are unchanged.
 
 `DisclosureTrigger` owns binary button appearance and expanded/controls semantics,
 not state or mounting. Comments, Your edits, Note to agent, thread collapse,
@@ -311,12 +342,26 @@ document's title, favicon or head.
 The toolbar reuses the former release (`1e85f842`) presentation through
 `ToolbarControls`: the named noninteractive 32px brand and Review/Changes
 segmented destination on the left, the lifecycle badge at the true horizontal
-toolbar midpoint, and compact Feedback/theme actions followed by the icon-bearing
-View/Edit ChoiceMenu at the far right. The production More menu and its optional
-script-policy entries are removed; contextual error recovery remains.
+toolbar midpoint, and compact Feedback/Review options actions followed by the
+icon-bearing View/Edit ChoiceMenu at the far right. The old command/policy More
+menu remains removed; contextual error recovery remains.
 Multi-page navigation uses one ChoiceMenu next to the
 destinations; a single-page review does not duplicate its filename. Revert stays
 with the Feedback edit actions, not a separate toolbar strip.
+
+The three-dot Review options button has that exact accessible name and hover/focus
+hint. Its nonmodal menu presents noninteractive shortened document information,
+Copy full path for canonical file targets, and explicit Light/Dark radio choices.
+Copy uses the current Review page or presented comparison page's original path,
+never the review-server URL or a rendered artifact. URL reviews explain that no
+original local path is available; they offer neither fabricated paths nor URL copying.
+Loading disables stale path copying without disabling independent theme choices.
+Clipboard success is announced only after the write resolves; errors remain
+visible and retryable with the original path selectable. Stale asynchronous
+completions cannot label a different file as copied. Menu Escape returns to the
+trigger unless the user has already handed focus elsewhere. Opening another
+toolbar menu or clicking the iframe dismisses it without stealing that newer focus.
+Utilities remain available after End, and selecting the current theme is idempotent.
 
 At widths up to 760px, toolbar tools move to a second row; below 640px, the
 lifecycle badge shares the destinations row without requiring exact midpoint alignment.

@@ -18,7 +18,7 @@ function fixture() {
     setMode: vi.fn((value: "view" | "edit") => { state.mode = value; runtime.publish(); }),
     setModeMenu: vi.fn((value: boolean) => { state.modeMenuOpen = value; runtime.publish(); }),
     openComments: vi.fn(() => { state.drawerOpen = true; runtime.publish(); }),
-    toggleTheme: vi.fn(() => { state.theme = state.theme === "light" ? "dark" : "light"; runtime.publish(); }),
+    setTheme: vi.fn((theme: "light" | "dark") => { state.theme = theme; runtime.publish(); }),
   };
   const runtime = createToolbarController(() => state, commands);
   return { state, runtime, commands };
@@ -43,9 +43,11 @@ it("owns accessible destinations with stable controls and one command per Strict
   expect(changes).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Feedback" })).toBeNull();
   await user.click(review);
-  const theme = screen.getByRole("button", { name: "Switch review tools to dark" });
+  const theme = screen.getByRole("button", { name: "Review options" });
   await user.click(theme);
-  expect(screen.getByRole("button", { name: "Switch review tools to light" })).toBe(theme);
+  await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
+  expect(commands.setTheme).toHaveBeenCalledExactlyOnceWith("dark");
+  expect(screen.getByRole("button", { name: "Review options" })).toBe(theme);
   act(() => { state.feedbackCount = 1000; runtime.publish(); });
   expect(screen.getByTitle("1000 feedback items")).toHaveTextContent("99+");
   expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("1000 feedback items");
@@ -94,10 +96,10 @@ it("blocks unavailable and ended commands even before a stale snapshot is republ
   state.ended = true;
   runtime.commands.setComparing(true);
   runtime.commands.openComments();
-  runtime.commands.toggleTheme();
+  runtime.commands.setTheme("dark");
   expect(commands.setComparing).not.toHaveBeenCalled();
   expect(commands.openComments).not.toHaveBeenCalled();
-  expect(commands.toggleTheme).not.toHaveBeenCalled();
+  expect(commands.setTheme).not.toHaveBeenCalled();
 });
 
 it("extends the former controls with ended read-only navigation without mounting the legacy controller", async () => {
@@ -110,10 +112,11 @@ it("extends the former controls with ended read-only navigation without mounting
   expect(changes).toHaveAttribute("aria-controls", "conversationChanges");
   await user.click(changes); await user.click(screen.getByRole("button", { name: "Review" }));
   await user.click(screen.getByRole("button", { name: "Feedback" }));
-  await user.click(screen.getByRole("button", { name: "Switch review tools to dark" }));
+  await user.click(screen.getByRole("button", { name: "Review options" }));
+  await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
   expect(commands.setComparing.mock.calls).toEqual([[true], [false]]);
   expect(commands.openComments).toHaveBeenCalledTimes(1);
-  expect(commands.toggleTheme).toHaveBeenCalledTimes(1);
+  expect(commands.setTheme).toHaveBeenCalledExactlyOnceWith("dark");
 });
 
 it("write exclusion disables only Edit in the open menu and accurately labels attention evidence", () => {

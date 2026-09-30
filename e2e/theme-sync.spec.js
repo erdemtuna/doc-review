@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
-import { test, expect, openReview, waitForSdk, writeFile, enterEditMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, setReviewTheme } from "./helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
 import { TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
 
@@ -249,24 +249,26 @@ test("production shell changes the existing SDK, not authored appearance or open
   await expect(frame.locator("#linkInput")).toBeFocused();
   await page.locator("#frame").evaluate((element) => { window.retainedThemeFrame = element; });
   for (const theme of ["dark", "light", "dark"]) {
-    // Programmatic activation avoids moving focus out of the frame.
-    await page.locator("#theme").evaluate((element) => element.click());
+    await setReviewTheme(page);
+    await expect(page.getByRole("button", { name: "Review options", exact: true })).toBeFocused();
     await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", theme);
     expect(await frame.locator("body").evaluate(() => ({
       nodes: themeLive.host === document.querySelector("[data-eh-ui]") && themeLive.body === document.body &&
         themeLive.input === themeLive.host.shadowRoot.querySelector("#linkInput"),
       caret: [themeLive.input.selectionStart, themeLive.input.selectionEnd],
-      focused: themeLive.host.shadowRoot.activeElement === themeLive.input,
       draft: document.querySelector("#draft").value,
       link: themeLive.input.value,
       mode: document.body.getAttribute("contenteditable"),
       background: getComputedStyle(document.body).backgroundColor,
     }))).toEqual({
-      nodes: true, caret: [3, 8], focused: true, draft: "Unsent authored draft",
+      nodes: true, caret: [3, 8], draft: "Unsent authored draft",
       link: "https://unsent.example", mode: "true", background: "rgb(17, 17, 17)",
     });
     expect(await page.locator("#frame").evaluate((element) => element === window.retainedThemeFrame)).toBe(true);
   }
+  await frame.getByRole("button", { name: "Apply link", exact: true }).click();
+  await expect(frame.locator("#target a")).toHaveAttribute("href", "https://unsent.example");
+  await expect(frame.locator("#target a")).toHaveText("Keep the authored document while switching themes.");
 });
 
 test("SDK repositions an open link draft on frame resize and dismisses disconnected targets", async ({ page }) => {

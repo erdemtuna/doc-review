@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, mutate, intercept, failure, conversation } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, mutate, intercept, failure, conversation, setReviewTheme } from "./helpers.js";
 
 const source = '<!doctype html><p id="copy">Feedback overlay target</p><label>Authored input <input aria-label="Authored input"></label>';
 
@@ -59,7 +59,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
   for (let i = 0; i < 8; i++) await seedThread(review, ref, `Saved feedback ${i} ${"Readable discussion. ".repeat(8)}`);
   await page.locator("#frame").evaluate((element) => { window.originalOverlayFrame = element; });
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const [width, height] of [[1440, 900], [900, 700], [899, 700], [720, 760], [390, 480], [320, 400]]) {
       await page.setViewportSize({ width, height });
       await expect(page.locator(".shell-toolbar")).toHaveCSS("width", `${width}px`);
@@ -115,7 +115,7 @@ test("Feedback docks with room, floats without narrow reflow and leaves document
         expect(await firstVisible()).toEqual(reading);
       }
       await expect(panel.locator("footer").getByRole("checkbox", { name: "Request a change" })).not.toBeChecked();
-      await page.locator("#theme").click(); await page.locator("#theme").click();
+      await setReviewTheme(page); await setReviewTheme(page);
       await panel.getByRole("button", { name: "Close feedback", exact: true }).click();
       await expect(panel).toBeHidden();
       await expect(page.locator("#commentsButton")).toBeFocused();

@@ -12,6 +12,10 @@ async function focusConversation() {
   fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
   fireEvent.click(await screen.findByRole("menuitem", { name: "Focus" }));
 }
+async function openInventory() {
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Feedback" }));
+}
 async function fixture() {
   if (typeof ResizeObserver === "undefined") vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const review: ReviewStatus["review"] = { reviewId: "review", entryKey: "page", version: 1, state: "open", createdAt: 1, endedAt: null };
@@ -75,18 +79,18 @@ it("Feedback and History are stable selected destinations and keep the same repl
   shell.dispose();
 });
 
-it("conversation actions follow Locate, icon Resolve, More, Collapse and Focus retains destination tabs", async () => {
+it("conversation headers use Locate, More, Collapse and Focus retains destination tabs", async () => {
   const { owner, shell } = await fixture();
   const toolbar = document.querySelector(".conversation-thread-toolbar")!;
   expect([...toolbar.querySelectorAll("button")].map(button => button.getAttribute("aria-label")))
-    .toEqual(["Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
-  const resolve = screen.getByRole("button", { name: "Resolve" });
-  expect(resolve).not.toHaveAttribute("title");
-  fireEvent.focus(resolve);
-  expect(await screen.findByRole("tooltip", { name: "Resolve conversation" })).toBeVisible();
-  fireEvent.blur(resolve);
-  expect(resolve.querySelector("svg")).not.toBeNull();
-  expect(resolve.textContent).toBe("");
+    .toEqual(["Show in document", "Conversation actions", "Collapse conversation"]);
+  const locate = screen.getByRole("button", { name: "Show in document" });
+  expect(locate).not.toHaveAttribute("title");
+  fireEvent.focus(locate);
+  expect(await screen.findByRole("tooltip", { name: "Show the exact passage" })).toBeVisible();
+  fireEvent.blur(locate);
+  expect(locate.querySelector("svg")).not.toBeNull();
+  expect(locate.textContent).toBe("");
   act(() => { owner.commands.reply("thread"); owner.commands.focus("thread"); });
   const draft = screen.getByRole("textbox", { name: "Reply" });
   fireEvent.change(draft, { target: { value: "Retained while navigating", selectionStart: 2, selectionEnd: 6 } });
@@ -155,7 +159,8 @@ it("bottom Resolve shares the guarded command across hosts and makes room for th
   act(() => owner.commands.focus("thread"));
   fireEvent.click(screen.getByRole("button", { name: "Reply" }));
   expect(screen.queryByRole("button", { name: "Resolve conversation" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Resolve" })).toBeVisible();
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  expect(await screen.findByRole("menuitem", { name: "Resolve conversation" })).toBeVisible();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBeVisible();
   shell.dispose();
 });
@@ -211,7 +216,7 @@ it("only new-composer host or inventory-size changes reveal clipped input withou
   act(() => owner.commands.begin("page", { kind: "element", anchor: { selector: "p" } }));
   const editor = screen.getByRole("textbox", { name: "New message" });
   vi.spyOn(editor, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 300 - inventory.scrollTop, 340, 40));
-  const theme = document.getElementById("theme")!;
+  const theme = document.getElementById("reviewOptions")!;
   theme.focus();
   height = 100; act(resized);
   expect(inventory.scrollTop).toBe(200);
@@ -240,7 +245,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
+  await openInventory();
   fireEvent.click(screen.getByRole("button", { name: "Collapse conversation", expanded: true }));
   expect(editor).toBeInTheDocument(); expect(editor).not.toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Expand conversation", expanded: false }));
@@ -249,7 +254,7 @@ it("one mounted editor retains caret and composition across Focus, collapse and 
   expect(owner.getSnapshot().threads[0].draft?.selectionStart).toBe(3);
   shell.dispose();
 });
-it("adjacent conversations separate source context, navigation and collapse controls", async () => {
+it("adjacent conversations use Open in Feedback, More and Close with collapse in the menu", async () => {
   const { owner, shell, updateChrome } = await fixture();
   act(() => {
     updateChrome({ adjacent: { kind: "attached", left: 800, top: 80, width: 380, height: 600 } });
@@ -257,9 +262,11 @@ it("adjacent conversations separate source context, navigation and collapse cont
   });
   expect(screen.queryByText("Recorded location")).toBeNull();
   expect(screen.getByText("Paragraph", { exact: true })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Show in document" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Resolve" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "Collapse conversation" }));
+  expect(screen.queryByRole("button", { name: "Show in document" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Open in Feedback" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Resolve conversation" })).toBeEnabled();
+  fireEvent.keyDown(screen.getByRole("button", { name: "Conversation actions" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Collapse conversation" }));
   expect(document.querySelector(".conversation-thread-content")).not.toBeVisible();
   expect(owner.getSnapshot().threads[0].expanded).toBe(false);
   shell.dispose();
@@ -285,7 +292,7 @@ it("cards default to Open only and filters independently allow both or neither",
   fireEvent.click(open);
   expect(card).toBeVisible();
   expect(screen.getByText("Saved discussion")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Resolve" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Resolve conversation" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Conversation actions" })).toHaveAttribute("aria-haspopup", "menu");
   expect(card.querySelector("time")).toHaveAttribute("dateTime", new Date(1).toISOString());
   expect(card.querySelector("time")).toHaveAccessibleName(new Date(1).toLocaleString());
@@ -340,7 +347,7 @@ it("Feedback is nonmodal and docks only with room for the document", async () =>
     expect(stage.inert).not.toBe(true);
     expect(document.body.dataset.conversationDocked).toBe("true");
     expect(document.querySelector(".conversation-backdrop")).toBeNull();
-    expect(screen.getByRole("button", { name: "Switch review tools to dark" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review options" })).toBeEnabled();
     act(() => owner.commands.adjacent("thread"));
     expect(stage.inert).not.toBe(true);
     expect(document.body.dataset.conversationDocked).toBe("false");
@@ -372,10 +379,11 @@ it("adjacent, Focus and Feedback keep the same composing editor and closing neve
   await focusConversation();
   expect(screen.getByRole("textbox", { name: "Reply" })).toBe(editor);
   expect(screen.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/ })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
+  await openInventory();
   expect(editor).toBeVisible();
-  expect(owner.getSnapshot().filters.open).toBe(true);
-  act(() => { owner.commands.filter("open"); owner.commands.adjacent("thread"); owner.commands.fallback(); });
+  expect(owner.getSnapshot().filters.open).toBe(false);
+  expect(owner.getSnapshot().revealedThreadId).toBe("thread");
+  act(() => { owner.commands.adjacent("thread"); owner.commands.fallback(); });
   expect(editor).toBeVisible();
   act(() => owner.commands.adjacent("thread"));
   fireEvent.click(screen.getByRole("button", { name: "Close conversation" }));
@@ -473,7 +481,7 @@ it("Feedback and Focus share only one global lifecycle headline", async () => {
   expect(screen.getByLabelText("Submission details")).not.toHaveTextContent("Reviewing");
   await focusConversation();
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Back to Feedback" }));
+  await openInventory();
   expect(screen.getAllByText("Reviewing", { exact: true })).toHaveLength(1);
   shell.dispose();
 });

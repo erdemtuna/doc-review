@@ -1,4 +1,5 @@
 import { selectPeer } from "./choice-helpers.js";
+import { threadAction } from "./conversation-actions.js";
 import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, conversation } from "./helpers.js";
 import { validateFrameAnchorStates, validateFrameThreadAction } from "../lib/contracts/frame.js";
@@ -57,7 +58,7 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await selectPeer(page, page, one.threadId);
   const first = page.locator(`[data-thread="${one.threadId}"]`);
   await expect(first).toBeVisible();
-  await first.getByRole("button", { name: "Resolve", exact: true }).click();
+  await first.getByRole("button", { name: "Resolve conversation", exact: true }).click();
   await expect(first).toHaveAttribute("data-status", "resolved");
   await expect(page.locator(".conversation-panel")).toBeHidden();
   await feedback(page);
@@ -81,9 +82,10 @@ for (const kind of ["selection", "element"]) test(`resolved ${kind} highlights d
   await expect(page.locator(`[data-thread="${two.threadId}"]`)).toHaveAttribute("data-status", "resolved");
   await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
   await page.screenshot({ path: info.outputPath(`resolved-${kind}-no-highlights.png`), animations: "disabled", caret: "initial" });
-  await first.getByRole("button", { name: "Reopen", exact: true }).click();
+  await expect(first).toHaveAttribute("data-expanded", "false");
+  await (await threadAction(page, first, "Reopen conversation")).click();
   await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);
-  await first.getByRole("button", { name: "Resolve", exact: true }).click();
+  await (await threadAction(page, first, "Resolve conversation")).click();
   await expect(frame.locator("mark[data-eh-mark], .block-marker, .block-badge")).toHaveCount(0);
   await page.getByRole("button", { name: "Undo resolve", exact: true }).click();
   await expect(frame.getByRole("button", { name: "Open conversation", exact: true })).toHaveCount(1);

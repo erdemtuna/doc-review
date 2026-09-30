@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { test, expect, openReview, reviewApi, waitForSdk, writeFile, message, handled, seedThread, feedback, overallNote, selectReviewMode, expectEditBlocked, mutate, sendPending, intercept, failure, listed, selectText, beginComment } from "./helpers.js";
+import { test, expect, openReview, reviewApi, waitForSdk, writeFile, message, handled, seedThread, feedback, overallNote, selectReviewMode, expectEditBlocked, mutate, sendPending, intercept, failure, listed, selectText, beginComment, setReviewTheme } from "./helpers.js";
 import { selectChoice } from "./choice-helpers.js";
 
 const fixture = readFileSync(new URL("../test/fixtures/toolbar-review.html", import.meta.url), "utf8");
@@ -37,7 +37,7 @@ test("toolbar preserves authored state and draft identity across themes and save
     await expect(page.locator("#modeButton")).toBeHidden();
     await expect(page.getByRole("region", { name: "Saved comparison" })).toBeVisible();
     // Theme changes are independent of the mounted comparison and document.
-    await page.locator("#theme").click();
+    await setReviewTheme(page);
     await page.locator("#latestVersion").click();
     await expect(page.locator("#latestVersion")).toHaveAttribute("aria-pressed", "true");
   }
@@ -68,7 +68,7 @@ test("the rounded brand scales cleanly and belongs only to the outer shell", asy
   expect(await page.locator('head link[rel="icon"]').getAttribute("href")).toBe(src);
   expect(await frame.locator('head link[rel="icon"]').getAttribute("href")).toBe(authoredIcon);
   await expect(frame.getByRole("img", { name: "Doc Review", exact: true })).toHaveCount(0);
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   expect(await brand.getAttribute("src")).toBe(src);
   expect(await frame.locator('head link[rel="icon"]').getAttribute("href")).toBe(authoredIcon);
   const study = await page.context().newPage();
@@ -92,7 +92,7 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
   await feedback(page);
   await expect(page.locator(".conversation-thread")).toHaveCount(2);
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400], [761, 700], [760, 700], [601, 700], [481, 700], [480, 700], [390, 700], [320, 700], [900, 450], [899, 450], [320, 450]]) {
       await page.setViewportSize({ width, height });
       await expect(page.locator("#reviewPage")).toHaveCount(0);
@@ -169,7 +169,7 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       await page.screenshot({ path: testInfo.outputPath(`toolbar-edit-${theme}-${width}x${height}.png`), animations: "disabled" });
       await page.keyboard.press("Escape"); await expect(page.locator("#modeButton")).toBeFocused();
       await selectReviewMode(page, "View");
-      await page.locator("#theme").click(); await page.locator("#theme").click();
+      await setReviewTheme(page); await setReviewTheme(page);
       await page.locator("#seeChanges").click();
       await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No handled submissions");
       await expect(page.locator("#commentsButton")).toBeHidden();
@@ -217,7 +217,7 @@ test("waiting and ended badges stay centered with receipt semantics and theme to
     await expect(badge).toHaveAccessibleDescription(/Waiting to be picked up/);
     expect(await badge.evaluate((element) => element.tabIndex)).toBe(0);
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await expect.poll(() => badge.evaluate((element) => {
         const style = getComputedStyle(element);
         const probe = document.createElement("span");
@@ -298,7 +298,7 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
     await expect(badge).toHaveAccessibleDescription(new RegExp(explanation));
     await expect(badge).not.toHaveAttribute("title");
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       for (const width of [1440, 390, 320]) {
         await page.setViewportSize({ width, height: 450 });
         await page.locator("#latestVersion").focus();
@@ -312,7 +312,7 @@ test("lifecycle tooltips explain every state on hover and keyboard focus without
         await expect(surface).toHaveCSS("color", theme === "light" ? "rgb(41, 46, 43)" : "rgb(238, 239, 230)");
         await page.keyboard.press("Escape");
         await expect(tooltip).toHaveCount(0);
-        await page.locator("#theme").hover();
+        await page.locator("#reviewOptions").hover();
         await badge.focus();
         await expect(tooltip).toContainText(explanation);
         await page.keyboard.press("Escape");
@@ -493,7 +493,7 @@ test("Changes has no invented identity, follows handled history, retains selecti
   await comparison.getByRole("button", { name: "Retry comparison" }).click();
   await expect(comparison.locator(".changes-controls[role='alert']")).toHaveCount(0);
   await expect(comparison.getByRole("button", { name: "Source", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   await page.screenshot({ path: testInfo.outputPath("toolbar-ended-changes.png") });
   expect(requests.every((request) => request.reviewId === ref.reviewId && request.entryKey === ref.entryKey &&
     request.submissionId === completed.work.submissionId && request.pageKey === ref.key)).toBe(true);
@@ -528,7 +528,7 @@ test("long mutation errors occupy an on-demand recovery row below real pointer c
   await expect(page.locator(".conversation-global-status").getByRole("alert")).toBeVisible();
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await page.locator("#modeButton").click(); await page.keyboard.press("Escape");
     await expect(page.locator("#modeButton")).toBeFocused();
     const status = await page.locator(".conversation-global-status").boundingBox();

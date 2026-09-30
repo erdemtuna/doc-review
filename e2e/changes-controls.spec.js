@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate, beginComment } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, submissionHistory, seedThread, sendPending, handled, mutate, beginComment, setReviewTheme } from "./helpers.js";
 import { choiceItem, selectChoice } from "./choice-helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
 
@@ -112,7 +112,7 @@ for (const width of [320, 390, 768, 814, 1440]) for (const theme of ["light", "d
     await expanded.evaluate((element) => { window.savedRow = element; });
     await expect(region).toContainText("Historical image");
     expect(await region.locator("script,img,iframe,a,[src]").count()).toBe(0);
-    await page.locator("#theme").click(); await page.locator("#theme").click();
+    await setReviewTheme(page); await setReviewTheme(page);
     await region.getByRole("button", { name: "Back to review" }).click();
     await expect(page.frameLocator("#frame").getByLabel("Live draft")).toHaveValue("Preserved");
     await page.locator(".conversation-submission").first().getByRole("button", { name: "Content changes" }).click();

@@ -46,6 +46,14 @@ export const test = base.extend({
 
 export { expect };
 
+export async function setReviewTheme(page, theme) {
+  theme ??= await page.locator("html").getAttribute("data-theme") === "dark" ? "light" : "dark";
+  await page.getByRole("button", { name: "Review options", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: theme === "dark" ? "Dark" : "Light", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+
 export async function renderedContrast(locator, property = "color") {
   return locator.evaluate((node, property) => {
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;

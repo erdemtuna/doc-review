@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, feedback, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, listed, setReviewTheme } from "./helpers.js";
 import { fieldNotes } from "../test/fixtures/readme-review.js";
 
 const source = `<!doctype html><style>body{padding:36px;font:16px/1.5 system-ui}p{width:420px;margin:60px 0}#space{height:1800px}</style>
@@ -277,12 +277,12 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   await feedback(page);
   expect(await editor(page).evaluate((node) => node === window.newEditor)).toBe(true);
   await reopen();
-  await page.locator("#theme").click(); await page.locator("#theme").click();
+  await setReviewTheme(page); await setReviewTheme(page);
   const metrics = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) {
     for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width, height });
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       await expect(async () => {
         if (await page.locator(".conversation-panel").getAttribute("data-host") === "compose") {
           const bounds = await page.locator(".conversation-panel").boundingBox(), frameBox = await page.locator("#frame").boundingBox();
@@ -295,7 +295,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
       }).toPass({ timeout: 5000 });
       expect(await editor(page).evaluate((node) => [node === window.newEditor, node.selectionStart, node.selectionEnd])).toEqual([true, 7, 14]);
       await expect(editor(page)).toHaveValue("Please clarify this selected wording.");
-      await expect(page.locator("#theme")).toBeFocused();
+      await expect(page.locator("#reviewOptions")).toBeFocused();
       const visibleHeight = () => editor(page).evaluate(node => {
         const box = node.getBoundingClientRect();
         let top = box.top, bottom = box.bottom;
@@ -309,7 +309,7 @@ test("one new editor stays readable through toolbar-focused resizing and respect
         return Math.max(0, Math.min(bottom, innerHeight) - Math.max(top, 0));
       });
       await expect.poll(visibleHeight).toBeGreaterThanOrEqual(18);
-      await expect(page.locator("#theme")).toBeFocused();
+      await expect(page.locator("#reviewOptions")).toBeFocused();
       await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
       await page.screenshot({ path: info.outputPath(`new-comment-initial-${theme}-${width}x${height}.png`) });
       const font = await page.locator("#draft-note").evaluate(node => getComputedStyle(node).fontSize);
@@ -336,11 +336,11 @@ test("one new editor stays readable through toolbar-focused resizing and respect
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   await page.mouse.wheel(0, -1000);
   await expect.poll(() => inventory.evaluate(node => node.scrollTop)).toBe(0);
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   await editor(page).evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await expect(composer(page).getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   expect(await inventory.evaluate(node => node.scrollTop)).toBe(0);
-  await expect(page.locator("#theme")).toBeFocused();
+  await expect(page.locator("#reviewOptions")).toBeFocused();
   fs.writeFileSync(info.outputPath("new-comment-geometry.json"), JSON.stringify(metrics, null, 2));
 });
 
@@ -416,7 +416,7 @@ test("nested clipping pins to the effective edge and removed targets or shared E
   await editor(page).evaluate(node => { window.newEditor = node; });
   const checkOutline = async (placement) => {
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
       expect(await page.locator(".conversation-panel").evaluate(node => {
         const outer = getComputedStyle(node);
         const divider = getComputedStyle(node.querySelector(".conversation-panel-header")).borderBottomColor;

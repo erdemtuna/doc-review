@@ -28,7 +28,8 @@ describe("G1 component vocabulary", () => {
     await user.clear(note);
     await user.type(note, "Keep this sample draft");
     note.setSelectionRange(5, 9);
-    await user.click(screen.getByRole("button", { name: "Switch to dark theme" }));
+    await user.click(screen.getByRole("button", { name: "Review options" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Dark" }));
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem("doc-review:theme")).toBe("dark");
     expect(screen.getByLabelText("Note to agent")).toBe(note);

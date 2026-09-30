@@ -8,23 +8,23 @@
   .durable-review .shell-mode { justify-self: end; }
   .durable-review #reviewPage { max-width: min(14rem, 100%); }
   .conversation-global-status { grid-column: 1 / -1; min-width: 0; padding: 3px 0; max-height: min(25dvh, 10rem); overflow: auto; overflow-wrap: anywhere; color: var(--foreground); font-size: 12px; }
-  .conversation-panel { position: fixed; inset: var(--toolbar-h) 0 0 auto; width: min(380px, calc(100vw - 32px)); z-index: 75; display: flex; flex-direction: column; min-height: 0; overflow: clip; border-left: 1px solid var(--border); background: var(--card); color: var(--foreground); box-shadow: -12px 0 34px var(--review-shadow-color); font-family: var(--review-font-sans); font-size: 13px; }
+  .conversation-panel { --conversation-scrollbar: 0px; --conversation-rail: max(12px, var(--conversation-scrollbar)); position: fixed; inset: var(--toolbar-h) 0 0 auto; width: min(380px, calc(100vw - 32px)); z-index: 75; display: flex; flex-direction: column; min-height: 0; overflow: clip; border-left: 1px solid var(--border); background: var(--card); color: var(--foreground); box-shadow: -12px 0 34px var(--review-shadow-color); font-family: var(--review-font-sans); font-size: 13px; }
   .conversation-panel.is-adjacent { z-index: 40; border: 1px solid var(--border); border-radius: var(--radius); background: var(--background); box-shadow: var(--shadow-lg); }
-  .conversation-panel.is-adjacent .conversation-inventory { padding: 4px; background: var(--card); }
+  .conversation-panel.is-adjacent .conversation-inventory { padding: 0; background: var(--card); }
   .conversation-panel.is-adjacent .conversation-thread { border: 0; background: transparent; }
   .conversation-panel.is-adjacent .conversation-thread-title { border: 0; padding-left: 0; }
   .conversation-panel [hidden], .conversation-panel[hidden] { display: none !important; }
   .conversation-panel-header, .conversation-thread > header, .conversation-comparison > header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
   .conversation-comparison h2 { flex: 1; margin: 0; font-size: 16px; }
-  .conversation-panel-header { flex-shrink: 0; padding: 12px; }
+  .conversation-panel-header { flex-shrink: 0; padding: 12px var(--conversation-rail); }
   .conversation-panel-header .segmented-control { margin-right: auto; }
   .conversation-panel.is-adjacent .conversation-panel-header { padding: 8px; }
   .conversation-overview { flex: 0 1 auto; min-height: 0; overflow: auto; }
-  .conversation-status { padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .conversation-status { padding: 6px var(--conversation-rail); display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
   .conversation-status span { color: var(--muted-foreground); }
-  .conversation-notice { font-size: 12px; padding: 0 10px; }
-  .conversation-filters { display: flex; gap: 6px; padding: 6px 8px; flex-wrap: wrap; }
-  .conversation-inventory { flex: 1; min-height: 50px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 12px 18px; scrollbar-gutter: stable; background: var(--card); }
+  .conversation-notice { font-size: 12px; padding: 0 var(--conversation-rail); }
+  .conversation-filters { display: flex; gap: 6px; padding: 6px var(--conversation-rail); flex-wrap: wrap; }
+  .conversation-inventory { flex: 1; min-height: 50px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px max(0px, calc(var(--conversation-rail) - var(--conversation-scrollbar))) 18px; scrollbar-gutter: stable both-edges; background: var(--card); }
   .conversation-comments { display: contents; }
   .conversation-section-toggle { justify-content: flex-start; margin-bottom: 8px; font-weight: 600; }
   .conversation-thread { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; background: var(--card); min-width: 0; }
@@ -33,7 +33,6 @@
   .conversation-thread-identity { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
   .conversation-thread-identity .conversation-source { flex: 0 1 auto; }
   .conversation-source { min-width: 0; flex: 1; font-size: 12px; line-height: 1.4; color: var(--muted-foreground); }
-  .conversation-thread-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .conversation-target-quote { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
   .conversation-thread-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .conversation-thread .conversation-activity { flex-shrink: 0; padding: 0; }
@@ -42,7 +41,8 @@
   .conversation-thread[data-expanded="false"] > header { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
   .conversation-activity > span { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
   .conversation-pending { font-size: 11px; color: var(--muted-foreground); }
-  .conversation-intent-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; vertical-align: middle; border-radius: 4px; color: var(--foreground); }
+  .conversation-status-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 20px; width: 20px; height: 20px; vertical-align: middle; border-radius: 4px; color: var(--muted-foreground); }
+  .conversation-status-icon[data-modified="true"] { color: var(--review-modified-foreground); }
   .conversation-thread .conversation-icon { padding: 0; }
   .conversation-jump { flex-shrink: 0; gap: 4px; }
   .conversation-author { display: inline-flex; align-items: center; gap: 6px; color: var(--foreground); font-size: 12px; }
@@ -71,7 +71,6 @@
   .conversation-composer { padding: 10px 0 0; min-width: 0; display: grid; gap: 8px; background: transparent; }
   .conversation-thread .conversation-composer { border-top: 1px solid var(--border); }
   .conversation-thread .conversation-exchange .conversation-composer { border-top: 0; padding-top: 4px; }
-  .conversation-close-edit { margin-left: auto; }
   .conversation-composer textarea { background: var(--card); border-color: var(--input); }
   .conversation-composer-heading, .conversation-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
   .conversation-composer-heading > label { font-weight: 600; }
@@ -90,13 +89,13 @@
   .conversation-actions label, .conversation-edits label { display: inline-flex; align-items: center; gap: 6px; }
   .conversation-panel footer { flex: 0 0 auto; border-top: 1px solid var(--border); }
   .conversation-panel .conversation-footer { flex: 0 1 auto; min-height: 0; max-height: min(60dvh, 480px); display: flex; flex-direction: column; background: var(--card); }
-  .conversation-footer-controls { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 4px 8px; }
+  .conversation-footer-controls { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; padding: 4px var(--conversation-rail); }
   .conversation-footer-controls > button { padding-inline: 6px; }
   .conversation-footer-details { min-height: 0; display: flex; flex-direction: column; overflow: auto; }
-  .conversation-footer .conversation-composer { min-height: 0; overflow: auto; padding: 12px; gap: 8px; background: var(--card); }
+  .conversation-footer .conversation-composer { min-height: 0; overflow: auto; padding: 12px var(--conversation-rail); gap: 8px; background: var(--card); }
   .conversation-footer .conversation-composer textarea { min-height: 40px; height: 56px; max-height: min(18dvh, 120px); }
-  .conversation-footer-support { flex-shrink: 0; min-height: 28px; max-height: 100px; overflow: auto; padding: 0 12px 8px; overflow-wrap: anywhere; }
-  .conversation-footer .feedback-actions { flex-shrink: 0; }
+  .conversation-footer-support { flex-shrink: 0; min-height: 28px; max-height: 100px; overflow: auto; padding: 0 var(--conversation-rail) 8px; overflow-wrap: anywhere; }
+  .conversation-footer .feedback-actions { flex-shrink: 0; padding-inline: var(--conversation-rail); }
   .conversation-footer .feedback-help { margin: 0; font-size: 12px; line-height: 1.5; }
   .conversation-note-content { flex: 0 0 auto; min-height: 0; }
   .conversation-bottom { padding: 0 8px 8px; justify-content: space-between; }
@@ -124,12 +123,12 @@
   .conversation-submission h4 { margin: 12px 0 6px; font-size: 13px; }
   .conversation-result { padding-block: 6px; }
   .conversation-edits pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
-  .has-focus .conversation-inventory { overflow: hidden; display: flex; }
-  .has-focus .focused { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: 0; }
+  .has-focus .conversation-inventory { overflow: hidden; display: flex; scrollbar-gutter: auto; padding-inline: var(--conversation-rail); }
+  .has-focus .focused { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: 0; padding-inline: max(8px, calc(var(--thread-scrollbar, 0px) + 4px)); }
   .has-focus .focused[data-expanded="false"] { flex: 0 0 auto; width: 100%; align-self: flex-start; }
   .has-focus .focused > header { flex-shrink: 0; }
   .has-focus .focused .conversation-thread-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .has-focus .focused .conversation-transcript { flex: 0 1 auto; min-height: 0; padding-inline: 4px; margin-inline: -4px; overflow: auto; overscroll-behavior: contain; }
+  .has-focus .focused .conversation-transcript { flex: 0 1 auto; min-height: 0; padding-inline: 4px; margin-inline: calc(-4px - var(--thread-scrollbar, 0px)); overflow: auto; scrollbar-gutter: stable both-edges; overscroll-behavior: contain; }
   .has-focus .focused .conversation-composer { flex: 0 0 auto; border-top: 1px solid var(--border); }
   .conversation-resolution-guard { padding-block: 8px; font-size: 12px; }
   .is-adjacent .conversation-inventory { min-height: 0; }
@@ -177,25 +176,24 @@
   @media (max-width: 640px) {
     .durable-review .shell-toolbar, .durable-review.comparing .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "destinations status" "tools tools"; }
   }
-  .durable-review[data-conversation-short="true"] .conversation-panel-header { padding: 4px 6px; }
-  .durable-review[data-conversation-short="true"] .conversation-thread { padding: 8px; }
-  .durable-review[data-conversation-short="true"] .conversation-composer { padding: 4px 8px; gap: 3px; }
+  .durable-review[data-conversation-short="true"] .conversation-panel-header { padding-block: 4px; }
+  .durable-review[data-conversation-short="true"] .conversation-composer { padding: 4px 0; gap: 3px; }
   .durable-review[data-conversation-short="true"] .conversation-composer textarea { min-height: 36px; height: 40px; }
   .durable-review[data-conversation-short="true"] .conversation-footer { max-height: calc(100dvh - var(--toolbar-h) - 64px); }
-  .durable-review[data-conversation-short="true"] .conversation-footer .conversation-composer { padding: 4px 12px; gap: 3px; }
+  .durable-review[data-conversation-short="true"] .conversation-footer .conversation-composer { padding: 4px var(--conversation-rail); gap: 3px; }
   .durable-review[data-conversation-short="true"] .conversation-footer textarea { height: 36px; max-height: 60px; }
   .durable-review[data-conversation-short="true"] .conversation-footer .feedback-actions { padding-bottom: 6px; }
   .durable-review[data-conversation-short="true"] .conversation-status { max-height: 50px; overflow: auto; }
   .durable-review[data-conversation-short="true"] .has-focus .conversation-status { max-height: 32px; }
-  .durable-review[data-conversation-short="true"] .has-focus .focused .conversation-thread-content { min-height: auto; }
-  .durable-review[data-conversation-short="true"] .has-focus .focused .conversation-transcript { min-height: 48px; flex-basis: 48px; }
+  .durable-review[data-conversation-short="true"] .has-focus .focused:has(.conversation-composer) .conversation-thread-content { min-height: auto; }
+  .durable-review[data-conversation-short="true"] .has-focus .focused:has(.conversation-composer) .conversation-transcript { min-height: 48px; flex-basis: 48px; }
   .durable-review[data-conversation-short="true"] .conversation-panel.has-focus:not(.is-adjacent) .focused .conversation-thread-content { min-height: 0; }
   .durable-review[data-conversation-short="true"] .conversation-panel.has-reply-navigation .focused .conversation-transcript { min-height: 32px; }
   .durable-review[data-conversation-short="true"] .has-focus .conversation-target-status { width: auto; flex: 1; }
   @media (max-width: 480px) and (max-height: 550px) {
     .durable-review #modeButton { padding-inline: 8px; gap: 4px; }
     .durable-review #modeButton > svg:first-child { display: none; }
-    .conversation-panel-header { padding: 4px 8px; flex-wrap: nowrap; }
+    .conversation-panel-header { padding-block: 4px; flex-wrap: nowrap; }
     .conversation-footer .conversation-composer > label:first-child {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
     }
@@ -207,21 +205,14 @@
     .conversation-panel:not(.has-focus) .conversation-thread:has(.conversation-composer) > header {
       position: sticky; top: 0; z-index: 1; background: var(--card);
     }
-    .conversation-panel:not(.has-focus) .conversation-thread:has(.conversation-thread-content > .conversation-composer) .conversation-exchange {
-      display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .conversation-panel:not(.has-focus) .conversation-thread:has(.conversation-thread-content > .conversation-composer) .conversation-exchange > .conversation-meta { grid-column: 1; grid-row: 1; }
-    .conversation-panel:not(.has-focus) .conversation-thread:has(.conversation-thread-content > .conversation-composer) .conversation-exchange > .conversation-actions { grid-column: 2; grid-row: 1; }
-    .conversation-panel:not(.has-focus) .conversation-thread:has(.conversation-thread-content > .conversation-composer) .conversation-exchange > :is(.conversation-body, .conversation-response) { grid-column: 1 / -1; }
     .conversation-overview { display: flex; flex-direction: column; flex-shrink: 0; max-height: 32%; }
-    .conversation-filters { order: -1; padding: 4px 8px; gap: 4px; flex-shrink: 0; }
-    .conversation-inventory { padding: 8px 12px; }
+    .conversation-filters { order: -1; padding-block: 4px; gap: 4px; flex-shrink: 0; }
+    .conversation-inventory { padding-block: 8px; }
     .conversation-section-toggle { height: 24px; margin-bottom: 4px; }
     .conversation-empty-with-edits { display: none; }
     .conversation-edits { padding-block: 0; }
     .conversation-edits h3 { margin-block: 0; }
     .conversation-edit-list > li { padding-block: 4px; }
-    .conversation-panel.has-focus .conversation-inventory { padding: 8px 12px; }
   }
 }
 @layer utilities {

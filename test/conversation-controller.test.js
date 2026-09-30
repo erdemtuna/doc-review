@@ -711,6 +711,35 @@ test("Resolve dismisses only the adjacent popup and retains Feedback access and 
   }
 });
 
+test("inventory returns temporarily reveal excluded threads without changing filters or drafts", async t => {
+  const c = await controller(t);
+  const id = await draft(c, "Preserved message");
+  c.owner.commands.reply(id);
+  c.owner.commands.update(id, { text: "Unfinished reply", selectionStart: 2, selectionEnd: 6 });
+  c.owner.commands.filter("open");
+  const filters = { open: false, resolved: false };
+  for (const exit of ["dismiss", "filter", "close", "focus", "compose"]) {
+    c.owner.commands.adjacent(id);
+    c.owner.commands.fallback();
+    assert.deepEqual(c.owner.getSnapshot().filters, filters);
+    assert.equal(c.owner.getSnapshot().revealedThreadId, id);
+    c.owner.commands.focus(id);
+    assert.equal(c.owner.getSnapshot().revealedThreadId, null);
+    c.owner.commands.focus(null);
+    assert.equal(c.owner.getSnapshot().revealedThreadId, id);
+    if (exit === "dismiss") c.owner.commands.dismissReveal();
+    if (exit === "filter") { c.owner.commands.filter("open"); c.owner.commands.filter("open"); }
+    if (exit === "close") c.owner.commands.open(false);
+    if (exit === "focus") c.owner.commands.focus(id);
+    if (exit === "compose") c.owner.commands.begin(c.ref.entryKey, target, true);
+    assert.equal(c.owner.getSnapshot().revealedThreadId, null);
+    assert.deepEqual(c.owner.getSnapshot().filters, filters);
+    assert.equal(c.owner.getSnapshot().threads[0].draft.text, "Unfinished reply");
+    assert.equal(c.owner.getSnapshot().threads[0].draft.selectionStart, 2);
+    assert.equal(c.owner.getSnapshot().threads[0].draft.selectionEnd, 6);
+  }
+});
+
 test("uncertain Resolve offers Undo only after its exact receipt is reconciled", async (t) => {
   const c = await controller(t);
   const id = await draft(c, "Answered");

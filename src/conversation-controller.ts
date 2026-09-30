@@ -61,6 +61,7 @@ export function createConversationController(options: Options) {
   let note = conversationDraft();
   let newMessage: { pageKey: string; target: ConversationTarget; draft: ConversationDraft } | null = null;
   let filters = { open: true, resolved: false };
+  let revealedThreadId: string | null = null;
   let focusId: string | null = null, open = false, error = "", notice = "", captureNotice = "", connected = true;
   let host: "feedback" | "focus" | "adjacent" | "compose" = "feedback";
   let confirmation: Confirmation | null = null, uncertain: Pending | null = null;
@@ -118,7 +119,7 @@ export function createConversationController(options: Options) {
       contextLoading: contextLoads.has(thread.thread.threadId), contextError: contextErrors.get(thread.thread.threadId) ?? "",
     })),
     submissions: [...submissions.entries()].map(([id, value]) => ({ id, value })),
-    note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected, revealedMessage,
+    note, newMessage, filters, focusId, host, open, error, notice, captureNotice, connected, revealedMessage, revealedThreadId,
     resolutionGuard: currentResolutionGuard(),
     resolutionUndo: review?.state === "open" && review.version === resolutionUndo?.reviewVersion ? resolutionUndo : null,
     confirmation, draftCancellation, uncertain: uncertain ? { operation: uncertain.body.operation, requestId: uncertain.body.requestId, message: uncertain.message } : null,
@@ -129,7 +130,7 @@ export function createConversationController(options: Options) {
   function publish() { if (!disposed) store.publish(); }
   function revealFocusedThread() {
     const current = threads.find((item) => item.thread.threadId === focusId);
-    if (current) filters = { ...filters, [current.thread.status]: true };
+    revealedThreadId = current && !filters[current.thread.status] ? current.thread.threadId : null;
   }
   function fail(value: unknown) { error = value instanceof Error ? value.message : String(value); publish(); }
   async function post<T>(body: unknown, decoder: Schema<T>): Promise<T> {
@@ -222,6 +223,8 @@ export function createConversationController(options: Options) {
       }
     }
     threads = nextThreads;
+    const revealed = threads.find(item => item.thread.threadId === revealedThreadId);
+    if (!revealed || filters[revealed.thread.status]) revealedThreadId = null;
     for (const [id, value] of nextContexts) contexts.set(id, value);
     for (const [id, value] of nextSubmissions) submissions.set(id, value);
     history = nextHistory.items;
@@ -419,16 +422,18 @@ export function createConversationController(options: Options) {
     get draftsPresent() { return draftCount() > 0; },
     report: fail,
     commands: {
-      open(value = true) { revealRequest++; open = value; publish(); },
+      open(value = true) { revealRequest++; open = value; if (!value) revealedThreadId = null; publish(); },
       connected(value: boolean) { connected = value; publish(); },
-      filter(kind: "open" | "resolved") { filters = { ...filters, [kind]: !filters[kind] }; publish(); },
+      filter(kind: "open" | "resolved") { revealedThreadId = null; filters = { ...filters, [kind]: !filters[kind] }; publish(); },
+      dismissReveal() { revealedThreadId = null; publish(); },
       collapse(id: string) { if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id); publish(); },
       focus(id: string | null) {
         revealRequest++;
-        if (!id) revealFocusedThread();
+        if (!id) revealFocusedThread(); else revealedThreadId = null;
         focusId = id; host = id ? "focus" : "feedback"; open = true; publish();
       },
       async revealMessage(threadId: string, messageId: string) {
+        revealedThreadId = null;
         const request = ++revealRequest;
         if (!threads.some(item => item.thread.threadId === threadId)) throw new Error("This conversation is no longer available in this review.");
         let context = contexts.get(threadId);
@@ -446,6 +451,7 @@ export function createConversationController(options: Options) {
         focusId = threadId; host = "focus"; open = true; attention.delete(threadId); publish();
       },
       adjacent(id: string) {
+        revealedThreadId = null;
         revealRequest++;
         if (!threads.some((item) => item.thread.threadId === id)) throw new Error("Conversation is not in this review.");
         focusId = id; host = "adjacent"; open = true; collapsed.delete(id); publish();
@@ -479,13 +485,14 @@ export function createConversationController(options: Options) {
           await mutate("set-thread-status", { threadId: undo.threadId, status: "open" }, () => { resolutionUndo = null; }, undo.reviewVersion);
         } finally { confirming = false; publish(); }
       },
-      compose() { revealRequest++; if (newMessage) { open = true; focusId = null; host = "compose"; publish(); } },
+      compose() { revealRequest++; revealedThreadId = null; if (newMessage) { open = true; focusId = null; host = "compose"; publish(); } },
       begin(pageKey: string, target: ConversationTarget, contextual = false) {
         revealRequest++;
         if (!writable()) return false;
         if (newMessage && (dirtyDraft("new", newMessage.draft) || newMessage.draft.composing || savingDrafts.has("new") || draftCancellation === "new")) {
           throw new Error("Save or cancel the existing new-message draft first.");
         }
+        revealedThreadId = null;
         newMessage = { pageKey, target, draft: conversationDraft() }; open = true; focusId = null; host = contextual ? "compose" : "feedback"; publish();
         return true;
       },

@@ -50,12 +50,18 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await tab.keyboard.press("Escape");
   };
   const threadAction = async (tab, thread, name) => {
-    if (["Resolve", "Reopen", "Back to Feedback", "Collapse conversation", "Expand conversation"].includes(name)) {
-      await thread.getByRole("button", { name, exact: true }).click();
+    const button = thread.getByRole("button", { name, exact: true });
+    if (await button.isVisible()) {
+      await button.click();
       return;
     }
     await thread.getByRole("button", { name: "Conversation actions" }).click();
     await tab.getByRole("menuitem", { name, exact: true }).click();
+  };
+  const setReviewTheme = async (tab, theme) => {
+    await tab.getByRole("button", { name: "Review options", exact: true }).click();
+    await tab.getByRole("menuitemradio", { name: theme === "dark" ? "Dark" : "Light", exact: true }).click();
+    await expect(tab.locator("html")).toHaveAttribute("data-theme", theme);
   };
   const feedback = async (tab) => {
     if (await tab.locator("#commentsButton").getAttribute("aria-expanded") !== "true") await tab.locator("#commentsButton").click();
@@ -233,13 +239,13 @@ export async function conversationSmoke({ browser, expect, project, state, evide
       responseAttempts: attempts.length, receipt: accepted.receipt.requestId, sourceWrittenOnce: true });
 
     const thread = page.locator(`[data-thread="${first.messages[0].message.threadId}"]`);
-    await threadAction(page, thread, "Resolve");
+    await threadAction(page, thread, "Resolve conversation");
     await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toBeVisible();
     const resolvedFilter = page.getByRole("button", { name: "Resolved (1)", exact: true });
     await expect(resolvedFilter).toHaveAttribute("aria-pressed", "false");
     await resolvedFilter.click();
-    await threadAction(page, thread, "Reopen");
-    await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeEnabled();
+    await threadAction(page, thread, "Reopen conversation");
+    await expect(thread.getByRole("button", { name: "Resolve conversation", exact: true })).toBeEnabled();
     const lost = new Map();
     await page.route("**/api/conversation", async (route) => {
       const body = route.request().postDataJSON();
@@ -265,8 +271,11 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Check receipt", exact: true }).click();
     for (const tab of [page, second]) await expect(tab.locator(".conversation-lifecycle")).toHaveText("Review ended");
-    await expect(page.getByText("Pending (read-only)", { exact: true })).toBeVisible();
-    await expect(page.getByText("Pending (read-only)", { exact: true })).toHaveAttribute("title", /review has ended and is read-only/);
+    const unsent = page.getByRole("img", { name: "Not sent", exact: true });
+    await expect(unsent).toBeVisible();
+    await unsent.focus();
+    await expect(page.getByRole("tooltip")).toContainText("this review has ended");
+    await page.keyboard.press("Escape");
     await page.unroute("**/api/conversation");
     const oldUrl = page.url();
     await restart();
@@ -288,7 +297,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     evidence.push({ phase: "late-restart", ended: ref.reviewId, fresh: freshRef.reviewId,
       submissionId: outstanding.submissionId, unsentRetained: true, localDraftRecovered: false });
     for (const theme of ["light", "dark"]) {
-      if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page, theme);
       await page.screenshot({ path: path.join(evidenceDir, `installed-ended-${theme}.png`), animations: "disabled", caret: "initial" });
     }
 
@@ -406,7 +415,7 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await threadAction(second, active, "Beside target");
     assert.deepEqual(await editor.evaluate((node) => [node === window.installedEditor, node.selectionStart, node.selectionEnd]), [true, 2, 8]);
     await expect(second.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(1);
-    await threadAction(second, active, "Back to Feedback");
+    await threadAction(second, active, "Open in Feedback");
     for (const id of anchorIds.slice(1)) {
       const item = second.locator(`[data-thread="${id}"]`);
       await expect(item.getByRole("button", { name: "Show in document", exact: true })).toBeDisabled();

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, writeFile, feedback, enterEditMode, selectText, selectReviewMode, listed, conversation, handled, seedThread, reviewApi, mutate, sendPending, beginComment } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, feedback, enterEditMode, selectText, selectReviewMode, listed, conversation, handled, seedThread, reviewApi, mutate, sendPending, beginComment, setReviewTheme } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 const visibleTextHeight = (locator) => locator.evaluate(node => {
@@ -162,7 +162,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
   const measurements = [];
   for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await page.locator(".conversation-inventory").evaluate(node => { node.scrollTop = 0; });
     const preview = peek.locator(".conversation-result-preview");
     const requiredPreview = await readableTextHeight(preview);
@@ -237,14 +237,15 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await expect(peek).toBeVisible();
   const firstCard = page.locator(`[data-thread="${work.messages[0].message.threadId}"]`);
-  expect(await firstCard.locator(".conversation-thread-toolbar button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))))
-    .toEqual(["Mark conversation as read", "Show in document", "Resolve", "Conversation actions", "Collapse conversation"]);
+  await expect.poll(() => firstCard.locator(".conversation-thread-toolbar button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label"))))
+    .toEqual(["Mark conversation as read", "Show in document", "Conversation actions", "Collapse conversation"]);
+  await expect(firstCard.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
   const inventory = page.locator(".conversation-inventory");
   const tabs = page.getByRole("group", { name: "Feedback destination" });
   let draftCreated = false;
   for (const [width, height] of [[1440, 900], [720, 600], [390, 600], [320, 400]]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await tabs.getByRole("button", { name: "Feedback", exact: true }).click();
     await inventory.evaluate(node => { node.scrollTop = 0; });
     await peek.getByRole("button", { name: "Read more", exact: true }).click();

@@ -64,11 +64,17 @@ it would cover the target. **Focus**, in Conversation actions, gives one convers
 header and composer reachable. Activate an existing highlight with a click,
 Enter or Space to open one conversation beside it. A shared-target count and
 chooser expose other conversations at that highlight. **Beside target**,
-**Focus** and **Back to Feedback** move the same mounted editor, preserving text,
+**Focus** and **Open in Feedback** move the same mounted editor, preserving text,
 selection, caret, composition, loaded exchanges and reading position.
-Headers group the section title and unread dot before Locate, the check-circle
-**Resolve** icon (return-arrow **Reopen** when resolved), More and Collapse.
-Resolve/Reopen have named tooltips and accessible labels.
+Sidebar headers group source and state before Locate, More and Collapse.
+Adjacent popups instead offer Open in Feedback, More and Close. Popup Close only
+hides the conversation; Collapse is in More. Focus's More menu also offers Open
+in Feedback. Returning reveals the original card without changing your filters;
+an excluded card has a dismissible explanation. Edit sits beside each eligible
+message's timestamp. Informational icons explain unsent messages, change requests,
+resolution and agent outcomes on hover or keyboard focus.
+Labelled Resolve/Reopen sits opposite Reply below the conversation; it remains
+available in More when collapsed or a draft is open, with the same safety guards.
 
 The card never covers its highlighted target. Short discussions fit their contents;
 long transcripts scroll with Reply or the active editor kept reachable. No host
@@ -190,10 +196,18 @@ input, not a thread, and its permission applies only to itself.
 
 ## Appearance
 
-The theme button switches the review shell and in-page annotation tools
-together. It remembers the light/dark preference in this browser; it does not
+**Review options**, the toolbar's three-dot button, offers explicit **Light** and
+**Dark** choices for the review shell and in-page annotation tools
+together. It remembers the preference in this browser; it does not
 change the document's own colors or saved source. The rounded teal brand tile
 stays the same in both themes.
+
+The menu also identifies the current document. For a file review, **Copy full
+path** copies the original file location, including when reviewing another page
+or its saved comparison. It never copies the local review-server address. URL
+reviews explain that no original local file path is available. Clipboard failures
+stay visible with the path available for manual copying. These utilities remain
+available after the review ends.
 
 If annotation tools cannot confirm a theme change, an explicit notice offers
 **Retry theme**. This retries the latest preference without reloading the page,

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, overallNote, submissionHistory, intercept, failure, conversation, seedThread } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, feedback, overallNote, submissionHistory, intercept, failure, conversation, seedThread, setReviewTheme } from "./helpers.js";
 
 async function setup(page, review, name = "feedback.html") {
   const file = writeFile(review, name, "<!doctype html><p id='copy'>Original paragraph</p><input aria-label='Authored input'>");
@@ -32,7 +32,7 @@ for (const [width, height] of [[320, 480], [320, 560], [390, 560], [768, 560], [
       const note = page.getByRole("textbox", { name: "Note to agent" });
       await note.fill("Keep this overall note");
       await note.evaluate((element) => { window.savedNote = element; window.savedFrame = document.querySelector("#frame"); element.setSelectionRange(5, 9); element.dispatchEvent(new Event("select", { bubbles: true })); });
-      await page.locator("#theme").click(); await page.locator("#theme").click();
+      await setReviewTheme(page); await setReviewTheme(page);
       await page.getByRole("complementary", { name: "Feedback" }).getByRole("button", { name: "Close feedback", exact: true }).click(); await feedback(page);
       expect(await note.evaluate((element) => element === window.savedNote && document.querySelector("#frame") === window.savedFrame)).toBe(true);
       expect(await note.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([5, 9]);

@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment } from "./helpers.js";
+import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment, setReviewTheme } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
 
 async function call(review, body, route = "/api/conversation") {
@@ -51,10 +51,10 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await page.locator("#commentsButton").click();
   await message(page, "Why this wording?");
   await expect(page.getByText("Discussion", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toBeVisible();
+  await expect(page.locator(".conversation-exchange").getByRole("img", { name: "Not sent", exact: true })).toBeVisible();
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
-  await expect(page.locator(".conversation-exchange").getByText("Pending", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".conversation-exchange").getByRole("img", { name: "Not sent", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Mark conversation as read", exact: true })).toHaveCount(0);
   const picked = await call(review, { ...ref, operation: "poll" });
   expect(picked.submission.messages[0].message.intent).toBe("discuss");
@@ -74,9 +74,9 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await (await threadAction(page, thread, "Focus")).click();
   await expect(draft).toHaveValue("An unsaved follow-up");
   expect(await draft.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([3, 9]);
-  await thread.getByRole("button", { name: "Back to Feedback" }).click();
+  await (await threadAction(page, thread, "Open in Feedback")).click();
   await expect(draft).toHaveValue("An unsaved follow-up");
-  await (await threadAction(page, thread, "Resolve")).click();
+  await (await threadAction(page, thread, "Resolve conversation")).click();
   await expect(thread.getByRole("status")).toContainText("Finish or close your draft");
   await thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }).click();
   await expect(page.getByText("An unsaved follow-up", { exact: true })).toBeVisible();
@@ -87,8 +87,11 @@ test("durable discussion, inline response, Focus drafts and shared End", async (
   await expect(other.getByRole("alertdialog")).toContainText("for every tab");
   await other.getByRole("button", { name: "End review", exact: true }).click();
   await expect(page.locator("#send")).toBeDisabled();
-  await expect(page.getByText("Pending (read-only)", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pending (read-only)", { exact: true })).toHaveAttribute("title", /review has ended and is read-only/);
+  const unsent = page.getByRole("img", { name: "Not sent", exact: true });
+  await expect(unsent).toBeVisible();
+  await unsent.focus();
+  await expect(page.getByRole("tooltip")).toContainText("review has ended and this saved message is read-only");
+  await page.keyboard.press("Escape");
   expect(errors).toEqual([]);
 });
 
@@ -335,7 +338,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await call(review, responseFor(work));
   const thread = page.locator(".conversation-thread");
   await expect(thread.getByText("The explanation preserves the original meaning.", { exact: true })).toBeVisible();
-  await (await threadAction(page, thread, "Resolve")).click();
+  await (await threadAction(page, thread, "Resolve conversation")).click();
   await expect(page.getByRole("button", { name: "Undo resolve" })).toBeVisible();
   const resolved = page.getByRole("button", { name: "Resolved (1)", exact: true });
   await expect(resolved).toHaveAttribute("aria-pressed", "false");
@@ -347,8 +350,8 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await collapse.focus(); await page.keyboard.press("Enter");
   await expect(collapse).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Enter"); await expect(collapse).toHaveAttribute("aria-expanded", "true");
-  await (await threadAction(page, thread, "Reopen")).click();
-  await expect(thread.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+  await (await threadAction(page, thread, "Reopen conversation")).click();
+  await expect(thread.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
   await thread.getByRole("button", { name: "Reply", exact: true }).click();
   const input = thread.getByRole("textbox", { name: "Reply", exact: true });
   await input.fill("Composition survives");
@@ -358,17 +361,18 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
   await input.evaluate((element) => element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
   await expect(thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const [width, height] of [[320, 400], [390, 400], [320, 480], [390, 520], [768, 560], [1440, 800]]) {
       await page.setViewportSize({ width, height });
       await expect(page.getByText("Reviewing", { exact: true })).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      for (const button of [thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }), thread.getByRole("button", { name: "Back to Feedback" })]) {
+      for (const button of [thread.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true }), (await threadAction(page, thread, "Open in Feedback"))]) {
         await expect(async () => {
           const box = await button.boundingBox();
           expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
         }).toPass({ timeout: 5000 });
       }
+      await page.keyboard.press("Escape");
       if (theme === "light" && width === 320 && height === 400) {
         const transcript = thread.locator(".conversation-transcript");
         await transcript.evaluate((element) => { element.scrollTop = 120; });
@@ -377,7 +381,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
           class: node.className, scroll: node.scrollTop, y: node.getBoundingClientRect().y, height: node.getBoundingClientRect().height,
         })));
         const before = await geometry();
-        await thread.getByRole("button", { name: "Back to Feedback" }).click();
+        await (await threadAction(page, thread, "Open in Feedback")).click();
         const inventory = await geometry();
         await (await threadAction(page, thread, "Focus")).click();
         fs.writeFileSync(testInfo.outputPath("focus-transfer-geometry.json"), JSON.stringify({ before, inventory, after: await geometry() }, null, 2));
@@ -387,7 +391,7 @@ test("resolved history expands, keyboard collapse and narrow Focus retain compos
     }
     await page.screenshot({ path: testInfo.outputPath(`conversation-focus-${theme}.png`) });
   }
-  await thread.getByRole("button", { name: "Back to Feedback" }).click();
+  await (await threadAction(page, thread, "Open in Feedback")).click();
   await page.setViewportSize({ width: 320, height: 400 });
   await expect(async () => {
     const bottom = await page.locator("#send").boundingBox();

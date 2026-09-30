@@ -1,4 +1,4 @@
-import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, intercept, failure, mutate, listed } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, expectFeedbackBounds, overallNote, intercept, failure, mutate, listed, setReviewTheme } from "./helpers.js";
 import { threadAction } from "./conversation-actions.js";
 
 const source = `<!doctype html><html><head><style>
@@ -27,7 +27,7 @@ test("long inventory and direct actions fit every width without remounting docum
   });
   const inventory = page.locator(".conversation-inventory");
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await expectFeedbackBounds(page, { width, height: 900 });
@@ -86,9 +86,9 @@ test("a closing command menu cannot reclaim newer toolbar focus on pointer leave
   await button(card, "Conversation actions").click();
   await page.getByRole("menuitem", { name: "Focus", exact: true }).hover();
   await page.keyboard.press("Escape");
-  await page.locator("#theme").focus();
+  await page.locator("#reviewOptions").focus();
   await page.mouse.move(0, 0);
-  await expect(page.locator("#theme")).toBeFocused();
+  await expect(page.locator("#reviewOptions")).toBeFocused();
   await expect(page.getByRole("menu")).toHaveCount(0);
 });
 
@@ -105,7 +105,7 @@ test("textarea and selection survive unrelated updates, a rejected edit, and exp
   });
   await (await overallNote(page)).fill("Unrelated overall note");
   await seedThread(review, ref, "Another browser saved this");
-  await page.locator("#theme").click();
+  await setReviewTheme(page);
   expect(await input.evaluate((element) => ({ same: element === window.originalEditor, selection: [element.selectionStart, element.selectionEnd] })))
     .toEqual({ same: true, selection: [3, 9] });
   let attempts = 0;

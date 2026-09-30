@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
-import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode } from "./helpers.js";
+import { test, expect, openReview, waitForSdk, enterEditMode, writeFile, selectText, listed, compose, selectionMessage, feedback, submissionHistory, intercept, failure, conversation, handled, sendPending, selectReviewMode, setReviewTheme } from "./helpers.js";
 
 async function setup(page, review, name, source = "<p id='copy'>First paragraph to review.</p><p id='other'>Second paragraph to review.</p><button id='action'>Authored control</button>") {
   const file = writeFile(review, name, source);
@@ -40,7 +40,7 @@ test("Save and Cancel restore the exact authored control, and later renders do n
   await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
   await compose(page, "Review control");
   await expect(frame.locator("#action")).toBeFocused();
-  await page.locator("#theme").click(); await expect(draft(page)).toHaveCount(0);
+  await setReviewTheme(page); await expect(draft(page)).toHaveCount(0);
   await close(page);
   await frame.locator("#action").focus(); await frame.locator("#action").press("Control+Alt+m");
   await draft(page).fill("Discard local"); await draft(page).press("Escape");
@@ -70,14 +70,14 @@ test("Escape cancels only the current draft; closing a host never resolves its t
   await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(reply).toHaveCount(0); await expect(panel(page)).toBeVisible();
   await (await threadAction(page, card(page), "Focus")).click();
-  const close = card(page).getByRole("button", { name: "Close conversation" });
+  const close = panel(page).getByRole("button", { name: "Close feedback", exact: true });
   await expect(page.getByRole("menu")).toHaveCount(0);
   await page.mouse.move(0, 0);
   await close.scrollIntoViewIfNeeded();
   await close.focus();
   await close.press("Tab"); await page.keyboard.press("Shift+Tab");
   await expect(close).toBeFocused();
-  await expect(page.getByRole("tooltip", { name: "Close conversation", exact: true })).toBeVisible();
+  await expect(page.getByRole("tooltip", { name: "Close feedback", exact: true })).toBeVisible();
   await close.press("Escape");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   await expect(panel(page)).toBeVisible();
@@ -126,7 +126,7 @@ for (const action of ["save", "edit"]) test(`${action} retains editable input an
   await expect.poll(() => requests).toBe(1);
   await input.fill("Newer typing");
   await input.evaluate((element) => { window.savedComposer = element; element.setSelectionRange(2, 7); element.dispatchEvent(new Event("select", { bubbles: true })); });
-  await page.locator("#theme").click(); release();
+  await setReviewTheme(page); release();
   await expect(page.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeEnabled();
   expect(await input.evaluate((element) => element === window.savedComposer)).toBe(true);
   expect(await input.evaluate((element) => [element.selectionStart, element.selectionEnd])).toEqual([2, 7]);
@@ -186,7 +186,7 @@ test("multiple same-block conversations preserve authored dark styles and expose
   const badge = frame.getByRole("button", { name: "Open 2 conversations", exact: true });
   await expect(badge).toBeVisible();
   for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme").click();
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await expect(frame.locator("[data-eh-ui]")).toHaveAttribute("data-review-theme", theme);
     await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(23, 23, 15)");
     expect(await frame.locator("body").innerHTML()).toBe(authored);
