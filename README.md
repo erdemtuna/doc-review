@@ -32,61 +32,27 @@ The same command works with Markdown or a running local app:
 /doc-review http://localhost:3000
 ```
 
-Reviews start only when you request them. Your agent uses the installed skill
-to open the page, wait for feedback, and respond in the review conversation.
-Discussion does not authorize source edits. Each checked change request gives
-permission for that request only; the agent can answer, clarify, apply, or defer.
+Your agent handles the commands using the installed skill.
 
-## From feedback to the next version
+## How it works
 
-1. **Open and explore.** Reviews start in **View**, so you can read and use page
-   controls without accidentally editing.
-2. **Point out what matters.** Select text or choose an element to leave a
-   comment. Switch to **Edit** for direct changes to wording, formatting, images,
-   or layout. Commenting works in either mode. New comments open beside the target
-   when space permits, with a safe Feedback fallback. **Add comment** retains the
-   comment without sending it. Enter adds it; Shift+Enter adds a line.
-   The editor's X or Escape closes an empty/unchanged draft immediately and asks
-   **Keep editing / Discard** for unsaved changes. Feedback's outer X only hides
-   the panel and preserves your drafts.
-3. **Send feedback.** Open **Feedback**, add an optional **Note to agent**, then
-   **Send to agent** sends all saved pending comments and edits together. Each new message defaults
-   to Discussion; check **Request a change** only for that message's permission.
-4. **Check the response and result.** Each submitted message gets an inline reply,
-   each direct edit gets an exact outcome, and the submission gets one result note.
-   Find the latest result above the conversations. **Read more** expands a long summary;
-   **Replies (N)** lists its conversations, and **View changes** opens reported changes.
-   The reply reader keeps the destination tabs visible, with **Previous/Next** and **Back to replies**. Use
-   **History** in the **Feedback | History** switch for earlier submissions. Choose
-   **Content** or **Source** to compare the submission's captured
-   before and after content, then continue reviewing. Comparisons show observed
-   changes, not a guarantee that every request was resolved.
+1. **Open your document.** Read and explore it normally. Reviews start in **View**
+   so you will not accidentally edit anything.
+2. **Start a conversation.** Highlight a passage to ask a question or request a
+   change. Switch to **Edit** to make small changes yourself.
+3. **Review and iterate.** Choose **Send to agent**, read the replies, and compare
+   what changed. Keep the conversation going until you are happy with the result.
 
-Feedback shows review-wide **open conversations** and **manual edits awaiting
-handling**, independently of filters, unread activity and the pending Send count.
-Sent edits stay visible until an accepted exact-version `applied` or `already-saved`
-outcome. Deferred and abandoned edits retain their reason and original submission;
-they are never automatically resent or treated as undone. Ending a review preserves
-this inventory and the complete history.
-
-Composers remain plain text. Saved messages, notes and results display safe Markdown:
-lists, code, tables and links, with raw HTML and images kept inert. New agent
-templates include an authored `summary`; older records use deterministic headings.
-The independent full `resultNote` remains required and available in a disclosure.
-
-You can review a plan, refine a landing page, or walk through a local app without
-moving your feedback into a separate document.
+Asking a question does not authorize edits. Check **Request a change** when you
+want the agent to change the document.
 
 ![Feedback with independent open-conversation and edit counts, a saved headline edit, and the optional Note to agent collapsed](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-feedback.png)
 
-*Review open conversations and edits separately. Each message has its own intent;
-add a note to the agent only when you need one.*
+*Review your comments and edits before sending. Add a note only if you need one.*
 
 ![The completed Field Notes submission in Changes, comparing the revised description and call to action with their originals](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-changes.png)
 
-*Changes now puts sticky comparison controls, a compact summary and the diff first.
-Full responses, submitted feedback, reviewer edit evidence and technical details
-remain in separate disclosures below.*
+*See what changed, then continue the conversation.*
 
 ## What happens to your edits?
 
@@ -103,58 +69,13 @@ Doc Review runs locally and needs no Doc Review account, hosted backend, or API
 key. The page you review and the coding agent you use may still contact external
 services.
 
-## Agent CLI
-
-Opening prints JSON containing the durable `reviewId`, canonical `entryKey`,
-browser link, and identity-bound `handoff` commands. Keep that identity through
-End and restart; do not substitute a newer review of the same file.
-
-```sh
-doc-review poll --review <reviewId> --entry <entryKey> --timeout 600
-doc-review context --review <reviewId> --entry <entryKey> --submission <submissionId> --thread <threadId> --limit 1
-doc-review history --review <reviewId> --entry <entryKey> --before <submissionId> --limit 1
-doc-review response-template --review <reviewId> --entry <entryKey> --submission <submissionId> --output-file response.json
-doc-review respond --review <reviewId> --entry <entryKey> --response-file response.json
-doc-review status --review <reviewId> --entry <entryKey>
-```
-
-The response file carries the exact submission/version, a stable caller request
-ID, all inline replies and edit outcomes, and one result note. Success includes a
-durable receipt. If the response connection is lost, retry the identical file,
-not source edits. Target-only polling and acknowledgement-only completion are
-retired. Templates contain the complete response inventory, but blank outcomes and
-prose intentionally fail validation until filled. Overall-note outcomes are scalar
-strings; their prose goes in `resultNote`.
-
-Agent JSON is bounded to 16 KiB after escaping. Small content stays inline; large
-values have scoped exact reads/exports, and inventories expose complete paging.
-Context includes only earlier submitted exchanges, never current or saved-unsent
-replies. History recovers previous notes/results/edits after lost chat context.
-See the [installed skill](src/SKILL.md) and its on-demand
-[response](src/references/response-contract.md),
-[source](src/references/source-edits.md), and
-[recovery](src/references/context-and-recovery.md) references.
-
-End freezes the shared review but lets accepted work finish. Unsent items stay
-read-only in that ended review, never transfer to a new one. Referenced
-conversations, results, receipts, revisions, and staged assets are retained.
-Feedback, Focus and the highlight-adjacent host share one mounted editor,
-in-memory drafts, caret, selection and loaded history. Explicit highlight
-activation opens one conversation; ambiguous/unavailable targets and constrained
-viewports fall back safely to Feedback without changing the original anchor.
-Each discussion has its own bordered card. Sidebar headers offer **Show in document**;
-adjacent headers offer **Open in Feedback**. A successful jump hides floating Feedback when needed to reveal the passage; reopening it
-retains drafts and reading position. Comments and Your edits collapse independently.
-Collapse or Close never resolves a thread. Resolve/Reopen is explicit; Resolve
-requires no pending or outstanding messages. Drafts are not stored or synced to
-other tabs. An ended review remains a read-only observer of late results.
-Resolved conversations collapse into subdued cards with a check-circle status icon;
-you can expand them to read, or Reopen to continue the discussion.
-
 ## Learn more
 
 [Usage guide](https://github.com/erdemtuna/doc-review/blob/main/docs/usage.md):
 setup options, comments, comparisons, limitations, and upgrades.
+
+[Agent reference](https://github.com/erdemtuna/doc-review/blob/main/docs/usage.md#sending-feedback):
+commands, response formats, and recovery for integrations.
 
 [Development](https://github.com/erdemtuna/doc-review/blob/main/docs/development.md):
 build, test, architecture, and package checks.

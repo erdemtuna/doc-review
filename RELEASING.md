@@ -14,6 +14,48 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.13.0 release checklist
+
+This minor release introduces identity-bound durable review conversations,
+per-message Discussion versus Request a change permissions, complete inline
+responses and exact-version edit outcomes, and a separate authored summary
+alongside the required full `resultNote`. Safe Markdown makes saved feedback
+readable while keeping raw HTML and images inert. Independent open-conversation
+and manual-edit attention counts retain deferred/abandoned edits read-only,
+with reasons and original-submission navigation, without automatically resending
+them. The diff-first Changes view, source save-error protection, immutable
+submission caching, refreshed document-collaboration screenshots, and concise
+three-step README complete the release.
+
+**Breaking integration migration:** server protocol is **25**. Target-only
+polling and acknowledgement-only completion (including `--ack`) are retired,
+not compatibility paths. Retain the generated `reviewId` and `entryKey` through
+polling, End and recovery; reopening a target after End creates a different
+review. Generate and fill a complete response template for every submitted
+message and exact edit version, with a stable request ID, `summary` and the
+independent `resultNote`. Retry an uncertain response using the identical file,
+not repeated source edits. Discussion never authorizes source changes.
+See the [installed skill](src/SKILL.md) and
+[response contract](src/references/response-contract.md).
+
+Use `version=0.13.0` and `previous_tag=v0.12.0` for both workflow phases.
+Land the version PR only after all required CI checks pass, then prepare from
+the exact current `main` commit. Require the durable conversation/response,
+bounded identity-scoped reads, permission, retained edit-attention, safe
+Markdown, comparison, source-save recovery, immutable submission cache, and
+installed-package regressions. Publish only the verified immutable candidate
+from that successful prepare run through the protected `npm-release`
+environment, using OIDC by default. Node **24.21.0**, npm **12.0.2**, and
+page-script permissions remain unchanged.
+
+Preserve pending review state: do not delete state or restart active reviews
+as part of publication. Arrange a controlled restart after old active reviews
+have ended and outstanding work has been handled; keep retained history and
+saved-unsent evidence. After verifying registry integrity, the tag and public
+assets, install the released CLI and run `doc-review setup --global` to refresh
+the installed skill and references as a separate, user-coordinated upgrade.
+Never silently reuse an incompatible server or overwrite a live installation.
+
 ## v0.12.0 release checklist
 
 This release introduces the rounded teal-tile/paper-bubble identity, a matching

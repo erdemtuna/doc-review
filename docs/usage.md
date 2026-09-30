@@ -172,8 +172,11 @@ resolved conversations. Resolving a conversation preserves your filters. Open ca
 with their latest exchange and saved pending follow-ups, while resolved cards
 start collapsed. Selected filters remain
 visibly selected after you move away. Separate bordered discussion cards contain
-plain reviewer/agent messages with author, avatar and time. **Reply** is visible;
+reviewer and agent messages with author, avatar and time. **Reply** is visible;
 hover or focus a timestamp for its full date and time.
+Composers remain plain text. Saved messages, notes and results display safe
+Markdown, including lists, code, tables and links. Raw HTML and images stay inert;
+source evidence remains literal.
 **Conversation actions** also holds **Beside target** when available.
 Expanded conversations show two recent sent exchanges and all unsent replies.
 The preceding answer stays visible when preparing a follow-up.
@@ -199,8 +202,13 @@ and independent permission. Collapse and resize keep its
 text and caret; a composing note cannot be collapsed. End and Send remain available,
 including note-only Send when no saved comments or edits are pending.
 No disclosure saves, clears or changes a draft's permission.
-The toolbar count is saved pending messages plus edits across all review pages,
-not unread activity. **Send to agent (N)** counts all saved pending messages,
+The toolbar shows separate review-wide counts of **open conversations** and
+**manual edits awaiting handling**, independent of filters, replies, unread
+activity and the pending Send count. Sent edits remain visible until an accepted
+exact-version `applied` or `already-saved` outcome. Deferred and abandoned edits
+keep their reason and original-submission navigation; they are never automatically
+resent or treated as undone. End preserves this inventory and the full history.
+**Send to agent (N)** counts all saved pending messages,
 edits and the optional note, with no extra confirmation step.
 Send freezes selected message/edit versions and the note at activation. New feedback
 or note typing during preparation remains unsent. If a selected item changes during
@@ -341,6 +349,10 @@ exactly once with its exact version. See the
 [complete example and allowed outcomes](../src/references/response-contract.md).
 Discussion cannot be reported as Applied; saved human edits use `already-saved`
 only when server evidence exists. Clarify/defer incomplete or ambiguous work.
+New templates also include an authored `summary` for brief orientation. Fill it
+alongside the required full `resultNote`; it does not replace that answer.
+Older responses and records may omit `summary`. When present, its exact text is
+preserved through persistence, history, scoped reads/exports and response replay.
 
 Each default JSON output is at most 16 KiB UTF-8 after escaping. Large values are
 explicit references, never silently shortened replacements. `content` reads
@@ -435,6 +447,10 @@ own fixed endpoints instead of changing on each reload.
 The version selector and edit counts sit on the left, Previous/Next stays
 centered, and Document/Source sits on the right. This control strip stays visible
 below the Changes heading as you scroll through the comparison.
+An authored summary appears above the diff; older results use a deterministic
+heading. The full agent response, submitted feedback, reviewer edit evidence and
+comparison diagnostics remain in separate disclosures below the diff.
+Comparisons show observed changes, not proof that every request was resolved.
 
 ![The Field Notes submission comparison, with before-and-after text for the revised description and call to action](../assets/doc-review-changes.png)
 
