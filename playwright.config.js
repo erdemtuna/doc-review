@@ -11,8 +11,5 @@ export default defineConfig({
   use: {
     browserName: "chromium",
     headless: true,
-    launchOptions: process.env.DOC_REVIEW_TEST_BROWSER_EXECUTABLE
-      ? { executablePath: process.env.DOC_REVIEW_TEST_BROWSER_EXECUTABLE }
-      : undefined,
   },
 });

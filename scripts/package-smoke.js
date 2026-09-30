@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import ts from "typescript";
 import { conversationSmoke } from "./package-conversation-smoke.js";
 
@@ -266,8 +267,13 @@ try {
   assert.equal(opaqueSdk.headers.get("access-control-allow-origin"), "null");
   if (browserRequested) {
     const { chromium, expect } = await import("@playwright/test");
-    const executablePath = chromium.executablePath();
-    browser = await chromium.launch({ executablePath });
+    const browserEnv = { XDG_CACHE_HOME: process.env.XDG_CACHE_HOME || path.join(homedir(), ".cache") };
+    const isolatedBrowser = await run(process.execPath, ["--input-type=module", "-e",
+      "import { chromium } from '@playwright/test'; process.stdout.write(chromium.executablePath());"], {
+      cwd: root, env: { ...env, ...browserEnv }, timeout: 10_000,
+    });
+    assert.equal(isolatedBrowser.stdout, chromium.executablePath(), "Isolated HOME must retain the installed browser cache");
+    browser = await chromium.launch();
     await writeFile(path.join(evidenceDir, "browser-engine.json"), JSON.stringify({
       engine: "Chromium", version: browser.version(), executable: chromium.executablePath(),
       playwright: JSON.parse(await readFile(path.join(root, "node_modules", "@playwright", "test", "package.json"), "utf8")).version,
@@ -285,8 +291,7 @@ try {
         DOC_REVIEW_TEST_RUNTIME: path.join(installed, "lib"),
         DOC_REVIEW_TEST_ROOT: path.join(work, "parity-fixtures"),
         DOC_REVIEW_TEST_KEEP: keep ? "1" : "0",
-        DOC_REVIEW_TEST_BROWSER_EXECUTABLE: executablePath,
-        PLAYWRIGHT_BROWSERS_PATH: path.join(work, "browser-cache"),
+        ...browserEnv,
       });
       await writeFile(path.join(evidenceDir, "installed-parity.log"), parity.stdout + parity.stderr);
       console.log(parity.stdout.trim().split("\n").at(-1));
