@@ -233,7 +233,8 @@ test("loading, malformed response, unavailable capture and retry remain independ
     await route.fulfill({ json: comparison(route.request().postDataJSON().mode) });
   });
   await region.getByRole("button", { name: "Source", exact: true }).click();
-  await expect(region.getByRole("alert")).toContainText("Invalid comparison response");
+  await expect(region.getByRole("alert").filter({ hasText: "Invalid comparison response" }))
+    .toContainText("Invalid comparison response");
   await region.getByRole("button", { name: "Retry comparison" }).click();
   await region.getByText("About this comparison", { exact: true }).click();
   await expect(region).toContainText("Content exceeded processing limits");

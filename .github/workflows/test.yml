@@ -54,5 +54,9 @@ jobs:
         if: failure()
         with:
           name: chromium-failure-evidence
-          path: test-results
+          path: |
+            test-results
+            .package-smoke-evidence-*/installed-parity
+            .package-smoke-evidence-*/installed-parity.log
+          include-hidden-files: true
           retention-days: 7

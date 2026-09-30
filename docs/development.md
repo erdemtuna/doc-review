@@ -746,7 +746,10 @@ starts the installed server, verifies the actual self-contained UI bundle and
 CSS, and traverses SDK module imports. It also checks opaque-origin SDK CORS,
 asset headers, notices, and the absence of UI tooling in the installation.
 The browser variant checks SDK readiness without external CDN or development
-servers. `package-conversation-smoke.js` runs two-tab open/join, discussion with
+servers. Its parity subprocess keeps an isolated home and empty browser-cache
+path, using the installed Chromium executable reported by Playwright through
+`DOC_REVIEW_TEST_BROWSER_EXECUTABLE`; it never downloads a second browser.
+`package-conversation-smoke.js` runs two-tab open/join, discussion with
 unchanged source, exact text/format/move/delete/image edits, mixed permissions,
 identity-bound CLI context/respond, invalid-response rejection, lost Send/End/
 response reconciliation, Resolve/Reopen, shared End with late completion,

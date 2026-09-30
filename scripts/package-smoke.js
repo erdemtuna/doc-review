@@ -266,7 +266,8 @@ try {
   assert.equal(opaqueSdk.headers.get("access-control-allow-origin"), "null");
   if (browserRequested) {
     const { chromium, expect } = await import("@playwright/test");
-    browser = await chromium.launch();
+    const executablePath = chromium.executablePath();
+    browser = await chromium.launch({ executablePath });
     await writeFile(path.join(evidenceDir, "browser-engine.json"), JSON.stringify({
       engine: "Chromium", version: browser.version(), executable: chromium.executablePath(),
       playwright: JSON.parse(await readFile(path.join(root, "node_modules", "@playwright", "test", "package.json"), "utf8")).version,
@@ -284,6 +285,8 @@ try {
         DOC_REVIEW_TEST_RUNTIME: path.join(installed, "lib"),
         DOC_REVIEW_TEST_ROOT: path.join(work, "parity-fixtures"),
         DOC_REVIEW_TEST_KEEP: keep ? "1" : "0",
+        DOC_REVIEW_TEST_BROWSER_EXECUTABLE: executablePath,
+        PLAYWRIGHT_BROWSERS_PATH: path.join(work, "browser-cache"),
       });
       await writeFile(path.join(evidenceDir, "installed-parity.log"), parity.stdout + parity.stderr);
       console.log(parity.stdout.trim().split("\n").at(-1));

@@ -353,7 +353,8 @@ test("invalid comparison modes remain explicit and retry keeps the result summar
     available: false, mode: "content", reason: "Wrong mode", changes: [], limitations: [],
   } }));
   await changes.getByRole("button", { name: "Source", exact: true }).click();
-  await expect(changes.getByRole("alert")).toContainText("Invalid comparison response");
+  await expect(changes.getByRole("alert").filter({ hasText: "Invalid comparison response" }))
+    .toContainText("Invalid comparison response");
   await expect(changes.locator(".conversation-result-body")).toHaveText("Reported change; comparison validation stays independent.");
   await page.unroute("**/api/conversation/comparison");
   await changes.getByRole("button", { name: "Retry comparison" }).click();
