@@ -22,6 +22,7 @@ import { EditEvidence, ResultActions, ResultPreview, type ResultDetail, type Rev
 import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import { FilterButton } from "./ui/filter-button";
 import { Timeline, TimelineItem } from "./ui/timeline";
+import { MessageMarkdown } from "./message-markdown";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 type Thread = Snapshot["threads"][number];
@@ -416,10 +417,10 @@ function ThreadCard({ owner, item, snapshot, shell, chrome, openInventory }: {
                 ? "received" : "sent"} />
           </div>
           {item.draft?.messageId === reviewer.messageId ? draftView : <>
-          <p className="conversation-body">{reviewer.body}</p>
+          <MessageMarkdown className="conversation-body" body={reviewer.body} />
           </>}
           {response && <div className="conversation-response"><div className="conversation-meta inventory-meta"><ConversationAuthor role="Agent" /><ConversationTime value={response.createdAt} />
-            <ConversationStatus kind={response.outcome} /></div><p className="conversation-body">{response.body}</p></div>}
+            <ConversationStatus className="conversation-delivery" kind={response.outcome} /></div><MessageMarkdown className="conversation-body" body={response.body} /></div>}
         </section>)}
         {!focus && resolutionControl &&
           <div className="conversation-reply conversation-actions">{resolutionControl}{replyControl}</div>}
@@ -466,15 +467,16 @@ function History({ snapshot, shell, visible, onReveal }: { snapshot: Snapshot; s
         tone={waiting || followUp ? "waiting" : item.state === "abandoned" ? "neutral" : changed ? "changed" : "response"}
         icon={<Icon size={14} name={item.state === "queued" ? "clock" : item.state === "delivered" ? "inbox"
           : item.state === "abandoned" ? "circleX" : followUp ? "circleHelp" : changed ? "filePenLine" : "messages"} />}>
-      <details open={item.result ? undefined : true} className="conversation-submission">
+      <details id={`submission-${item.submissionId}`} open={item.result ? undefined : true} className="conversation-submission">
         <summary><span className="conversation-submission-heading"><span>{heading}</span>
           <ConversationTime value={item.createdAt} /></span><Icon className="conversation-submission-chevron" name="chevronRight" size={14} /></summary>
         <div className="conversation-submission-content">
         {detail?.submission.overallNote && <section><h4>Note to agent {detail.submission.overallNote.intent === "request-change" && <ConversationIntent />}</h4>
-          <p>{detail.submission.overallNote.body}</p></section>}
-        {item.result && <section className="conversation-result"><h4>{item.result.title}</h4><p>{item.result.body}</p></section>}
+          <MessageMarkdown body={detail.submission.overallNote.body} /></section>}
+        {item.result && <section className="conversation-result"><h4>Full agent response</h4><MessageMarkdown body={item.result.body} /></section>}
         {detail?.result && <ResultActions detail={detail} shell={shell} onReveal={onReveal} />}
-        {detail?.result?.editOutcomes.map((outcome) => <p key={outcome.editId}>{editOutcomeSummary(outcome.outcome)} {outcome.reason}</p>)}
+        {detail?.result?.editOutcomes.map((outcome) => <section key={outcome.editId}><p>{editOutcomeSummary(outcome.outcome)}</p><MessageMarkdown body={outcome.reason} /></section>)}
+        {detail?.submission.abandonment && <MessageMarkdown body={detail.submission.abandonment.reason} />}
         {item.state === "abandoned" && <p role="status">Abandoned. External source work may still have happened; check the source. No undo or cancellation is guaranteed.</p>}
         {item.result && <p>{resultAvailability(item)}</p>}
         {visible && <CaptureNotices snapshot={snapshot} shell={shell} submissionId={item.submissionId} />}
@@ -489,6 +491,7 @@ function History({ snapshot, shell, visible, onReveal }: { snapshot: Snapshot; s
           </div></section>)}
         </div>
       </details>
+      {item.result?.summary && <ResultPreview body={item.result.summary} actions={control => control} />}
       {waiting && <Button className="conversation-abandon" variant="destructive-ghost" size="xs" disabled={snapshot.busy || !!snapshot.uncertain}
         onClick={() => owner.commands.confirm("abandon", item.submissionId)}><Icon name="circleX" size={14} />Abandon</Button>}
       </TimelineItem>;
@@ -504,8 +507,9 @@ function LatestResult({ snapshot, shell, visible, onReveal }: { snapshot: Snapsh
   return <section className="conversation-result-peek inventory-card" aria-label="Latest submission result">
     <div className="conversation-result-peek-heading"><h3>{detail ? resultHeading(detail) : "Agent response"}</h3>
       <ConversationTime value={latest.result.createdAt} /></div>
-    <ResultPreview key={latest.submissionId} body={latest.result.body} actions={expandControl =>
+    <ResultPreview key={latest.submissionId} body={latest.result.summary ?? (detail ? resultHeading(detail) : "Agent response")} actions={expandControl =>
       detail?.result ? <ResultActions detail={detail} shell={shell} onReveal={onReveal} leadingAction={expandControl} /> : expandControl} />
+    <details><summary>Full agent response</summary><MessageMarkdown body={latest.result.body} /></details>
     {visible && <CaptureNotices snapshot={snapshot} shell={shell} submissionId={latest.submissionId} />}
     {!detail && <Button size="sm" variant="ghost" onClick={() => act(shell.owner, shell.owner.commands.refresh)}>Refresh result details</Button>}
   </section>;
@@ -520,6 +524,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const [commentsExpanded, setCommentsExpanded] = useState(true);
   const [editsExpanded, setEditsExpanded] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<string | null>(null);
   const [replyNavigation, setReplyNavigation] = useState<ReplyNavigation | null>(null);
   const [replyNavigationBusy, setReplyNavigationBusy] = useState(false);
   const returningToReplies = useRef<ReplyOrigin | null>(null);
@@ -532,6 +537,15 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   useLayoutEffect(() => {
     if (inventory.current) inventory.current.scrollTop = owner.readingPosition(historyVisible ? "history" : "inventory", "feedback");
   }, [historyVisible]);
+  useLayoutEffect(() => {
+    if (!historyVisible || !historyTarget) return;
+    const element = document.getElementById(`submission-${historyTarget}`);
+    if (!(element instanceof HTMLDetailsElement)) return;
+    element.open = true;
+    element.querySelector("summary")?.focus({ preventScroll: true });
+    element.scrollIntoView({ block: "nearest" });
+    setHistoryTarget(null);
+  }, [historyVisible, historyTarget]);
   const selectHistory = (value: boolean) => {
     if (!snapshot.focusId && value === historyVisible) return;
     if (!snapshot.focusId && inventory.current) owner.rememberReadingPosition(historyVisible ? "history" : "inventory", "feedback", inventory.current.scrollTop);
@@ -803,22 +817,34 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       </DisclosureTrigger>
       <div className="conversation-comments" id="conversationComments" hidden={historyVisible || (!commentsExpanded && !snapshot.focusId)}>
       {snapshot.threads.map((item) => <ThreadCard key={item.thread.threadId} owner={owner} item={item} snapshot={snapshot} shell={shell} chrome={chrome} openInventory={openInventory} />)}
-      {!snapshot.threads.length && !snapshot.newMessage && <p className={snapshot.edits.length ? "conversation-empty-with-edits" : undefined}>Select text or a passage in the document to add a comment.</p>}
+      {!snapshot.threads.length && !snapshot.newMessage && <p className={snapshot.attentionEdits.length ? "conversation-empty-with-edits" : undefined}>Select text or a passage in the document to add a comment.</p>}
       </div>
-      {(!!snapshot.edits.length || chrome.canRevert) && <section className="conversation-edits" aria-label="Your edits"
+      {(!!snapshot.attentionEdits.length || chrome.canRevert) && <section className="conversation-edits" aria-label="Your edits"
         hidden={!!snapshot.focusId || contextual || historyVisible}>
         <div className="feedback-edit-status">
           <DisclosureTrigger className="conversation-section-toggle" expanded={editsExpanded}
             controls="conversationEdits" onClick={() => setEditsExpanded(value => !value)}>
-            Your edits ({snapshot.edits.length})
+            Your edits ({snapshot.inventory?.edits ?? "..."})
           </DisclosureTrigger>
           <Button className="feedback-revert" variant="destructive-ghost" size="sm" disabled={chrome.blocked || chrome.loading || !chrome.canRevert}
             onClick={() => owner.commands.confirm("revert")}>Revert</Button>
         </div>
-        <ul id="conversationEdits" hidden={!editsExpanded} className="feedback-edit-list conversation-edit-list">{snapshot.edits.map(edit => <li key={edit.editId}>
+        {!snapshot.inventory && <p role="status">Edit inventory unavailable. Refresh to verify awaiting work.</p>}
+        <ul id="conversationEdits" hidden={!editsExpanded} className="feedback-edit-list conversation-edit-list">{snapshot.attentionEdits.map(({ edit, stage, reason, submissionId }) => <li key={edit.editId}>
           <div className="conversation-edit-heading"><span className="feedback-edit-label">{edit.content.label}</span>
             <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Source pending"}</Badge>
             <Badge variant="outline">{edit.content.kind}</Badge></div>
+          <p>{({ unsent: "Not sent", queued: "Sent; awaiting delivery", delivered: "Sent; awaiting agent",
+            deferred: "Deferred; needs follow-up", abandoned: "Abandoned; inspect the source" })[stage]}</p>
+          {reason && <MessageMarkdown body={reason} />}
+          {stage === "abandoned" && <p>External source work may still have happened. No undo or cancellation is guaranteed.</p>}
+          {submissionId && <Button size="sm" variant="outline" onClick={() => act(owner, async () => {
+            while (!owner.getSnapshot().history.some(item => item.submissionId === submissionId) && owner.getSnapshot().historyCursor) {
+              await owner.commands.historyEarlier();
+            }
+            if (!owner.getSnapshot().history.some(item => item.submissionId === submissionId)) throw new Error("Original submission is unavailable. Refresh the review.");
+            setHistoryTarget(submissionId); setHistoryOpen(true);
+          })}>Original submission</Button>}
           <EditEvidence edit={edit} />
         </li>)}</ul>
       </section>}
@@ -854,7 +880,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       documentTarget={snapshot.pages.find(({ page }) => page.pageKey === (chrome.comparisonOpen ? chrome.comparison?.pageKey : chrome.pageKey))?.page.target}
       documentLoading={chrome.comparisonOpen ? chrome.comparison?.loading ?? false : chrome.loading}
       pageMenuOpen={pageMenuOpen} onOptionsOpen={() => { modeFocus.current = false; setPageMenuOpen(false); }}
-      feedbackCount={selection?.pendingCount ?? null} feedbackCountLabel="saved pending feedback items"
+      feedbackInventory={snapshot.inventory} feedbackCount={snapshot.inventory?.openThreads ?? null} feedbackCountLabel="open conversations"
       status={<TooltipProvider delayDuration={300}><Tooltip open={statusTooltipOpen} onOpenChange={setStatusTooltipOpen}>
         <TooltipTrigger asChild>
           <Badge ref={statusTrigger} className="conversation-lifecycle" variant={readonly && snapshot.review ? "secondary" : work ? "warning" : snapshot.review ? "outline" : "quiet"}

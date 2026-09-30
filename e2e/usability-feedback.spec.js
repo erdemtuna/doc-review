@@ -34,7 +34,7 @@ for (const theme of ["light", "dark"]) for (const [width, height] of [[1280, 800
     const card = page.locator(`[data-thread="${threadId}"]`);
     const toast = page.locator(".conversation-toast");
     await expect(toast).toHaveCount(0);
-    const delivery = card.locator(".conversation-delivery");
+    const delivery = card.locator(".conversation-exchange > .conversation-meta .conversation-delivery");
     for (const label of ["Not sent", "Sent", "Received"]) {
       await expect(delivery).toHaveAccessibleName(label);
       await expect(async () => {

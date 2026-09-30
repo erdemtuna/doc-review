@@ -26,6 +26,8 @@
   .conversation-notice { font-size: 12px; padding: 0 var(--conversation-rail); }
   .conversation-filters { display: flex; gap: 6px; padding: 6px var(--conversation-rail); flex-wrap: wrap; }
   .conversation-filter-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .conversation-filter-buttons button, .conversation-panel-header .segmented-control > button { height: var(--review-control-height); min-height: var(--review-control-height); }
+  .conversation-panel-header .segmented-control { min-height: var(--review-control-height); }
   .conversation-toast-viewport { position: fixed; top: 8px; left: 16px; z-index: var(--review-layer-notice); width: max-content; max-width: calc(100vw - 32px); margin: 0; padding: 0; list-style: none; outline: none; }
   .conversation-toast { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lg); font-size: 13px; overflow-wrap: anywhere; }
   .conversation-toast > :first-child { min-width: 0; flex: 1; }
@@ -145,8 +147,8 @@
   .conversation-result-peek-heading h3 { margin: 0; font-size: 14px; }
   .conversation-result-peek-heading .inventory-meta { margin: 0; }
   .conversation-result-peek-heading time { font-size: 11px; color: var(--muted-foreground); }
-  .conversation-panel .conversation-result-preview { margin: 2px 0 8px; font-size: 13px; line-height: 20px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-  .conversation-panel .conversation-result-preview.is-expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }
+  .conversation-result-preview { margin: 2px 0 8px; font-size: 13px; line-height: 20px; max-height: 80px; overflow: hidden; overflow-wrap: anywhere; }
+  .conversation-result-preview.is-expanded { max-height: none; overflow: visible; }
   .conversation-result-peek .conversation-actions span { font-size: 12px; color: var(--muted-foreground); }
   .conversation-result-replies { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
   .conversation-result-reply-label { display: grid; flex: 1; gap: 2px; min-width: 0; line-height: 1.5; }
@@ -167,16 +169,34 @@
   .conversation-result-note h3 { font-size: 14px; }
   .conversation-result-body { white-space: pre-wrap; overflow-wrap: anywhere; }
   .conversation-comparison { position: fixed; inset: var(--toolbar-h) 0 0; z-index: 50; overflow: auto; padding: 12px; scroll-padding-top: var(--comparison-header-height, 0px); background: var(--background); color: var(--foreground); font: 14px/1.55 var(--review-font-sans); }
-  .conversation-comparison-title { position: sticky; top: -12px; z-index: 2; background: var(--background); display: flex; align-items: center; gap: 16px; padding-block: 8px; margin-bottom: 12px; }
+  .conversation-comparison-sticky { position: sticky; top: -12px; z-index: 2; background: var(--background); }
+  .conversation-comparison-title { display: flex; align-items: center; gap: 16px; padding-block: 8px; }
   .conversation-comparison-title h2 { margin: 0; font-size: 17px; }
   .conversation-comparison > .conversation-result-note { max-width: 72ch; margin-inline: auto; }
-  .conversation-comparison:not(:has(.comparison-surface)) > :not(.conversation-comparison-title) { max-width: 72ch; margin-inline: auto; }
+  .conversation-comparison:not(:has(.comparison-surface)) > :not(.conversation-comparison-sticky) { max-width: 72ch; margin-inline: auto; }
   .conversation-result-note :is(h2, h3, p) { margin-block: 8px; }
   .conversation-comparison-summary { font-size: 13px; overflow-wrap: anywhere; }
   .conversation-comparison > header { background: var(--background); }
-  .conversation-comparison > .conversation-comparison-tools { position: sticky; top: calc(var(--comparison-title-height, 0px) - 12px); z-index: 2; padding: 0; }
+  .conversation-comparison-tools { padding: 0; }
   .conversation-comparison[hidden] { display: none; }
   .conversation-comparison .changes-toolbar { width: 100%; }
+  .message-markdown { min-width: 0; max-width: 100%; overflow-wrap: anywhere; white-space: normal; line-height: 1.5; }
+  .message-markdown > :first-child { margin-top: 0; }
+  .message-markdown > :last-child { margin-bottom: 0; }
+  .message-markdown p { white-space: pre-wrap; margin: 6px 0; }
+  .message-markdown :is(ul, ol) { margin: 6px 0; padding-left: 22px; }
+  .message-markdown ul { list-style: disc; }
+  .message-markdown ol { list-style: decimal; }
+  .message-markdown li { margin-block: 3px; }
+  .message-markdown h4 { font-size: 1em; font-weight: 600; margin: 10px 0 6px; }
+  .message-markdown blockquote { border-left: 3px solid var(--border); margin: 8px 0; padding-left: 10px; }
+  .message-markdown code { font-family: var(--review-font-mono); font-size: .92em; white-space: pre-wrap; }
+  .message-markdown pre { max-width: 100%; overflow: auto; padding: 8px; background: var(--muted); border-radius: 4px; }
+  .message-markdown pre code { white-space: pre; }
+  .message-markdown a { color: var(--primary); text-decoration: underline; }
+  .message-table { max-width: 100%; overflow: auto; }
+  .message-table table { width: 100%; border-collapse: collapse; }
+  .message-table :is(th, td) { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
   @media (max-width: 760px) {
     .durable-review .shell-toolbar, .durable-review.comparing .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "destinations status ." "tools tools tools"; }
     .durable-review .shell-tools { justify-content: space-between; flex-wrap: wrap; }
@@ -224,6 +244,10 @@
   }
 }
 @layer utilities {
+  @media (max-width: 480px) {
+    .durable-review #commentsButton { padding-inline: 8px; gap: 4px; }
+    .durable-review #commentsButton [data-slot="badge"] { padding-inline: 6px; }
+  }
   @media (max-width: 480px) and (max-height: 550px) {
     .conversation-filter-buttons button { padding-inline: 6px; }
     .conversation-panel-header [data-slot="badge"] { padding-inline: 2px; }

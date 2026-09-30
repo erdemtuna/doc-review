@@ -62,6 +62,18 @@ permission for that request only; the agent can answer, clarify, apply, or defer
    before and after content, then continue reviewing. Comparisons show observed
    changes, not a guarantee that every request was resolved.
 
+Feedback shows review-wide **open conversations** and **manual edits awaiting
+handling**, independently of filters, unread activity and the pending Send count.
+Sent edits stay visible until an accepted exact-version `applied` or `already-saved`
+outcome. Deferred and abandoned edits retain their reason and original submission;
+they are never automatically resent or treated as undone. Ending a review preserves
+this inventory and the complete history.
+
+Composers remain plain text. Saved messages, notes and results display safe Markdown:
+lists, code, tables and links, with raw HTML and images kept inert. New agent
+templates include an authored `summary`; older records use deterministic headings.
+The independent full `resultNote` remains required and available in a disclosure.
+
 You can review a plan, refine a landing page, or walk through a local app without
 moving your feedback into a separate document.
 
@@ -72,8 +84,9 @@ saved pending replies, and complete submission results.*
 
 ![The completed Field Notes submission in Changes, comparing the revised description and call to action with their originals](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-changes.png)
 
-*The full result note stays above Content and Source comparison controls.
-Detailed submission history remains available from Feedback.*
+*Changes now puts sticky comparison controls, a compact summary and the diff first.
+Full responses, submitted feedback, reviewer edit evidence and technical details
+remain in separate disclosures below. The image above shows the earlier layout.*
 
 ## What happens to your edits?
 

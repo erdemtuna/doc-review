@@ -6,6 +6,7 @@ import type { ConversationShell } from "../../conversation-shell";
 import { Button } from "./ui/button";
 import { DisclosureTrigger } from "./ui/disclosure-trigger";
 import { Icon } from "./icon";
+import { MessageMarkdown } from "./message-markdown";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 export type ResultDetail = Snapshot["submissions"][number]["value"];
@@ -23,13 +24,13 @@ export function editOutcomeSummary(outcome: NonNullable<ResultDetail["result"]>[
 }
 
 export function ResultPreview({ body, actions }: { body: string; actions: (expandControl: ReactNode) => ReactNode }) {
-  const id = useId(), preview = useRef<HTMLParagraphElement>(null);
+  const id = useId(), preview = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false), [overflow, setOverflow] = useState(false);
   useLayoutEffect(() => {
     const node = preview.current;
     if (!node) return;
     const measure = () => {
-      if (node.clientWidth) setOverflow(node.scrollHeight > parseFloat(getComputedStyle(node).lineHeight) * 2 + 1);
+      if (node.clientWidth) setOverflow(node.scrollHeight > 80 + 1);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -37,7 +38,8 @@ export function ResultPreview({ body, actions }: { body: string; actions: (expan
     return () => observer.disconnect();
   }, [body]);
   return <>
-    <p ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}>{body}</p>
+    <div ref={preview} id={id} className={`conversation-result-preview${expanded ? " is-expanded" : ""}`}
+      onFocusCapture={() => { if (overflow) setExpanded(true); }}><MessageMarkdown body={body} /></div>
     {actions(overflow && <DisclosureTrigger expanded={expanded}
       controls={id} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</DisclosureTrigger>)}
   </>;
@@ -126,22 +128,38 @@ export function SubmissionResultNote({ detail }: { detail: ResultDetail }) {
   if (!result) return null;
   return <section className="conversation-result-note inventory-card" aria-label="Full submission result note">
     <div className="inventory-meta"><strong>Agent-reported result</strong><ConversationTime value={result.createdAt} /></div>
-    <h2>{result.title}</h2>
-    <p className="conversation-result-body">{result.body}</p>
+    <h2>Full response</h2>
+    <MessageMarkdown className="conversation-result-body" body={result.body} />
     {result.overallOutcome && <p>Note to the agent: <Badge variant="outline">{responseOutcomeLabels[result.overallOutcome]}</Badge></p>}
-    {detail.submission.edits.length > 0 && <section aria-label="Your submitted edits">
+  </section>;
+}
+
+export function SubmittedEdits({ detail }: { detail: ResultDetail }) {
+  const result = detail.result;
+  return detail.submission.edits.length > 0 && <section aria-label="Your submitted edits">
       <h3>Your submitted edits</h3>
       <p>Edits you included in this batch, separate from new agent-reported work.</p>
       <ul className="feedback-edit-list conversation-edit-list">{detail.submission.edits.map((edit) => {
-        const outcome = result.editOutcomes.find((item) => item.editId === edit.editId && item.editVersion === edit.version);
+        const outcome = result?.editOutcomes.find((item) => item.editId === edit.editId && item.editVersion === edit.version);
         return <li key={edit.editId}>
           <div className="conversation-edit-heading"><strong className="feedback-edit-label">{edit.content.label}</strong>
             <Badge variant="outline">{edit.source.state === "saved" ? "Already saved" : "Sent for the agent to apply"}</Badge></div>
           <p>{editOutcomeSummary(outcome?.outcome)}</p>
-          {outcome && <p>{outcome.reason}</p>}
+          {outcome && <MessageMarkdown body={outcome.reason} />}
           <EditEvidence edit={edit} />
         </li>;
       })}</ul>
-    </section>}
+    </section>;
+}
+
+export function SubmittedFeedback({ detail }: { detail: ResultDetail }) {
+  return <section aria-label="Submitted feedback">
+    {detail.submission.overallNote && <section><h3>Note to agent</h3><MessageMarkdown body={detail.submission.overallNote.body} /></section>}
+    {detail.submission.messages.map(({ message, target }) => <section key={message.messageId}>
+      <ConversationSource target={target} /><MessageMarkdown body={message.body} />
+      {detail.result?.responses.filter(reply => reply.replyToMessageId === message.messageId).map(reply =>
+        <section key={reply.messageId}><h4>Agent: {responseOutcomeLabels[reply.outcome]}</h4><MessageMarkdown body={reply.body} /></section>)}
+    </section>)}
+    {!detail.submission.messages.length && !detail.submission.overallNote && <p>This submission contained only manual edits.</p>}
   </section>;
 }

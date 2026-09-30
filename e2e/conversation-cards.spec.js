@@ -22,7 +22,7 @@ test("identical pending and handled cards retain readable content and record den
         await page.setViewportSize({ width, height });
         await expectFeedbackBounds(page, { width, height });
         await page.locator(".conversation-inventory").evaluate((element) => { element.scrollTop = 0; });
-        const message = card.locator(".conversation-exchange > p").first();
+        const message = card.locator(".conversation-exchange > .conversation-body").first();
         const box = await card.boundingBox(), body = await message.boundingBox();
         metrics.push({ state, theme, width, height, cardHeight: box.height, messageOffset: body.y - box.y,
           fontSize: await message.evaluate((element) => getComputedStyle(element).fontSize) });
@@ -221,7 +221,7 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await feedback(page);
   await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
   await expect(page.locator("#send")).toHaveText("Send to agent (2)");
-  await expect(page.locator("#toolbarCount")).toHaveText("2");
+  await expect(page.locator("#toolbarCount")).toHaveText("1 open");
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await expect(card.getByRole("img", { name: "Not sent", exact: true })).toHaveCount(2);

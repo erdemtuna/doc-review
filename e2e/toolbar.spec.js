@@ -149,7 +149,7 @@ test("coherent toolbar grouping, selected paint, hit targets and lifecycle geome
       if (width > 640) expect(Math.abs(lifecycle.x + lifecycle.width / 2 - width / 2)).toBeLessThanOrEqual(1);
       expect(lifecycle.height).toBe(20);
       expect(lifecycle.x + lifecycle.width).toBeLessThanOrEqual(width);
-      expect(toolbar.height).toBe(width > 760 ? 49 : 89);
+      expect(toolbar.height, `${theme} ${width}x${height} toolbar`).toBe(width > 760 ? 49 : 89);
       const stage = await page.locator(".stage").boundingBox();
       expect(stage.y).toBe(toolbar.y + toolbar.height);
       const panel = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();

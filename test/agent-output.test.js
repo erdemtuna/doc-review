@@ -58,6 +58,38 @@ test("actual comment, SKILL transition and review report meet final public paylo
   t.diagnostic(JSON.stringify({ shortBytes: Buffer.byteLength(short.stdout), editBytes: Buffer.byteLength(polled.stdout), statusBytes: Buffer.byteLength(status.stdout) }));
 });
 
+test("long Unicode summaries survive bounded projections, scoped chunks, export and offline restart", async (t) => {
+  const f = await fixture(t), scope = ref(await f.open(f.file()));
+  await f.send(scope, [], [], { overallNote: { intent: "discuss", body: "Explain the outcome." } });
+  const work = (await f.poll(scope)).submission;
+  const summary = 'é😀"\\\n'.repeat(5000);
+  success(await f.respond(scope, responseFor(work, { summary, resultNote: "Full answer remains independent." })));
+  for (const command of ["submission", "history", "status"]) {
+    const value = success(await f.cli(command, ...scopeArgs(scope), ...(command === "submission" ? ["--submission", work.submissionId] : [])));
+    const result = command === "history" ? value.items[0].result : command === "status" ? value.latestSubmission.result : value.result;
+    assert.equal(result.summary.kind, "reference");
+    assert.equal(result.summary.sha256, digest(summary));
+    assert.equal(result.summary.utf8Bytes, Buffer.byteLength(summary));
+  }
+  const args = ["content", ...scopeArgs(scope), "--submission", work.submissionId, "--field", "result/summary"];
+  let text = "", cursor;
+  do {
+    const chunk = success(await f.cli(...args, ...(cursor ? ["--cursor", cursor] : [])));
+    assert.equal(chunk.offset, Buffer.byteLength(text));
+    text += chunk.text; cursor = chunk.nextCursor;
+  } while (cursor);
+  assert.equal(text, summary);
+  const exported = success(await f.cli(...args, "--output-file", "summary.txt"));
+  assert.equal(fs.readFileSync(exported.path, "utf8"), summary);
+  await f.restart();
+  const full = success(await f.cli("content", ...scopeArgs(scope), "--submission", work.submissionId, "--output-file", "submission.json"));
+  assert.equal(JSON.parse(fs.readFileSync(full.path, "utf8")).result.summary, summary);
+  await f.stop();
+  const offline = success(await f.cli("status", ...scopeArgs(scope)));
+  assert.equal(offline.source, "disk");
+  assert.equal(offline.latestSubmission.result.summary.sha256, digest(summary));
+});
+
 test("escaped Unicode chunks reconstruct exactly, reject cross-scope/version cursors, and never replace existing artifacts", async (t) => {
   const f = await fixture(t), scope = ref(await f.open(f.file("unicode.md", "Original")));
   const exact = '😀"\\\r\né\t'.repeat(13000);
@@ -120,7 +152,7 @@ test("many small records page completely and templates cover all pages with inva
   assert.equal((await f.run(work.handoff.templateCommand)).body.error.code, "REQUEST_CONFLICT");
   assert.deepEqual(fs.readFileSync(receipt.path), original);
   template.responses.forEach((r) => { r.body = "Answered."; r.outcome = "answered"; });
-  template.overallOutcome = "answered"; template.resultNote = "All questions answered.";
+  template.overallOutcome = "answered"; template.summary = "All questions answered."; template.resultNote = "All questions answered.";
   fs.writeFileSync(receipt.path, JSON.stringify(template));
   const accepted = success(await f.run(work.handoff.responseCommand));
   assert.deepEqual(success(await f.run(work.handoff.responseCommand)), accepted);

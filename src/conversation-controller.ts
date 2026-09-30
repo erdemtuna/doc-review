@@ -2,11 +2,11 @@ import { createControllerStore } from "./controller-store.js";
 import { ApiError } from "./chrome-api.js";
 import {
   acceptedMutationSchema, abandonRequestSchema, contextPageSchema, conversationListRequestSchema,
-  directEditPageSchema, directEditContentSchema, receiptLookupSchema, reviewPageListSchema, reviewPageSchema, validateSaveEvidence,
+  directEditPageSchema, editAttentionPageSchema, directEditContentSchema, receiptLookupSchema, reviewPageListSchema, reviewPageSchema, validateSaveEvidence,
   reviewerMutationSchema, reviewStatusSchema, submissionHistoryPageSchema, submissionReadSchema,
   threadPageSchema, type Infer, type Schema,
   type ConversationExchange, type ConversationPage, type ConversationReview, type ConversationTarget,
-  type DirectEdit, type HandlingReceipt, type PagingScope, type ReviewerMessage, type ReviewStatus, type SendRequest,
+  type DirectEdit, type EditAttention, type HandlingReceipt, type PagingScope, type ReviewerMessage, type ReviewStatus, type SendRequest,
 } from "./contracts/index.js";
 
 type Thread = Infer<typeof threadPageSchema>["items"][number];
@@ -42,6 +42,7 @@ export function createConversationController(options: Options) {
   let review: ConversationReview | null = null;
   let status: ReviewStatus | null = null;
   let pages: ConversationPage[] = [], threads: Thread[] = [], edits: DirectEdit[] = [], history: HistoryItem[] = [];
+  let attentionEdits: EditAttention[] = [];
   let historyCursor: string | null = null, historyDepth = 50;
   let historyLoading: Promise<void> | null = null;
   const contexts = new Map<string, Context>(), drafts = new Map<string, ConversationDraft>();
@@ -112,7 +113,9 @@ export function createConversationController(options: Options) {
   }
   const draftCount = () => [...drafts.values(), note, ...(newMessage ? [newMessage.draft] : [])].filter((draft) => draft.text.length > 0).length;
   const store = createControllerStore(() => ({
-    review, status, pages, edits, history, historyCursor,
+    review, status, pages, edits, attentionEdits, history, historyCursor,
+    inventory: selectionKnown && !loading && connected && !uncertain && status
+      ? { openThreads: status.openThreadCount, edits: status.attentionEditCount } : null,
     threads: threads.map((thread) => ({
       ...thread, exchanges: displayExchanges(thread), context: contexts.get(thread.thread.threadId) ?? null,
       draft: drafts.get(thread.thread.threadId) ?? null, expanded: !collapsed.has(thread.thread.threadId),
@@ -142,13 +145,21 @@ export function createConversationController(options: Options) {
   async function page<T>(collection: PagingScope["collection"], decoder: Schema<T>, query: { limit?: number; cursor?: string } = {}, threadId: string | null = null) {
     return post(conversationListRequestSchema.parse({ operation: "list", scope: scope(collection, threadId), query }), decoder);
   }
-  async function all<T>(collection: PagingScope["collection"], decoder: Schema<{ items: T[]; nextCursor: string | null }>) {
+  async function all<T>(collection: PagingScope["collection"], decoder: Schema<{ items: T[]; nextCursor: string | null; totalCount: number; highWater: number }>) {
     const items: T[] = [];
     let cursor: string | undefined;
+    let total: number | undefined, highWater: number | undefined;
+    const cursors = new Set<string>();
     do {
       const result = await page(collection, decoder, { limit: 100, ...(cursor ? { cursor } : {}) });
+      total ??= result.totalCount; highWater ??= result.highWater;
+      if (result.totalCount !== total || result.highWater !== highWater || (result.nextCursor && cursors.has(result.nextCursor))) {
+        throw new Error(`The ${collection} inventory changed while paging. Refresh the review.`);
+      }
+      if (result.nextCursor) cursors.add(result.nextCursor);
       items.push(...result.items); cursor = result.nextCursor ?? undefined;
     } while (cursor);
+    if (items.length !== total) throw new Error(`The ${collection} inventory is incomplete. Refresh the review.`);
     return items;
   }
   async function readContext(id: string, minimum = 1, pending = 0, messageId?: string): Promise<Context> {
@@ -179,9 +190,9 @@ export function createConversationController(options: Options) {
   async function refreshOnce() {
     const nextStatus = await post({ operation: "status", ...reference }, reviewStatusSchema);
     if (nextStatus.review.reviewId !== reference.reviewId || nextStatus.review.entryKey !== reference.entryKey) throw new Error("Status belongs to another review.");
-    const [nextPages, nextThreads, nextEdits, nextHistory] = await Promise.all([
+    const [nextPages, nextThreads, nextEdits, nextHistory, nextAttentionEdits] = await Promise.all([
       all("pages", reviewPageListSchema), all("threads", threadPageSchema), all("edits", directEditPageSchema),
-      readHistory(),
+      readHistory(), all("edit-attention", editAttentionPageSchema),
     ]);
     const nextContexts = new Map<string, Context>();
     await Promise.all(nextThreads.map(async (thread) => {
@@ -199,6 +210,11 @@ export function createConversationController(options: Options) {
     }));
     const confirmed = await post({ operation: "status", ...reference }, reviewStatusSchema);
     if (JSON.stringify(nextStatus) !== JSON.stringify(confirmed)) { refreshAgain = true; return; }
+    if (nextAttentionEdits.length !== nextStatus.attentionEditCount ||
+        new Set(nextAttentionEdits.map(item => JSON.stringify([item.edit.editId, item.edit.version]))).size !== nextAttentionEdits.length ||
+        nextThreads.filter(item => item.thread.status === "open").length !== nextStatus.openThreadCount) {
+      throw new Error("Feedback inventory is incomplete. Refresh to reload the review.");
+    }
     if (disposed) return;
     const nextStage = reviewStage(nextStatus);
     if (status && reviewStage(status) !== nextStage) {
@@ -208,6 +224,7 @@ export function createConversationController(options: Options) {
           : completed ? "Agent response received. Ready to review." : "Reviewing resumed." };
     }
     review = nextStatus.review; status = nextStatus; pages = nextPages; edits = nextEdits;
+    attentionEdits = nextAttentionEdits;
     for (const thread of nextThreads) {
       const id = thread.thread.threadId;
       const exchange = thread.latestExchange;

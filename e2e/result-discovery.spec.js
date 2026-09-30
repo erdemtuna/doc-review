@@ -131,6 +131,8 @@ test("actual saved human edits and captured agent result are discoverable, disti
   expect(await page.locator(".conversation-submission").evaluate(node => node.open)).toBe(false);
   await peek.getByRole("button", { name: "View changes" }).click();
   const changes = page.getByRole("region", { name: "Saved comparison" });
+  await changes.getByText("Full agent response", { exact: true }).click();
+  await changes.getByText("Reviewer edits and evidence", { exact: true }).click();
   await expect(changes.getByRole("region", { name: "Full submission result note" })).toContainText("Updated the agent target.");
   await expect(changes).toContainText("You saved this edit before sending.");
   await expect.poll(async () => (await listed(review, ref, "history")).items[0].comparisonStatus).toBe("ready");
@@ -173,6 +175,7 @@ test("actual saved human edits and captured agent result are discoverable, disti
     const button = peek.getByRole("button", { name: "View changes" });
     await button.click();
     const body = changes.locator(".conversation-result-body");
+    await body.scrollIntoViewIfNeeded();
     const requiredBody = await readableTextHeight(body);
     expect(requiredBody).toBeGreaterThan(0);
     await expect.poll(() => visibleTextHeight(body)).toBeGreaterThanOrEqual(requiredBody);
@@ -232,7 +235,7 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
     outcome: "answered", body: `Answer ${index + 1}.\n\n` +
       "Filter before paging. Keep the cursor tied to the same filters. Preserve authorization checks.\n\n".repeat(12) + "Final answer line.",
   }));
-  const completed = await reviewApi(review, "/api/conversation", { method: "POST", body: responseFor(work, { responses, resultNote: note }) });
+  const completed = await reviewApi(review, "/api/conversation", { method: "POST", body: responseFor(work, { responses, summary: note, resultNote: "Full independent answer." }) });
   expect(completed.status, completed.raw).toBe(200);
   const peek = page.getByRole("region", { name: "Latest submission result" });
   await expect(peek).toBeVisible();
@@ -324,7 +327,10 @@ test("complete summaries and batch reply navigation preserve origin, reading spa
       expect(await draft.evaluate(node => [node === window.replyNavigationDraft, node.selectionStart, node.selectionEnd])).toEqual([true, 2, 7]);
       await firstCard.locator(".conversation-transcript").evaluate(node => { node.scrollTop = node.scrollHeight; });
       const tail = await firstCard.locator(".conversation-response .conversation-body").evaluate(node => {
-        const text = node.lastChild, range = document.createRange();
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        let text = walker.nextNode(), next;
+        while ((next = walker.nextNode())) text = next;
+        const range = document.createRange();
         range.setStart(text, text.textContent.length - "Final answer line.".length); range.setEnd(text, text.textContent.length);
         const rect = range.getBoundingClientRect(), container = node.closest(".conversation-transcript").getBoundingClientRect();
         return { top: rect.top, bottom: rect.bottom, containerTop: container.top, containerBottom: container.bottom };

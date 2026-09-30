@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { directEditSchema, submissionSchema, submissionResultSchema } from "../../src/contracts/feedback";
 import { submissionHistoryItemSchema } from "../../src/contracts/history";
-import { EditEvidence, editOutcomeSummary, responseOutcomeLabels, resultAvailability, SubmissionResultNote, type ResultDetail } from "@/components/conversation-results";
+import { EditEvidence, editOutcomeSummary, responseOutcomeLabels, resultAvailability, SubmissionResultNote, SubmittedEdits, type ResultDetail } from "@/components/conversation-results";
 
 afterEach(cleanup);
 it("History and result surfaces share readable outcome wording without leaking wire enums", () => {
@@ -66,8 +66,10 @@ it.each(["applied", "deferred"] as const)("full result notes retain exact %s att
       editOutcomes: [{ editId: pending.editId, editVersion: pending.version, outcome, reason: "Exact outcome explanation." }],
     }), receipt: null,
   };
-  render(<SubmissionResultNote detail={detail} />);
+  render(<><SubmissionResultNote detail={detail} /><SubmittedEdits detail={detail} /></>);
   expect(screen.getByRole("region", { name: "Full submission result note" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Full response" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "What changed" })).not.toBeInTheDocument();
   expect(screen.getByText("Independent agent note.")).toBeVisible();
   expect(screen.getByText("Sent for the agent to apply")).toBeVisible();
   expect(screen.getByText(outcome === "applied" ? "The agent says this edit has been applied." : "The agent left this edit for later.")).toBeVisible();

@@ -50,7 +50,7 @@ test("approved Field Notes toolbar and readable card hierarchy survive the accep
     await expect(page.getByRole("button", { name: "Open (2)", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Resolved (0)", exact: true })).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("#send")).toHaveText("Send to agent (2)");
-    await expect(page.locator("#commentsButton")).toContainText("2 saved pending feedback items");
+    await expect(page.locator("#commentsButton")).toHaveAccessibleDescription("2 open conversations; 0 manual edits awaiting handling");
     const hit = await page.locator("#reviewOptions").evaluate(node => {
       const box = node.getBoundingClientRect();
       return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));

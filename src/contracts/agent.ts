@@ -78,7 +78,7 @@ const lifecycle = {
 const note = object({ intent: intentSchema, body: agentTextSchema });
 const result = object({
   resultId: id, title: enumeration(["What changed", "Agent response"]),
-  effect: enumeration(["reply-only", "changes-reported"]), body: agentTextSchema,
+  effect: enumeration(["reply-only", "changes-reported"]), body: agentTextSchema, summary: optional(agentTextSchema),
   overallOutcome: optional(messageOutcomeSchema),
 });
 export const agentSubmissionSchema = object({
@@ -123,6 +123,7 @@ export const agentContentSchema = object({
 });
 export const agentStatusSchema = object({
   source: enumeration(["server", "disk"]), review: reviewSchema,
+  openThreadCount: integer(), attentionEditCount: integer(),
   pendingMessageCount: integer(), pendingEditCount: integer(),
   work: nullable(object({ submissionId: id, state: enumeration(["queued", "delivered"]), version })),
   blockers: object({ ...pageFields, items: array(jsonSchema) }),

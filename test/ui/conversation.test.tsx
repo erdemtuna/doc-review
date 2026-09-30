@@ -19,7 +19,7 @@ async function openInventory() {
 async function fixture() {
   if (typeof ResizeObserver === "undefined") vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const review: ReviewStatus["review"] = { reviewId: "review", entryKey: "page", version: 1, state: "open", createdAt: 1, endedAt: null };
-  const status: ReviewStatus = { review, pendingMessageCount: 0, pendingEditCount: 0, work: null, blockers: [] };
+  const status: ReviewStatus = { review, openThreadCount: 1, attentionEditCount: 0, pendingMessageCount: 0, pendingEditCount: 0, work: null, blockers: [] };
   const thread = { threadId: "thread", reviewId: "review", pageKey: "page", version: 1, sequence: 1,
     target: { kind: "element", anchor: { selector: "p", label: "Paragraph" } }, status: "open", createdAt: 1, updatedAt: 1 };
   const message = { messageId: "message", reviewId: "review", threadId: "thread", version: 1, sequence: 2, createdAt: 1,
@@ -348,11 +348,11 @@ it("discussion messages omit default pills, replies default to no change permiss
   shell.dispose();
 });
 
-it("Feedback counts saved pending items separately from attention and note-only selection with a styled independent permission", async () => {
+it("Feedback counts open conversations independently of pending Send, unread activity and note drafts", async () => {
   const { owner, shell } = await fixture();
   expect(screen.queryByRole("textbox", { name: "Note to agent" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Note to agent/ }));
-  expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1 open");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   const note = screen.getByRole("textbox", { name: "Note to agent" });
   fireEvent.change(note, { target: { value: "Only the note" } });
@@ -360,7 +360,7 @@ it("Feedback counts saved pending items separately from attention and note-only 
   expect(send).toHaveTextContent("Send to agent (1)");
   expect(send).toHaveAccessibleDescription("Ready to send: 1 note");
   expect(send).toBeEnabled();
-  expect(document.querySelector("#toolbarCount")).toHaveTextContent("0");
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1 open");
   const permission = screen.getByRole("checkbox", { name: "Request a change" });
   expect(permission).toHaveAttribute("data-slot", "checkbox"); expect(permission).not.toBeChecked();
   fireEvent.click(permission);

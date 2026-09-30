@@ -37,6 +37,7 @@ The JSON contract is strict (unknown fields are rejected):
     "reason": "The source target is ambiguous; please identify the component."
   }],
   "overallOutcome": "answered",
+  "summary": "Answered the questions; one edit needs a clearer target.",
   "resultNote": "Answered the discussion and overall note; deferred the ambiguous edit."
 }
 ```
@@ -58,6 +59,19 @@ the submission has an overall note. Its enum is `applied`, `answered`,
 The overall answer's prose belongs in `resultNote`. That independent, nonempty
 result note is always required, even without an overall note.
 
+`summary` is an authored orientation sentence or two, separate from the full
+`resultNote`. Fill it in new templates. Older responses and records may omit it;
+when present it must be nonempty. It grants no permission and replaces neither
+message coverage nor edit outcomes. Its exact text participates in receipt replay:
+do not revise it under an accepted requestId. Long summaries use the usual scoped
+content references and export, including `--field result/summary`.
+
+Write answer/outcome first. Routine replies usually need one or two sentences
+and at most three useful bullets (roughly 40-90 words is guidance, not a limit).
+Lead clarification with the exact question. Use Markdown for readable saved
+prose, but avoid IDs/hashes, repetitive preservation boilerplate, or duplicating
+all replies in the summary. Edit reasons explain the outcome, not the full evidence.
+
 A note-only response has empty `responses` and `editOutcomes` arrays, for example:
 
 ```json
@@ -71,6 +85,7 @@ A note-only response has empty `responses` and `editOutcomes` arrays, for exampl
   "responses": [],
   "editOutcomes": [],
   "overallOutcome": "answered",
+  "summary": "Explained the tradeoff; no source change was requested.",
   "resultNote": "The earlier result explained the tradeoff; no new source change was requested."
 }
 ```
