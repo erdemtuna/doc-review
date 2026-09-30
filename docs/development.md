@@ -537,17 +537,22 @@ strict `openReviewRequestSchema`, then attaches `/api/conversation/session`.
 All other agent commands require `--review <reviewId> --entry <entryKey>`, never
 the latest review resolved by a path. The response file must match those IDs.
 Generated CLI and shell handoffs share `agent-handoff.js`; `contracts/agent.ts`
-adds strict **output envelopes only**, without changing accepted mutation,
-submission, paging, intent, or receipt semantics.
+defines the single model-facing read/output contract. `agent-output.js` projects
+validated durable evidence without changing accepted mutation, submission, intent,
+or receipt semantics. Browser reads retain their independent pending-message view.
 
 | Command | Machine output |
 | --- | --- |
 | `<target> [--request-id <id>] [--no-browser]` | `agentOpenSchema`: `{ok:true,receipt,review,url,handoff}`. If durable open succeeds but session attachment fails, exit 1 with `{state:"accepted",value:{ok:true,receipt}}`, not a claim that open was rejected. Retry the original open request ID. |
-| `poll --review <id> --entry <key> [--timeout <secs>]` | `agentPollSchema`: `work` with review/submission/canonical pages/handoff, `ended` with review/handoff, or `timeout` with exact reference/handoff. Default 43,200 seconds, including discovery and reconnect. |
-| `context --review <id> --entry <key> --thread <id> [--limit <1-100>] [--cursor <token>]` | Existing `contextPageSchema`, additionally checked against requested scope, ordering, limit, and high-water cursor. Latest window is chronological; next cursor loads earlier exchanges. |
+| `poll --review <id> --entry <key> [--timeout <secs>]` | `agentPollSchema`: `work` with review and submission manifest (paged inventory and handoff), `ended` with review/handoff, or `timeout` with exact reference/handoff. Default 43,200 seconds, including discovery and reconnect. |
+| `context --review <id> --entry <key> --submission <id> --thread <id> [--limit <1-100>] [--cursor <token>]` | `agentContextSchema`: producer-filtered immutable exchanges strictly before bound work, newest first. Excludes current/later submissions and saved-unsent messages before pagination; the browser's independent context is unchanged. |
+| `history --review <id> --entry <key> [--before <submission>] [--limit <1-100>] [--cursor <token>]` | `agentHistorySchema`: prior note intent, lifecycle, result and exact submission commands, with stable high-water paging. |
+| `submission --review <id> --entry <key> --submission <id> [--cursor <token>]` | `agentSubmissionSchema`: complete paged page/message/edit/response/edit-outcome inventory; exact save and capture-truncation evidence retained. |
+| `content --review <id> --entry <key> --submission <id> --field <path> [--version <version>] [--cursor <token>] [--output-file <new-path>]` | `agentContentSchema`: exact UTF-8/JSON field with bytes/hash and Unicode-safe continuation. `--field .` reads the whole scoped artifact; export may omit field. Immutable field versions survive lifecycle changes. |
+| `response-template --review <id> --entry <key> --submission <id> --output-file <new-path>` | Authoritative full inventory with stable requestId, exact versions and intentionally invalid blanks. Atomic exclusive artifact write; no retry-file overwrite or invented outcomes. |
 | `respond --review <id> --entry <key> --response-file <file> [--timeout <secs>]` | Existing `acceptedMutationSchema`, after strict response shape and producer coverage validation. The file contains the stable request ID and delivered expectedVersion. |
 | `receipt --review <id> --entry <key> --request-id <id>` | Existing `receiptLookupSchema`. A miss never proves a request was rejected. |
-| `status --review <id> --entry <key>` | `agentStatusSchema`: `{source:"server"\|"disk",status,latestSubmission}`. Latest history supplies handled/abandoned evidence without an unbounded response. |
+| `status --review <id> --entry <key> [--cursor <token>]` | `agentStatusSchema`: source, review, pending counts, work, paged blockers, latest lifecycle/result preview/reference and handoff. Read-only and offline-capable. |
 
 All commands except poll default to a 60-second transport deadline and accept
 `--timeout`. This is a caller waiting budget, not a service SLA. Successful JSON
@@ -560,16 +565,27 @@ rejections (including abandonment) never generate a new completion. The CLI
 does not execute source edits. Receipt replay cannot make arbitrary agent
 filesystem work exactly-once; one cooperating handler remains the assumption.
 
-`POST /api/conversation/status` takes the existing `status` request and returns
-the new status envelope from one synchronous store snapshot. Offline status
+`POST /api/conversation/agent` takes `agentReadRequestSchema` and returns a strict
+operation/value envelope from one synchronous store snapshot. Exact content uses
+known submitted artifact field paths, not arbitrary store/filesystem access.
+All default serialized JSON, including escaping and newline, is at most 16 KiB.
+Inventories page by bytes and record count; references preserve hashes, field
+identity/version and original capture-truncation evidence separately. Undeliverable
+minimal metadata produces a bounded error, not an empty successful page.
+CLI mutations preflight receipt identities before acceptance so oversized request
+IDs cannot turn a committed response into a known-failure output. Offline status
 parses and validates `conversation-state.json` and uses the same read-only
 conversation projection. It does not construct `Store`, prune assets, persist,
 start a server, or consult old page/batch state as fallback. Missing, corrupt,
 unreadable, or unsupported state is reported explicitly. `source:"disk"` describes
 persisted evidence, not live agent availability.
 
-The source skill is also the source of generated project setup guidance; global
-setup uses the same template. To refresh distributed copies after installing an
+Build ships SKILL.md and its relative references tree. Setup installs the bundle
+under project `.claude/skills/doc-review` and `.agents/skills/doc-review`, and a
+short activation-gated owned AGENTS.md pointer; global setup installs Claude,
+Codex and shared-agent bundles. Commands are substituted in every reference.
+Existing ownership, handwritten text, UTF-8 and newline safeguards remain intact.
+To refresh distributed copies after installing an
 updated package, explicitly run that package's project `setup` and/or
 `setup --global`, then reload skills. Repository implementation never updates
 user-global instructions automatically. Frozen obsolete strings in
@@ -672,7 +688,7 @@ changes thread status or anchors. Returning the active thread to Feedback reveal
 its Open/Resolved filter if necessary, rather than hiding an active draft.
 Panel bounds and short-layout styles follow the visual viewport, including a
 keyboard resize that does not resize the layout viewport.
-The protocol incompatibility marker is 24. Implementation and fixtures do not
+The protocol incompatibility marker is 25. Implementation and fixtures do not
 modify an existing live server/store or installed global skill.
 
 Anchor projections, geometry reports and thread actions require a positive safe

@@ -20,22 +20,23 @@ test("CLI Discuss loop preserves source, replies inline, pages context, and retu
   const message = await f.thread(scope);
   await f.send(scope, [message]);
   const work = await f.poll(scope);
-  assert.equal(work.submission.messages[0].message.intent, "discuss");
-  assert.equal(work.pages[0].target.path, file);
+  assert.equal(work.submission.inventory.items.find((item) => item.kind === "message").intent, "discuss");
+  assert.equal(work.submission.inventory.items.find((item) => item.kind === "page").data.value.target.path, file);
   await f.thread(scope, { body: "Newer unsent question" });
   const answer = responseFor(work.submission, { resultNote: "x".repeat(250000) });
   const result = success(await f.respond(scope, answer));
   assert.equal(result.receipt.reviewId, scope.reviewId);
   assert.deepEqual(fs.readFileSync(file), original);
-  const context = success(await f.cli("context", ...scopeArgs(scope), "--thread", message.value.threadId), c.contextPageSchema);
-  assert.equal(context.items[0].response.body, answer.responses[0].body);
+  const context = success(await f.cli("context", ...scopeArgs(scope), "--submission", work.submission.submissionId,
+    "--thread", message.value.threadId), c.agentContextSchema);
+  assert.equal(context.totalCount, 0, "current work is excluded from history");
   const status = success(await f.cli("status", ...scopeArgs(scope)), c.agentStatusSchema);
-  assert.equal(status.status.work, null);
-  assert.equal(status.status.pendingMessageCount, 1, "completion leaves newer unsent content intact");
+  assert.equal(status.work, null);
+  assert.equal(status.pendingMessageCount, 1, "completion leaves newer unsent content intact");
   assert.equal(status.latestSubmission.state, "handled");
   assert.equal(status.latestSubmission.result.effect, "reply-only");
-  assert.equal(status.latestSubmission.result.body.length, 250000, "large stdout is flushed, not truncated");
-  assert.equal(status.latestSubmission.comparisonStatus, "not-requested");
+  assert.equal(status.latestSubmission.result.body.utf8Bytes, 250000, "status references complete retained result");
+  assert.equal(status.latestSubmission.result.body.kind, "reference");
   assert.deepEqual(success(await f.respond(scope, answer)), result);
 });
 
@@ -49,18 +50,17 @@ test("a saved human HTML edit reports What changed without new source work or co
   });
   await f.send(scope, [], [{ pageKey: scope.entryKey, editId: recorded.value.editId, version: 1 }]);
   const { submission } = await f.poll(scope);
-  assert.equal(submission.edits[0].source.state, "saved");
+  assert.equal(submission.inventory.items.find((item) => item.kind === "edit").source.value.state, "saved");
   const modified = fs.statSync(file).mtimeMs;
   success(await f.respond(scope, responseFor(submission, { resultNote: "The human edit was already saved." })));
   const status = success(await f.cli("status", ...scopeArgs(scope)), c.agentStatusSchema);
   assert.equal(status.latestSubmission.result.title, "What changed");
   assert.equal(status.latestSubmission.result.effect, "reply-only");
-  assert.equal(status.latestSubmission.comparisonStatus, "not-requested");
   assert.equal(fs.statSync(file).mtimeMs, modified);
   assert.equal(fs.readFileSync(file, "utf8"), "<p>Human wording</p>");
 });
 
-test("large exact edit handoffs flush complete immutable JSON through the actual CLI pipe", async (t) => {
+test("large exact edit handoffs reference complete immutable data and export losslessly", async (t) => {
   const f = await fixture(t), scope = ref(await f.open(f.file("long.md", "Original")));
   const exact = "a".repeat(200000);
   const recorded = await f.mutate(scope, "record-edit", {
@@ -68,9 +68,14 @@ test("large exact edit handoffs flush complete immutable JSON through the actual
   });
   await f.send(scope, [], [{ pageKey: scope.entryKey, editId: recorded.value.editId, version: 1 }]);
   const { submission } = await f.poll(scope);
-  assert.equal(submission.edits[0].content.after, exact);
-  assert.equal(submission.edits[0].content.after_html, exact);
-  assert.equal(submission.edits[0].content.truncated, false);
+  const edit = submission.inventory.items.find((item) => item.kind === "edit");
+  assert.equal(edit.content.kind, "reference");
+  assert.equal(edit.captureTruncated, false);
+  const exported = await f.run(`${edit.content.command} --output-file exact.json`);
+  assert.equal(exported.code, 0, exported.stderr);
+  const data = JSON.parse(fs.readFileSync(exported.body.path, "utf8"));
+  assert.equal(data.after, exact);
+  assert.equal(data.after_html, exact);
 });
 
 test("checked change and mixed exact pending edits retain formatting, moves, deletion, and asset identity", async (t) => {
@@ -95,9 +100,10 @@ test("checked change and mixed exact pending edits retain formatting, moves, del
   }
   await f.send(scope, [discussion, change], edits, { overallNote: { body: "Summarize the choice.", intent: "discuss" } });
   const { submission } = await f.poll(scope);
-  assert.deepEqual(submission.edits.map((edit) => edit.content), contents);
-  assert.ok(submission.edits.every((edit) => edit.source.state === "pending"));
-  const assetSource = submission.edits[0].assets[0].path;
+  const deliveredEdits = submission.inventory.items.filter((item) => item.kind === "edit");
+  assert.deepEqual(deliveredEdits.map((edit) => edit.content.value), contents);
+  assert.ok(deliveredEdits.every((edit) => edit.source.value.state === "pending"));
+  const assetSource = deliveredEdits[0].assets.value[0].path;
   fs.copyFileSync(assetSource, path.join(f.root, "image.png"));
   const exactSource = "Move me\n\n**Exact wording** ![](image.png)\n";
   fs.writeFileSync(file, exactSource);
@@ -166,7 +172,7 @@ for (const when of ["before pickup", "during handling"]) {
     const fresh = ref(await f.open(file));
     assert.notEqual(fresh.reviewId, scope.reviewId);
     let status = success(await f.cli("status", ...scopeArgs(fresh)), c.agentStatusSchema);
-    assert.equal(status.status.blockers[0].reviewId, scope.reviewId);
+    assert.equal(status.blockers.items[0].reviewId, scope.reviewId);
     await f.restart();
     work ??= await f.poll(scope);
     const answer = responseFor(work.submission);
@@ -175,8 +181,8 @@ for (const when of ["before pickup", "during handling"]) {
     assert.deepEqual(success(await f.respond(scope, answer)), accepted);
     assert.equal((await f.poll(scope)).state, "ended");
     status = success(await f.cli("status", ...scopeArgs(fresh)), c.agentStatusSchema);
-    assert.equal(status.status.review.state, "open");
-    assert.deepEqual(status.status.blockers, []);
+    assert.equal(status.review.state, "open");
+    assert.deepEqual(status.blockers.items, []);
     assert.equal((await f.poll(fresh, "0.1")).state, "timeout");
   });
 }
@@ -237,7 +243,7 @@ test("offline status reads validated new state without startup, cleanup, or lega
   fs.writeFileSync(legacy, '{"pages":{},"batches":{}}');
   const status = success(await f.cli("status", ...scopeArgs(scope)), c.agentStatusSchema);
   assert.equal(status.source, "disk");
-  assert.equal(status.status.work.state, "queued");
+  assert.equal(status.work.state, "queued");
   assert.equal(fs.existsSync(path.join(f.state, "server.json")), false);
   assert.deepEqual(fs.readFileSync(storePath), bytes);
   assert.equal(fs.statSync(storePath).mtimeMs, modified);

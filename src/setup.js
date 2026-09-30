@@ -48,8 +48,19 @@ export const readSkill = () => fs.readFileSync(path.join(here, "SKILL.md"), "utf
 
 export const skillFor = (cmd) => readSkill().replaceAll(NPX_COMMAND, cmd);
 
-const codexBlock = () => readSkill().replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n\s*/, "")
-  .replace(/^# doc-review/, "## Reviewing files and localhost pages with doc-review");
+const codexBlock = () => `## Interactive reviews with doc-review
+
+Start only when the user explicitly invokes /doc-review or requests an interactive
+browser review. Another skill's automatic review step is not user permission.
+Otherwise do not open a review or poll.
+
+On activation, read [.agents/skills/doc-review/SKILL.md](.agents/skills/doc-review/SKILL.md)
+and load its relative references only when needed. Preserve review/submission
+identity, per-message permissions and exact edit evidence. Use the generated
+commands and complete response template; retry the same response file/requestId,
+never source edits after uncertain acceptance.
+
+The skill and references are installed together by doc-review setup.`;
 
 export function installSkills(cwd, { global: isGlobal = false, home = os.homedir(), command } = {}) {
   const done = [];
@@ -72,12 +83,17 @@ export function installSkills(cwd, { global: isGlobal = false, home = os.homedir
         ["Codex", path.join(home, ".codex")],
         ["Shared agents", path.join(home, ".agents")],
       ]
-    : [["Claude Code", path.join(cwd, ".claude")]];
+    : [["Claude Code", path.join(cwd, ".claude")], ["Shared agents", path.join(cwd, ".agents")]];
 
   for (const [agent, base] of skillRoots) {
     const skillFile = path.join(base, "skills", "doc-review", "SKILL.md");
     fs.mkdirSync(path.dirname(skillFile), { recursive: true });
     fs.writeFileSync(skillFile, skillFor(cmd));
+    const refs = path.join(path.dirname(skillFile), "references");
+    fs.mkdirSync(refs, { recursive: true });
+    for (const name of fs.readdirSync(path.join(here, "references"))) {
+      fs.writeFileSync(path.join(refs, name), fs.readFileSync(path.join(here, "references", name), "utf8").replaceAll(NPX_COMMAND, cmd));
+    }
     done.push(`${agent} skill  ${skillFile}${isGlobal ? "   (all projects)" : ""}`);
   }
 

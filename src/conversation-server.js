@@ -6,7 +6,7 @@ import {
   nullable, optional, timestamp, schema,
 } from "./contracts/validation.js";
 import { reviewReadRequestSchema } from "./contracts/page-boundary.js";
-import { agentStatusSchema } from "./contracts/agent.js";
+import { readAgent } from "./agent-output.js";
 import { stagedRoot } from "./conversation-save.js";
 import { compareRevisions } from "./history-server.js";
 import { normalizeSemanticSnapshot } from "./revision-schema.js";
@@ -40,7 +40,7 @@ export function conversationFailure(error) {
   return contractFailure(new ContractError("INTERNAL_ERROR", error.message));
 }
 
-export function createConversationController({ store, sessions, watchPage, json, emit, sourceWritten, currentRender, captureObservation }) {
+export function createConversationController({ store, sessions, watchPage, json, emit, sourceWritten, currentRender, captureObservation, cliInvocation }) {
   store.conversations.observationIsCurrent = (review, key, observation) => {
     const session = sessions.get(observation.sessionId);
     const render = currentRender(observation.renderId);
@@ -93,17 +93,8 @@ export function createConversationController({ store, sessions, watchPage, json,
           }
         }
         if (before !== store.data) changed();
-      } else if (url.pathname === "/api/conversation/status") {
-        const request = reviewReadRequestSchema.parse(input);
-        if (request.operation !== "status") reject("INVALID_INPUT", "Status requires a status reference.");
-        const status = store.conversations.read(request);
-        const history = store.conversations.list({
-          operation: "list", scope: {
-            reviewId: request.reviewId, entryKey: request.entryKey, collection: "history",
-            pageKey: null, threadId: null, submissionId: null, status: "all",
-          }, query: { limit: 1 },
-        });
-        result = agentStatusSchema.parse({ source: "server", status, latestSubmission: history.items[0] ?? null });
+      } else if (url.pathname === "/api/conversation/agent") {
+        result = readAgent(store.conversations, input, cliInvocation);
       } else if (url.pathname === "/api/conversation/session") {
         const request = reviewReadRequestSchema.parse(input);
         if (request.operation !== "read-review") reject("INVALID_INPUT", "Attach requires a read-review reference.");

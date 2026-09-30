@@ -65,7 +65,7 @@ test("project setup gates both skill and AGENTS instructions on explicit review"
     assert.match(agents, /Start only when the user explicitly invokes \/doc-review/);
     assert.match(agents, /Another skill's automatic\s+review step is not user permission/);
     assert.doesNotMatch(agents, /After writing an HTML or Markdown file the user will read/);
-    assert.match(agents, /--response-file response.json/);
+    assert.match(agents, /\.agents\/skills\/doc-review\/SKILL.md/);
     assert.doesNotMatch(agents, /--ack|There is no reply channel/);
 
     installSkills(cwd, { command: COMMAND_NAME });
@@ -95,7 +95,7 @@ test("local setup substitutes the bare command in generated AGENTS guidance", ()
   try {
     installSkills(root, { command: COMMAND_NAME });
     const contents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf8");
-    assert.match(contents, /doc-review poll/);
+    assert.match(contents, /\.agents\/skills\/doc-review\/SKILL.md/);
     assert.doesNotMatch(contents, /\bnpx\b/);
     assert.doesNotMatch(contents, /@erdemtuna\/doc-review/);
   } finally {
@@ -166,19 +166,10 @@ function assertManaged(contents, command) {
   assert.equal(contents.split(GUIDANCE_END).length, 2);
   assert.match(contents, /Start only when the user explicitly invokes \/doc-review/);
   assert.match(contents, /Another skill's automatic\s+review step is not user permission/);
-  assert.ok(contents.includes(`${command} poll --review <reviewId> --entry <entryKey> --timeout 600`));
-  assert.match(contents, /Without `--timeout`, the CLI defaults to a 12-hour cutoff/);
-  assert.match(contents, /`--timeout` is one end-to-end deadline, including server discovery and reconnect/);
-  assert.match(contents, /bounded foreground `--timeout 600` loop/);
-  assert.match(contents, /Reuse the identical file and request ID on transport retries/);
-  assert.match(contents, /never repeat\s+source edits because a connection was lost/);
-  assert.match(contents, /For non-truncated edits,\s+`after` is their exact wording/);
-  assert.match(contents, /200,000 Unicode code points each/);
-  assert.match(contents, /`truncated: true` identifies clipped fields in the `truncated_fields` array/);
-  assert.match(contents, /Never apply incomplete text or HTML as a complete replacement or invent missing\s+text/);
-  assert.match(contents, /only from an authoritative source; otherwise ask the\s+user for the complete edit/);
-  assert.match(contents, /responses` must cover every submitted message exactly once/);
-  assert.match(contents, /not live agent availability/);
+  const owned = contents.split(GUIDANCE_BEGIN)[1].split(GUIDANCE_END)[0];
+  assert.ok(Buffer.byteLength(owned) <= 1024);
+  assert.match(owned, /\.agents\/skills\/doc-review\/SKILL.md/);
+  assert.match(owned, /references only when needed/);
   assert.doesNotMatch(contents, /--ack|There is no reply channel|fix every page/);
   assert.doesNotMatch(contents, /After writing an HTML or Markdown file the user will read/);
   assert.doesNotMatch(contents, /disable-model-invocation/);
@@ -202,7 +193,7 @@ for (const command of [COMMAND_NAME, NPX_COMMAND]) {
     assert.equal(fixture.read(), contents);
     assert.equal(fs.statSync(fixture.agents).mtimeMs, modified);
     assert.equal(fs.existsSync(path.join(fixture.root, ".codex")), false);
-    assert.equal(fs.existsSync(path.join(fixture.root, ".agents")), false);
+    assert.equal(fs.existsSync(path.join(fixture.root, ".agents", "skills", "doc-review", "SKILL.md")), true);
   });
 
   for (const newline of ["\n", "\r\n"]) {

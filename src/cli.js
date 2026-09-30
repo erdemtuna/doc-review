@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   canonicalTarget,
@@ -13,19 +13,21 @@ import {
   statePath,
 } from "./paths.js";
 import { readServerLock } from "./server-lock.js";
-import { installSkills } from "./setup.js";
+import { installSkills, invocation } from "./setup.js";
 import { createDeadline, DEFAULT_POLL_SECONDS, isRecoverableTransportError, mutationUntilDeadline, parseServerResponse, pollUntilDeadline, readUntilDeadline, requestRaw } from "./poll-transport.js";
 import { agentHandoff } from "./agent-handoff.js";
+import { readAgent, serializeAgent } from "./agent-output.js";
 import { Conversations, validateConversations } from "./conversation-store.js";
 import {
-  acceptedMutationSchema, agentOpenSchema, agentPollSchema, agentReferenceSchema, agentStatusSchema,
-  completeResponseSchema, contextPageSchema, conversationListRequestSchema, contractFailure, ContractError,
-  CONTRACT_LIMITS, exchangeSchema, id, object, openReviewRequestSchema, receiptLookupSchema,
-  reviewPageSchema, reviewReadRequestSchema, reviewSchema, text, transportOutcomeSchema, validatePageOutput,
+  acceptedMutationSchema, agentOpenSchema, agentPollSchema, agentReferenceSchema, agentReadResponseSchema,
+  completeResponseSchema, contractFailure, ContractError,
+  CONTRACT_LIMITS, id, object, openReviewRequestSchema, receiptLookupSchema,
+  reviewReadRequestSchema, reviewSchema, text, transportOutcomeSchema,
 } from "./contracts/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8"));
+const cliInvocation = invocation();
 
 const HELP = `doc-review ${pkg.version}
 
@@ -33,8 +35,17 @@ const HELP = `doc-review ${pkg.version}
                                     Create/join a durable review; print JSON identity and commands
   doc-review poll --review <id> --entry <key> [--timeout <secs>]
                                     Wait for accepted work; default 12 hours (43200 seconds)
-  doc-review context --review <id> --entry <key> --thread <id> [--limit <1-100>] [--cursor <token>]
-                                    Read bounded thread exchanges (default 50, newest first)
+  doc-review context --review <id> --entry <key> --submission <id> --thread <id> [--limit <1-100>] [--cursor <token>]
+                                    Read only earlier submitted exchanges, never unsent drafts
+  doc-review history --review <id> --entry <key> [--before <submission>] [--limit <1-100>] [--cursor <token>]
+                                    Recover prior notes/results; historical intent is not permission
+  doc-review submission --review <id> --entry <key> --submission <id> [--cursor <token>]
+                                    Read the complete paged inventory, including result outcomes
+  doc-review content --review <id> --entry <key> --submission <id> --field <path> [--cursor <token>]
+                                    Read exact scoped content; follow continuations until complete
+      --output-file <new-file>       Export exact content (omit --field for the whole submission)
+  doc-review response-template --review <id> --entry <key> --submission <id> --output-file <new-file>
+                                    Complete inventory with stable requestId; blanks MUST be filled
   doc-review respond --review <id> --entry <key> --response-file <file> [--timeout <secs>]
                                     Submit complete JSON, including stable requestId and expectedVersion
   doc-review receipt --review <id> --entry <key> --request-id <id>
@@ -143,10 +154,29 @@ const sessionSchema = object({ sessionId: id, review: reviewSchema, path: text()
 const timeout = (options, fallback = 60) => createDeadline(options.timeout === undefined ? fallback : Number(options.timeout));
 const reference = (options) => agentReferenceSchema.parse({ reviewId: options.review, entryKey: options.entry });
 const read = (body, decoder, deadline) => readUntilDeadline({ body, decoder, deadline, discover: ensureServer, diagnostic });
-const historyRequest = (scope) => conversationListRequestSchema.parse({
-  operation: "list", scope: { ...scope, collection: "history", pageKey: null, threadId: null, submissionId: null, status: "all" },
-  query: { limit: 1 },
-});
+const agentRead = async (body, deadline, discover = ensureServer) => {
+  const result = await readUntilDeadline({
+    body: { ...body, invocation: cliInvocation }, decoder: agentReadResponseSchema, deadline, discover, diagnostic, route: "/api/conversation/agent",
+  });
+  if (result.operation !== body.operation) throw new ContractError("SCOPE_MISMATCH", "Wrong agent operation.");
+  const scope = result.value.identity ?? result.value.review ?? result.value;
+  if (scope.reviewId !== body.reviewId || (scope.entryKey !== undefined && scope.entryKey !== body.entryKey) ||
+      (body.submissionId !== undefined && scope.submissionId !== body.submissionId)) {
+    throw new ContractError("SCOPE_MISMATCH", "Wrong agent read identity.");
+  }
+  return result.value;
+};
+function checkMutationEnvelope(body) {
+  // Reject undeliverable identities BEFORE acceptance, never turn a committed response into an error.
+  serializeAgent({
+    state: "accepted", value: { ok: true, receipt: {
+      receiptId: "x".repeat(128), requestId: body.requestId,
+      reviewId: body.reviewId ?? "x".repeat(128), entryKey: body.entryKey ?? "x".repeat(128),
+      operation: body.operation, acceptedAt: Number.MAX_SAFE_INTEGER,
+      value: { reviewVersion: Number.MAX_SAFE_INTEGER, submissionId: body.submissionId ?? "x".repeat(128), resultId: "x".repeat(128) },
+    } }, reserve: "x".repeat(2048),
+  });
+}
 
 async function openCommand(input, options) {
   const target = canonicalTarget(input);
@@ -155,6 +185,7 @@ async function openCommand(input, options) {
   }
   const deadline = timeout(options);
   const body = openReviewRequestSchema.parse({ operation: "open", target: target.value, requestId: options["request-id"] ?? randomUUID() });
+  checkMutationEnvelope(body);
   const accepted = await mutationUntilDeadline({ body, deadline, discover: ensureServer, diagnostic });
   const scope = { reviewId: accepted.receipt.reviewId, entryKey: accepted.receipt.entryKey };
   // Opening a browser is not part of durable acceptance. Preserve the receipt if attachment fails.
@@ -168,7 +199,7 @@ async function openCommand(input, options) {
     if (session.review.reviewId !== scope.reviewId || session.review.entryKey !== scope.entryKey ||
         session.path !== `/r/${scope.reviewId}`) throw new ContractError("SCOPE_MISMATCH", "Session belongs to another review.");
     const url = `http://127.0.0.1:${server.port}${session.path}`;
-    const output = agentOpenSchema.parse({ ...accepted, review: session.review, url, handoff: agentHandoff(scope) });
+    const output = agentOpenSchema.parse({ ...accepted, review: session.review, url, handoff: agentHandoff(scope, null, cliInvocation) });
     await print(output);
     if (!options["no-browser"]) openBrowser(url);
   } catch (error) {
@@ -186,26 +217,23 @@ function writeStdout(text) {
   return new Promise((resolve) => process.stdout.write(text, resolve));
 }
 
-const print = (value) => writeStdout(`${JSON.stringify(value, null, 2)}\n`);
+const print = (value) => writeStdout(serializeAgent(value));
 
 async function pollCommand(options) {
   const scope = reference(options);
   const deadline = timeout(options, DEFAULT_POLL_SECONDS);
   const result = await pollUntilDeadline({ reference: scope, deadline, discover: ensureServer, diagnostic });
-  let pages;
+  let submission;
   try {
-    pages = result.state === "work" ? await Promise.all(result.submission.pageKeys.map(async (pageKey) => {
-      const page = await read({ operation: "read-page", ...scope, pageKey }, reviewPageSchema, deadline);
-      if (page.reviewId !== scope.reviewId || page.page.pageKey !== pageKey) throw new ContractError("SCOPE_MISMATCH", "Wrong page in handoff.");
-      return page.page;
-    })) : undefined;
+    submission = result.state === "work" ? await agentRead({
+      operation: "submission", ...scope, submissionId: result.submission.submissionId,
+    }, deadline) : undefined;
   } catch (error) {
     if (error.code !== "POLL_DEADLINE" && !(isRecoverableTransportError(error) && deadline.remaining() <= 0)) throw error;
-    return print(agentPollSchema.parse({ state: "timeout", ...scope, handoff: agentHandoff(scope) }));
+    return print(agentPollSchema.parse({ state: "timeout", ...scope, handoff: agentHandoff(scope, null, cliInvocation) }));
   }
   await print(agentPollSchema.parse({
-    ...result, ...(pages ? { pages } : {}),
-    handoff: agentHandoff(scope, result.state === "work" ? result.submission.messages.map((item) => item.message.threadId) : []),
+    ...result, ...(submission ? { submission } : { handoff: agentHandoff(scope, null, cliInvocation) }),
   }));
 }
 
@@ -220,13 +248,7 @@ async function statusCommand(options) {
   const saved = readServerRecord();
   if (await alive(saved, deadline)) {
     const discover = async () => saved;
-    const output = await readUntilDeadline({
-      body: { operation: "status", ...scope }, decoder: agentStatusSchema, deadline, discover, diagnostic,
-      route: "/api/conversation/status",
-    });
-    if (output.source !== "server" || output.status.review.reviewId !== scope.reviewId || output.status.review.entryKey !== scope.entryKey) {
-      throw new ContractError("SCOPE_MISMATCH", "Wrong review status.");
-    }
+    const output = await agentRead({ operation: "status", ...scope, ...queryOptions(options) }, deadline, discover);
     return print(output);
   }
   let data;
@@ -238,27 +260,59 @@ async function statusCommand(options) {
       `Cannot read validated conversation state (no legacy fallback): ${error.message}`);
   }
   const conversations = new Conversations({ data });
-  const status = conversations.read({ operation: "status", ...scope });
-  const history = conversations.list(historyRequest(scope));
-  await print(agentStatusSchema.parse({ source: "disk", status, latestSubmission: history.items[0] ?? null }));
+  await print(readAgent(conversations, { operation: "status", ...scope, ...queryOptions(options) }, cliInvocation, "disk").value);
 }
 
-async function contextCommand(options) {
-  const scope = reference(options);
-  const body = conversationListRequestSchema.parse({
-    operation: "list",
-    scope: { ...scope, collection: "context", pageKey: null, threadId: options.thread, submissionId: null, status: "all" },
-    query: { ...(options.limit === undefined ? {} : { limit: Number(options.limit) }),
-      ...(options.cursor === undefined ? {} : { cursor: options.cursor }) },
-  });
-  const output = await read(body, contextPageSchema, timeout(options));
-  validatePageOutput(output, exchangeSchema, body.scope, body.query);
-  for (const exchange of output.items) {
-    if (exchange.reviewer.reviewId !== scope.reviewId || exchange.reviewer.threadId !== options.thread) {
-      throw new ContractError("SCOPE_MISMATCH", "Thread context belongs to another review/thread.");
+const queryOptions = (options) => ({
+  ...(options.limit === undefined ? {} : { limit: Number(options.limit) }),
+  ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+});
+async function readCommand(operation, options) {
+  const body = {
+    operation, ...reference(options), ...queryOptions(options),
+    ...(options.submission ? { submissionId: options.submission } : {}),
+    ...(options.thread ? { threadId: options.thread } : {}),
+    ...(options.before ? { before: options.before } : {}),
+    ...(options.field ? { field: options.field } : {}),
+    ...(options.version ? { version: Number(options.version) } : {}),
+  };
+  const deadline = timeout(options);
+  const destination = options["output-file"] ? path.resolve(options["output-file"]) : null;
+  if (operation === "response-template" && !destination) throw new ContractError("INVALID_INPUT", "Template requires --output-file.");
+  if (!destination) return print(await agentRead(body, deadline));
+  if (options.cursor) throw new ContractError("INVALID_INPUT", "Exports must start at the beginning, without --cursor.");
+  if (fs.existsSync(destination)) throw new ContractError("REQUEST_CONFLICT", "Artifact exists. Inspect/reuse it; never regenerate a retry response.");
+  if (operation === "content") body.field ??= ".";
+  if (operation === "response-template") body.requestId = randomUUID();
+  const temporary = path.join(path.dirname(destination), `.doc-review-${randomUUID()}.tmp`);
+  let fd;
+  try {
+    fd = fs.openSync(temporary, "wx", 0o600);
+    const digest = createHash("sha256");
+    let first, written = 0;
+    for (;;) {
+      const chunk = await agentRead(body, deadline);
+      first ??= chunk;
+      if (chunk.offset !== written || chunk.sha256 !== first.sha256 ||
+          JSON.stringify(chunk.identity) !== JSON.stringify(first.identity)) {
+        throw new ContractError("SCOPE_MISMATCH", "Export chunks changed identity/content.");
+      }
+      const data = Buffer.from(chunk.text);
+      fs.writeFileSync(fd, data); digest.update(data); written += data.length;
+      if (chunk.complete) break;
+      body.cursor = chunk.nextCursor;
     }
+    if (written !== first.utf8Bytes || digest.digest("hex") !== first.sha256) throw new ContractError("SCOPE_MISMATCH", "Export integrity check failed.");
+    fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
+    const receipt = { path: destination, identity: first.identity, encoding: first.encoding, utf8Bytes: written, sha256: first.sha256 };
+    serializeAgent(receipt);
+    // link is atomic and exclusive: never replace source files, symlinks or existing retry artifacts.
+    fs.linkSync(temporary, destination);
+    await print(receipt);
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
   }
-  await print(output);
 }
 
 async function respondCommand(options) {
@@ -274,6 +328,7 @@ async function respondCommand(options) {
   }
   const body = completeResponseSchema.parse(value);
   if (body.reviewId !== scope.reviewId || body.entryKey !== scope.entryKey) throw new ContractError("SCOPE_MISMATCH", "Response file and command identity disagree.");
+  checkMutationEnvelope(body);
   await print(await mutationUntilDeadline({ body, deadline: timeout(options), discover: ensureServer, diagnostic }));
 }
 
@@ -333,9 +388,13 @@ function parseOptions(rest, allowed) {
 }
 
 try {
-  const commands = { poll: pollCommand, status: statusCommand, context: contextCommand, respond: respondCommand, receipt: receiptCommand };
+  const commands = { poll: pollCommand, status: statusCommand, respond: respondCommand, receipt: receiptCommand,
+    ...Object.fromEntries(["context", "history", "submission", "content", "response-template"].map((name) => [name, (options) => readCommand(name, options)])) };
   if (Object.hasOwn(commands, argv[0])) {
-    const extras = { poll: [], status: [], context: ["thread", "limit", "cursor"], respond: ["response-file"], receipt: ["request-id"] };
+    const extras = { poll: [], status: ["limit", "cursor"], context: ["submission", "thread", "limit", "cursor"],
+      history: ["before", "limit", "cursor"], submission: ["submission", "limit", "cursor"],
+      content: ["submission", "version", "field", "cursor", "output-file"], "response-template": ["submission", "output-file"],
+      respond: ["response-file"], receipt: ["request-id"] };
     await commands[argv[0]](parseOptions(argv.slice(1), ["review", "entry", "timeout", ...extras[argv[0]]]));
   } else if (argv[0] === "setup") {
     if (argv.slice(1).some((arg) => !["--global", "-g"].includes(arg))) throw new ContractError("INVALID_INPUT", "Unknown setup argument.");
@@ -354,7 +413,11 @@ try {
     if (err.accepted) {
       diagnostic("Open was durably accepted, but browser attachment failed. Reuse its requestId to recover the link.\n");
       await print(transportOutcomeSchema(acceptedMutationSchema).parse({ state: "accepted", value: err.accepted }));
-    } else await print(contractFailure(err instanceof ContractError ? err : new ContractError("INTERNAL_ERROR", err.message || String(err))));
+    } else {
+      const failure = contractFailure(err instanceof ContractError ? err : new ContractError("INTERNAL_ERROR", err.message || String(err)));
+      try { await print(failure); }
+      catch { await print(contractFailure(new ContractError("INPUT_TOO_LARGE", "Error details exceed the agent output budget."))); }
+    }
     process.exitCode = 1;
   }
 }

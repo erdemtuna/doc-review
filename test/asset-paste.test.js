@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-import { fixture, editContent, responseFor } from "./fixtures/agent-loop.js";
+import { exactFixture as fixture, editContent, responseFor } from "./fixtures/agent-loop.js";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const scope = (opened) => ({ reviewId: opened.review.reviewId, entryKey: opened.review.entryKey });

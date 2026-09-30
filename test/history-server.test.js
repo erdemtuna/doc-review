@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
-import { fixture, responseFor, editContent } from "./fixtures/agent-loop.js";
+import { exactFixture as fixture, responseFor, editContent } from "./fixtures/agent-loop.js";
 import { list } from "./fixtures/review.js";
 
 const semantic = (text) => ({ version: 1, blocks: [{

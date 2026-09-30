@@ -315,7 +315,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
       edits: [],
       canRevert: policy.savePolicy === "writable" && typeof page.pristine === "string" && page.pristine.length > 0,
       pollCommand: session?.reviewId
-        ? agentHandoff({ reviewId: session.reviewId, entryKey: session.entryKey }, [], cliInvocation).pollCommand
+        ? agentHandoff({ reviewId: session.reviewId, entryKey: session.entryKey }, null, cliInvocation).pollCommand
         : "",
       historySupported: true,
     };
@@ -329,7 +329,7 @@ export function createServer({ store: suppliedStore, storeOptions, owner = null,
 
   const history = createConversationCapture({ store, currentRender });
   const conversations = createConversationController({
-    store, sessions, watchPage, json, emit, currentRender, captureObservation: history.captureObservation,
+    store, sessions, watchPage, json, emit, currentRender, captureObservation: history.captureObservation, cliInvocation,
     sourceWritten(key) {
       lastWritten.set(key, store.data.conversations.writes[key]?.hash ?? null);
     },

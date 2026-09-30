@@ -90,7 +90,15 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await composer.getByRole("button", { name: "Add comment", exact: true }).click();
     await expect(composer).toHaveCount(0);
   };
-  const pick = (ref) => cli(["poll", ...scopeArgs(ref), "--timeout", "5"], contracts.agentPollSchema);
+  const pick = async (ref) => {
+    const delivered = await cli(["poll", ...scopeArgs(ref), "--timeout", "5"], contracts.agentPollSchema);
+    if (delivered.state !== "work") return delivered;
+    // This browser regression needs every exact representation, using the public lossless export.
+    const file = path.join(project, `submission-${randomUUID()}.json`);
+    await cliRun(["content", ...scopeArgs(ref), "--submission", delivered.submission.submissionId, "--output-file", file]);
+    const { submission, result, receipt } = JSON.parse(fs.readFileSync(file, "utf8"));
+    return { ...delivered, submission: contracts.submissionReadSchema.parse({ submission, result, receipt }).submission };
+  };
   const responseFor = (work, extra = {}) => contracts.completeResponseSchema.parse({
     operation: "respond", reviewId: work.reviewId, entryKey: work.entryKey,
     requestId: randomUUID(), submissionId: work.submissionId, expectedVersion: work.version,
@@ -142,8 +150,9 @@ export async function conversationSmoke({ browser, expect, project, state, evide
     await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
     const first = (await pick(ref)).submission;
     assert.equal(first.messages[0].message.intent, "discuss");
-    const contextPage = await cli(["context", ...scopeArgs(ref), "--thread", first.messages[0].message.threadId], contracts.contextPageSchema);
-    assert.equal(contextPage.items[0].reviewer.body, "Why this wording?");
+    const contextPage = await cli(["context", ...scopeArgs(ref), "--submission", first.submissionId,
+      "--thread", first.messages[0].message.threadId], contracts.agentContextSchema);
+    assert.equal(contextPage.totalCount, 0, "current work is not historical context");
     const firstFrame = await page.locator("#frame").getAttribute("src");
     await respond(ref, responseFor(first, { resultNote: "Discussion left every source byte unchanged." }));
     await expect(page.locator(".conversation-result-preview")).toHaveText("Discussion left every source byte unchanged.");
