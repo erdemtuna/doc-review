@@ -7,6 +7,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectEditBlocked, feedback, submissionHistory, beginComment, setReviewTheme, readLatestResponse } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
+import { runtimeFile } from "../test/fixtures/runtime.js";
 
 async function call(review, body, route = "/api/conversation") {
   const result = await reviewApi(review, route, { method: "POST", body });
@@ -203,7 +204,10 @@ test("accepted source save with disconnected verification is not reported saved 
 test("reconnected history bridges missed pages and retains loaded records and the reading anchor", async ({ page, context, review }) => {
   test.setTimeout(120_000);
   const ref = await open(page, review, writeFile(review, "conversation-history-gap.html", "<p>History gap</p>"));
-  await page.locator("#commentsButton").click();
+  await feedback(page);
+  // Do not interrupt the initial paged refresh and then mistake its request timeout for reconnect failure.
+  await expect(page.locator("#toolbarCount")).toHaveText("0");
+  await submissionHistory(page);
   const completeOffline = async (start) => {
     await context.setOffline(true);
     for (let index = start; index < start + 55; index++) {
@@ -739,8 +743,8 @@ test("restart reattaches exact ended review, keeps drafts and receives a late CL
     await expect(page.getByRole("textbox", { name: "Note to agent", exact: true })).toHaveValue("Local draft survives reattachment only");
     await expect(page.locator(".conversation-thread").getByText("Saved but never sent", { exact: true })).toBeVisible();
     const cli = async (...args) => {
-      const child = spawn(process.execPath, [path.join(process.cwd(), "lib", "cli.js"), ...args], {
-        cwd: review.root, env: { ...process.env, DOC_REVIEW_STATE_DIR: path.join(review.root, "state") }, stdio: ["ignore", "pipe", "pipe"],
+      const child = spawn(process.execPath, [runtimeFile("cli.js"), ...args], {
+        cwd: review.root, env: { ...process.env, DOC_REVIEW_STATE_DIR: review.stateDirectory }, stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "", stderr = "";
       child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; });

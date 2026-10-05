@@ -4,7 +4,8 @@ import fs from "node:fs";
 import { threadAction } from "./conversation-actions.js";
 import { test, expect, reviewApi, writeFile, waitForSdk, selectReviewMode, expectFeedbackBounds, setReviewTheme } from "./helpers.js";
 import { responseFor } from "../test/fixtures/agent-loop.js";
-import { frameAnchorsSchema, validateFrameAnchorStates } from "../lib/contracts/frame.js";
+import { runtimeImport } from "../test/fixtures/runtime.js";
+const { frameAnchorsSchema, validateFrameAnchorStates } = await runtimeImport("contracts/frame.js");
 
 async function call(review, body) {
   const result = await reviewApi(review, "/api/conversation", { method: "POST", body });

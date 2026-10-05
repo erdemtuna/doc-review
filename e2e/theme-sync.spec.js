@@ -1,9 +1,8 @@
 import fs from "node:fs/promises";
-import path from "node:path";
-import ts from "typescript";
 import { test, expect, openReview, waitForSdk, writeFile, enterEditMode, setReviewTheme } from "./helpers.js";
 import { REVIEW_PALETTE } from "../src/review-palette.js";
-import { TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
+import { runtimeFile, runtimeImport } from "../test/fixtures/runtime.js";
+const { TRUSTED_SDK_MODULE_PATHS } = await runtimeImport("frame-policy.js");
 
 const chromeOrigin = "http://127.0.0.1:32123";
 const artifactOrigin = "http://localhost:32123";
@@ -35,16 +34,7 @@ async function openSdk(page, background = "#ffffff") {
       return;
     }
     if (!TRUSTED_SDK_MODULE_PATHS.includes(url.pathname)) { await route.abort(); return; }
-    const file = path.join(process.cwd(), "src", ...url.pathname.slice(1).split("/"));
-    let body;
-    try {
-      body = await fs.readFile(file, "utf8");
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      body = ts.transpileModule(await fs.readFile(file.replace(/\.js$/, ".ts"), "utf8"), {
-        compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext },
-      }).outputText;
-    }
+    const body = await fs.readFile(runtimeFile(url.pathname.slice(1)), "utf8");
     await route.fulfill({ contentType: "text/javascript", body });
   });
   await page.goto(chromeOrigin);
