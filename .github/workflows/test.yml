@@ -38,7 +38,8 @@ jobs:
 
   chromium:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Both the checkout suite and installed-package parity run with one worker.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
