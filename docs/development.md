@@ -29,7 +29,7 @@ the runtime and do not require TypeScript or an installation build.
 | `npm run preview:recovery` | Build and serve the isolated recovery-state gallery |
 | `npm run preview:shell` | Build and serve a disposable shell review on an isolated runtime snapshot |
 | `npm run preview:review` | Alias for the same durable shell preview |
-| `npm run media:readme` | Build and capture the four README screenshots and social cover into `output/readme` |
+| `npm run media:readme` | Build and capture four product screenshots and the social cover into `output/readme` |
 | `npm run media:preview` | Preview the README, usage guide, and tracked social cover on loopback |
 | `npm run browser:install` | Install the matching Chromium |
 | `npm run test:browser` | Rebuild and run browser tests |

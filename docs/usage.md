@@ -547,7 +547,7 @@ comparisons or zero changes.
 This version requires Node **24.21.0 or newer**; Node 20, Node 22, and earlier
 Node 24 patches are not supported by the compiled runtime.
 
-The current CLI requires server protocol **23**. End active reviews and stop the
+The current CLI requires server protocol **25**. End active reviews and stop the
 specific old server, or let it exit when idle, before restarting. Older servers
 are not silently reused or forcibly replaced. Keep `.doc-review`: pending
 accepted submissions and exact receipt IDs survive a controlled restart.
