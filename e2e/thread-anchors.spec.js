@@ -2,7 +2,8 @@ import { selectPeer } from "./choice-helpers.js";
 import { threadAction } from "./conversation-actions.js";
 import fs from "node:fs";
 import { test, expect, openReview, waitForSdk, writeFile, seedThread, feedback, sendPending, handled, mutate, conversation } from "./helpers.js";
-import { validateFrameAnchorStates, validateFrameThreadAction } from "../lib/contracts/frame.js";
+import { runtimeImport } from "../test/fixtures/runtime.js";
+const { validateFrameAnchorStates, validateFrameThreadAction } = await runtimeImport("contracts/frame.js");
 
 test.beforeEach(async ({ page }) => {
   page.on("pageerror", (error) => console.error(error.stack));

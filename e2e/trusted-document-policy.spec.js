@@ -1,10 +1,10 @@
 import { test, expect } from "@playwright/test";
 import http from "node:http";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-import { transformInteractiveHtml } from "../lib/document-execution.js";
-import { interactiveFileCsp, framePolicy, TRUSTED_SDK_MODULE_PATHS } from "../lib/frame-policy.js";
-import { injectSdk } from "../lib/html-transform.js";
+import { runtimeFile, runtimeImport } from "../test/fixtures/runtime.js";
+const { transformInteractiveHtml } = await runtimeImport("document-execution.js");
+const { interactiveFileCsp, framePolicy, TRUSTED_SDK_MODULE_PATHS } = await runtimeImport("frame-policy.js");
+const { injectSdk } = await runtimeImport("html-transform.js");
 
 test("automatic self-contained scripts and handlers run with real SDK but arbitrary dependencies remain blocked", async ({ page }) => {
   const requests = [];
@@ -44,7 +44,7 @@ test("automatic self-contained scripts and handlers run with real SDK but arbitr
       res.end(injectSdk(interactive ? transformInteractiveHtml(source).html : source, "test-key", { src: `${origin}/sdk.js`, nonce: "frame-correlation-only", generation: 1 }));
     } else if (TRUSTED_SDK_MODULE_PATHS.includes(req.url)) {
       res.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" });
-      res.end(fs.readFileSync(fileURLToPath(new URL(`../lib${req.url}`, import.meta.url))));
+      res.end(fs.readFileSync(runtimeFile(req.url.slice(1))));
     } else {
       res.writeHead(200, { "content-type": "text/javascript", "access-control-allow-origin": "*" });
       res.end("window.externalRan = true");

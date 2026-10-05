@@ -2,13 +2,14 @@ import { test as base, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { responseFor } from "../test/fixtures/agent-loop.js";
+import { testRuntime } from "../test/fixtures/runtime.js";
 
-const runtime = path.resolve(process.env.DOC_REVIEW_TEST_RUNTIME || "lib");
+const runtime = testRuntime;
 const { acceptedMutationSchema, contractFailure, ContractError } = await import(pathToFileURL(path.join(runtime, "contracts", "index.js")).href);
 export const test = base.extend({
-  review: [
+  reviewServer: [
     async ({}, use, workerInfo) => {
       const root = path.join(
         process.env.DOC_REVIEW_TEST_ROOT || path.join(process.cwd(), ".playwright-state"),
@@ -19,18 +20,25 @@ export const test = base.extend({
       process.env.DOC_REVIEW_STATE_DIR = path.join(root, "state");
       const { start } = await import(pathToFileURL(path.join(runtime, "server.js")).href);
       let server = await start();
-      const fixture = { ...server, root, references: [], async restart() {
-        const port = server.port;
-        await server.dispose();
-        server = await start(port);
-        Object.assign(fixture, server);
-      } };
+      const fixture = { ...server, root, stateDirectory: path.join(root, "state"), references: [], cases: [],
+        async isolate(caseRoot) {
+          await server.dispose();
+          process.env.DOC_REVIEW_STATE_DIR = path.join(caseRoot, "state");
+          server = await start();
+          Object.assign(fixture, server, { stateDirectory: process.env.DOC_REVIEW_STATE_DIR });
+        },
+        async restart() {
+          const port = server.port;
+          await server.dispose();
+          server = await start(port);
+          Object.assign(fixture, server);
+        } };
       try {
         await use(fixture);
       } finally {
         await server.dispose();
         if (process.env.DOC_REVIEW_TEST_KEEP === "1") fs.writeFileSync(path.join(root, "runtime.json"), JSON.stringify({
-          runtime, root, state: path.join(root, "state"), references: fixture.references,
+          runtime, root, cases: fixture.cases,
         }, null, 2));
         if (fixture.failed) console.error(`Failed browser fixture retained: ${root}`);
         else if (process.env.DOC_REVIEW_TEST_KEEP !== "1") fs.rmSync(root, { recursive: true, force: true });
@@ -38,6 +46,18 @@ export const test = base.extend({
     },
     { scope: "worker" },
   ],
+  review: async ({ reviewServer }, use, testInfo) => {
+    const identity = `${testInfo.testId}-retry-${testInfo.retry}`;
+    const root = path.join(reviewServer.root, "cases", createHash("sha256").update(identity).digest("hex").slice(0, 16));
+    fs.mkdirSync(root, { recursive: true });
+    await reviewServer.isolate(root);
+    const fixture = Object.create(reviewServer);
+    Object.defineProperty(fixture, "root", { value: root });
+    Object.defineProperty(fixture, "references", { value: [] });
+    reviewServer.cases.push({ root, state: reviewServer.stateDirectory, references: fixture.references });
+    Object.defineProperty(fixture, "failed", { get: () => reviewServer.failed, set: value => { reviewServer.failed = value; } });
+    await use(fixture);
+  },
   retainFailure: [async ({ review }, use, testInfo) => {
     await use();
     if (testInfo.status !== testInfo.expectedStatus) review.failed = true;

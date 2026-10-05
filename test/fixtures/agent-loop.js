@@ -6,11 +6,11 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { fileURLToPath } from "node:url";
-import { start } from "../../lib/server.js";
-import * as c from "../../lib/contracts/index.js";
+import { runtimeFile, runtimeImport } from "./runtime.js";
+const { start } = await runtimeImport("server.js");
+const c = await runtimeImport("contracts/index.js");
 
-const cliPath = fileURLToPath(new URL("../../lib/cli.js", import.meta.url));
+const cliPath = runtimeFile("cli.js");
 export const scopeArgs = (ref) => ["--review", ref.reviewId, "--entry", ref.entryKey];
 export const editContent = (before, after, extra = {}) => ({
   kind: "edited", label: "Paragraph", before, after, before_html: `<p>${before}</p>`, after_html: `<p>${after}</p>`,

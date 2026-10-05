@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+concurrency:
+  group: test-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 env:
   NPM_VERSION: "12.0.2"
@@ -26,8 +34,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -36,28 +44,145 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:package
 
-  chromium:
+  build:
+    name: Canonical package
     runs-on: ubuntu-latest
-    # Both the checkout suite and installed-package parity run with one worker.
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: "24.21.0"
           cache: npm
       - run: npm install --global --no-audit --no-fund npm@${{ env.NPM_VERSION }}
       - run: npm ci
-      - run: npm run browser:install:ci
-      - run: npm run test:browser
-      - run: npm run test:package:browser
-      - uses: actions/upload-artifact@v4
-        if: failure()
+      - run: npm run build
+      - run: npm run candidate:build -- candidate
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: chromium-failure-evidence
-          path: |
-            test-results
-            .package-smoke-evidence-*/installed-parity
-            .package-smoke-evidence-*/installed-parity.log
+          name: canonical-package-${{ github.run_attempt }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 30
+
+  preflight:
+    name: Interaction preflight
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+      - run: npm install --global --no-audit --no-fund npm@${{ env.NPM_VERSION }}
+      - run: npm ci
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: canonical-package-${{ github.run_attempt }}
+          path: candidate
+      - run: node scripts/release-candidate.js restore candidate
+      - run: npm run browser:install:ci
+      - run: npm run test:package:browser -- candidate/erdemtuna-doc-review-$(node -p "require('./package.json').version").tgz --suite=preflight --workers=1
+      - name: Sanitize diagnostic evidence
+        id: diagnostics
+        if: ${{ always() }}
+        run: node scripts/sanitize-evidence.js .package-smoke-evidence-*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ !success() && steps.diagnostics.outcome == 'success' }}
+        with:
+          name: interaction-preflight-evidence-${{ github.run_attempt }}
+          path: .package-smoke-evidence-*
           include-hidden-files: true
-          retention-days: 7
+
+  browser:
+    name: Installed browser (${{ matrix.shard }}/2)
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+      - run: npm install --global --no-audit --no-fund npm@${{ env.NPM_VERSION }}
+      - run: npm ci
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: canonical-package-${{ github.run_attempt }}
+          path: candidate
+      - run: node scripts/release-candidate.js restore candidate
+      - run: npm run browser:install:ci
+      - run: npm run test:package:browser -- candidate/erdemtuna-doc-review-$(node -p "require('./package.json').version").tgz --suite=full --shard=${{ matrix.shard }}/2 --workers=1
+      - name: Sanitize diagnostic evidence
+        id: diagnostics
+        if: ${{ !success() }}
+        run: node scripts/sanitize-evidence.js .package-smoke-evidence-*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ !cancelled() }}
+        with:
+          name: browser-coverage-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: .package-smoke-evidence-*/browser-evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ !success() && steps.diagnostics.outcome == 'success' }}
+        with:
+          name: chromium-failure-evidence-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: .package-smoke-evidence-*
+          include-hidden-files: true
+
+  chromium:
+    name: chromium
+    needs: [build, preflight, browser]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every browser stage
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e "const values=Object.values(JSON.parse(process.env.RESULTS));if(values.some(job=>job.result!=='success'))throw Error('Incomplete browser gates')"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24.21.0"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: canonical-package-${{ github.run_attempt }}
+          path: candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: browser-coverage-${{ github.run_attempt }}-*
+          path: evidence
+      - run: node scripts/release-candidate.js seal candidate evidence
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: browser-verified-candidate-${{ github.run_attempt }}
+          path: candidate
+          if-no-files-found: error
+
+  candidate:
+    name: Verified main candidate
+    needs: [unit, chromium]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: browser-verified-candidate-${{ github.run_attempt }}
+          path: candidate
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-main-candidate-${{ github.run_attempt }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 30

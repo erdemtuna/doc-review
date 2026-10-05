@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { acceptedMutationSchema, failureSchema } from "../../lib/contracts/index.js";
+import { runtimeImport } from "./runtime.js";
+const { acceptedMutationSchema, failureSchema } = await runtimeImport("contracts/index.js");
 
 export async function request(review, body, route = "/api/conversation") {
   const response = await fetch(`http://127.0.0.1:${review.port}${route}`, {

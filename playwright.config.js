@@ -5,11 +5,14 @@ export default defineConfig({
   timeout: 20_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
+  forbidOnly: !!process.env.CI,
   workers: process.env.CI ? 1 : undefined,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "line" : "list",
   use: {
     browserName: "chromium",
     headless: true,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
 });

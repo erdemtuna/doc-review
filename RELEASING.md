@@ -5,7 +5,7 @@
 
 | Phase | Dispatch input | What it does |
 | --- | --- | --- |
-| `prepare` | `operation=prepare` | Validates, tests, packs and uploads one immutable release candidate. Publishes nothing. |
+| `prepare` | `operation=prepare` | Adopts the exact verified current-main CI package, or explicitly runs fresh validation. Publishes nothing. |
 | `release` | `operation=release` + `prepare_run_id` + `authentication` | Re-verifies that exact candidate, publishes it to npm, then makes the GitHub Release public. |
 
 **The tarball that gets published is always the one CI produced. Never run
@@ -13,6 +13,39 @@
 archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
+
+## Current candidate pipeline
+
+The `test` workflow builds one canonical package and runs complete installed
+browser coverage across two shards, in addition to the existing four unit
+matrix entries and installation/lifecycle checks. A successful **main push**
+issues a `verified-main-candidate-<attempt>` bundle. PRs and forks cannot issue
+release-eligible evidence, and unexpected browser retries prevent certification.
+
+Manual prepare defaults to `prepare_mode=reuse`. It resolves a successful
+`test.yml` push run for the exact current-main commit, verifies its actual
+repository/workflow/run/attempt/job/artifact facts, complete coverage, archive
+allowlist, manifest and both digests, then copies the **same archive bytes** into
+a prepare-bound envelope. `candidate_run_id` optionally selects an exact producer.
+There is no automatic rebuild or silent fallback if evidence is absent or invalid.
+
+Use `prepare_mode=fresh` explicitly when artifacts have expired, for the first
+adoption after these tooling changes, or for deliberate recovery. It calls the
+same full CI validation graph before preparing its archive; it does not publish.
+The stable current-main, unused-version and toolchain requirements still apply.
+Do not reuse an old-policy artifact, partial attempt, stale commit or local pack.
+
+Publication remains a separate manual dispatch and `npm-release` approval.
+`authentication=token` is the operational default and uses the existing protected
+`NPM_PUBLISH_TOKEN` **only in the publish step**. OIDC remains an explicit option.
+The privileged job does not install dependencies, rebuild/repack the candidate,
+or execute its runtime. It rechecks prepare/producer identity, current main,
+artifact bytes, registry integrity and latest ordering.
+
+`node scripts/release-preflight.js --previous-tag vMAJOR.MINOR.PATCH` reports
+readiness without dispatching workflows or modifying releases. Optional
+`--output <new-json-path>` preserves the handoff; `--authentication oidc` is
+explicit. Do not supply or store secret values in this output.
 
 ## v0.14.0 release checklist
 
@@ -26,7 +59,7 @@ guides hold the detailed behavior, supported by refreshed production captures.
 Use `version=0.14.0` and `previous_tag=v0.13.0` for both workflow phases.
 Require the full PR test matrix before merge, then prepare from the exact current
 `main` commit. Publish only the verified immutable candidate from that successful
-prepare run through `npm-release`, using OIDC by default.
+prepare run through `npm-release`, using protected token authentication.
 
 Server protocol remains **25**, with no API, persistence, dependency or edit
 permission change. Node **24.21.0** and npm **12.0.2** are unchanged. Verify the
@@ -203,20 +236,21 @@ UX and exact batch-ID acknowledgement contract.
 - The tag passed as `previous_tag` already exists in the repository. The
   inherited upstream tag `v0.6.1` must be pushed to the fork before releasing
   `0.7.0`; do not create a GitHub Release for it.
-- OIDC is the default authentication method. The protected environment secret
-  `NPM_PUBLISH_TOKEN` is optional and used only when `authentication=token`.
+- Token authentication is the operational default. The existing protected
+  `NPM_PUBLISH_TOKEN` is used only by the publish step, never candidate validation.
+  OIDC remains available when explicitly configured.
 
 ## Authentication modes
 
 | Mode | Use | Credential |
 | --- | --- | --- |
-| `oidc` | Default for normal releases | npm trusted publisher bound to `release.yml` and `npm-release` |
-| `token` | First package creation or an explicit fallback when OIDC is unavailable | Granular npm token in the `npm-release` environment secret `NPM_PUBLISH_TOKEN` |
+| `token` | Default for this repository | Existing granular npm token in the protected `npm-release` environment |
+| `oidc` | Explicit alternative | npm trusted publisher bound to `release.yml` and `npm-release` |
 
-The token path is a permanent workflow capability, but an active token should
-not be permanent. Create a narrowly scoped, short-lived token when the fallback
-is needed, add it directly to the protected environment, then delete the secret
-and revoke the token after the release. Token-authenticated releases do not
+Use the existing protected secret for normal releases. Credential provisioning,
+expiry and rotation are separate human-managed operations, never side effects
+of validation or publication. Keep tokens narrowly scoped and never copy their
+values into a checkout, report or log. Token-authenticated releases do not
 receive OIDC provenance.
 
 ## 1. Land a version pull request
@@ -245,14 +279,15 @@ Actions → **release** → **Run workflow** on `main`:
 | `operation` | `prepare` |
 | `version` | `0.7.0` (must equal `package.json`) |
 | `prepare_run_id` | leave empty |
-| `authentication` | `oidc` (ignored during prepare) |
+| `prepare_mode` | `reuse` normally; `fresh` explicitly for complete rebuild/validation |
+| `candidate_run_id` | Optional exact successful main-push CI run; omitted for discovery |
+| `authentication` | `token` normally (publication choice; no npm credential enters prepare) |
 | `previous_tag` | `v0.6.1` (use the previous released tag for later versions) |
 
-The prepare job runs on a GitHub-hosted Ubuntu runner with Node 24.21.0 and
-npm 12.0.2, with package-manager caching disabled and all actions pinned by
-commit SHA. It runs `npm ci`, compiler/typecheck-backed unit tests, Chromium
-browser tests with one worker, `npm pack --json`, strict compiled-package-content
-validation and the shared installed-tarball smoke helper with Chromium enabled.
+The adopted candidate was built with Node 24.21.0 and npm 12.0.2. Prepare
+verifies its recorded/live provenance and archive rather than rerunning its
+already complete test suites. Explicit fresh mode runs the same canonical
+build and four-unit/full-installed-browser graph using pinned actions.
 
 **Record the run ID.** It appears in the run URL
 (`.../actions/runs/<prepare_run_id>`) and in the job summary. You need it
@@ -260,14 +295,15 @@ verbatim for the release phase.
 
 ## 3. Review the immutable candidate
 
-Download the `release-candidate-<version>` artifact from that run. It contains
+Download `release-candidate-<version>-attempt-<attempt>` from that run. It contains
 exactly three files and is retained for 30 days:
 
 - `erdemtuna-doc-review-<version>.tgz` — the only publishable archive
 - `erdemtuna-doc-review-<version>.tgz.sha256` — `sha256sum`-format checksum
 - `release-metadata.json` — package, version, filename, repository, source
   commit, prepare run ID and attempt, Node version, npm version, registry,
-  SHA-256 digest and npm SHA-512 integrity
+  SHA-256 digest, npm SHA-512 integrity, complete coverage and, for adoption,
+  the original main-CI producer run/attempt/artifact identity
 
 Verify locally before approving anything:
 
@@ -281,6 +317,9 @@ tar -tzf erdemtuna-doc-review-0.7.0.tgz
 The printed `sha512-…` value must equal `.integrity` in the metadata.
 
 ## First release bootstrap (`v0.7.0`)
+
+This historical bootstrap is not an instruction to replace or delete the
+repository's currently configured protected token.
 
 npm trusted publishing cannot be configured until the package exists, so
 `0.7.0` uses the protected token fallback. It will have **no OIDC provenance**;
@@ -327,7 +366,7 @@ Actions → **release** → **Run workflow** on `main`:
 | `operation` | `release` |
 | `version` | `0.7.0` |
 | `prepare_run_id` | the recorded prepare run ID |
-| `authentication` | `oidc` normally; `token` only when the protected fallback is intentionally provisioned |
+| `authentication` | `token` normally; `oidc` only when explicitly configured |
 | `previous_tag` | `v0.6.1` |
 
 Before requesting approval the workflow proves, fail-closed, that:
@@ -340,6 +379,8 @@ Before requesting approval the workflow proves, fail-closed, that:
   the current `main` head and the commit recorded in the artifact metadata;
 - the downloaded artifact matches its metadata, SHA-256 checksum and SHA-512
   integrity, and its packed manifest carries the expected name and version.
+- its versioned policy and complete browser coverage match the current tooling;
+  adoption revalidates the original successful main-push producer and artifact.
 
 Then the deployment waits on the `npm-release` environment.
 
@@ -362,7 +403,7 @@ Order of operations after approval:
    current `latest` dist-tag**.
 3. Create or reuse the **draft** GitHub Release, targeting the prepared commit,
    with the tarball and `.sha256` attached and notes generated from `previous_tag`.
-4. `npm publish <tarball>` through the selected authentication method, if the
+4. `npm publish <tarball> --ignore-scripts` through the selected authentication method, if the
    version is absent.
 5. Re-read the registry with retries and require the published SHA-512 integrity
    to equal the prepared artifact. The `latest` dist-tag is required to equal the
@@ -430,12 +471,16 @@ rather than at the next feature release:
 
 ## Recovery
 
-All recovery paths reuse the **same** `prepare_run_id` and the same artifact.
+Publication recovery reuses the **same** `prepare_run_id` and the same artifact.
 Never prepare a new candidate to "fix" a half-finished release unless the
 version itself changes.
 
 | Situation | Behaviour | What to do |
 | --- | --- | --- |
+| Main CI has not finished or failed | No candidate can be adopted. | Wait for successful complete CI or fix the failure; do not substitute a local archive. |
+| CI artifacts expired or use an older validation policy | Adoption fails explicitly. | Select `prepare_mode=fresh` for complete validation of the current main and an unused version. |
+| Only failed CI jobs were rerun | Attempt-bound artifacts or gates may be incomplete. | Rerun all jobs so one complete attempt produces the package and every gate. |
+| Unexpected browser retry, missing test or missing shard | The stable Chromium gate cannot certify coverage. | Fix the failure and rerun full validation; retries are not passing release evidence. |
 | Draft release already exists for `v<version>` | Reused; its target commit is reset to the prepared commit and assets are re-uploaded with `--clobber`. | Re-run `release` with the same run ID. |
 | npm publish succeeded but the GitHub Release step failed | The npm version is detected with matching integrity and publication is skipped; the draft is completed, published and marked latest. | Re-run `release` with the same run ID. |
 | Release already published, assets missing or corrupt | Allowed only as asset repair, and only if the tag points at the prepared commit. Notes are not regenerated, the release stays public and its latest state is left untouched. | Re-run `release` with the same run ID. |
@@ -455,7 +500,7 @@ version itself changes.
   releases; an in-flight release is never cancelled by a newer dispatch.
 - Only the final publishing job holds `contents: write` and `id-token: write`.
   Guard, prepare and verification jobs are read-only.
-- OIDC remains the default. The token path cannot run without the protected
+- Token authentication is the default; OIDC is explicit. The token path cannot run without the protected
   `NPM_PUBLISH_TOKEN` environment secret and uses it only in the publish step.
 - The inherited `release.published` publish workflow was removed, so making a
   GitHub Release public can no longer trigger a second npm publish.

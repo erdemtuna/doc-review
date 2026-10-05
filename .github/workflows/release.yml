@@ -2,9 +2,9 @@ name: release
 
 # Manual, two-phase release.
 #
-#   prepare  validates, tests, packs and uploads one immutable release candidate.
+#   prepare  adopts verified current-main CI, or explicitly runs fresh validation.
 #   release  consumes the artifact of an earlier successful prepare run by run ID,
-#            publishes it to npm through trusted publishing (OIDC) and only then
+#            publishes it using the selected protected authentication and only then
 #            makes the GitHub Release public.
 #
 # Publication always uses the CI-produced tarball. Never pack locally for publication.
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "prepare (build + verify candidate) or release (publish a prepared candidate)"
+        description: "prepare (adopt verified main CI) or release (publish a prepared candidate)"
         type: choice
         required: true
         default: prepare
@@ -29,11 +29,20 @@ on:
         type: string
         required: false
         default: ""
+      prepare_mode:
+        description: "reuse verified main CI, or explicitly rebuild and validate fresh"
+        type: choice
+        default: reuse
+        options: [reuse, fresh]
+      candidate_run_id:
+        description: "Optional exact successful main CI run for prepare_mode=reuse"
+        type: string
+        default: ""
       authentication:
-        description: "npm authentication for operation=release. Prefer oidc; token uses the protected NPM_PUBLISH_TOKEN secret."
+        description: "token uses the protected NPM_PUBLISH_TOKEN secret; oidc is an explicit alternative."
         type: choice
         required: true
-        default: oidc
+        default: token
         options:
           - oidc
           - token
@@ -87,6 +96,7 @@ jobs:
           PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
           AUTHENTICATION: ${{ inputs.authentication }}
           PREVIOUS_TAG: ${{ inputs.previous_tag }}
+          PREPARE_MODE: ${{ inputs.prepare_mode }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
@@ -102,6 +112,10 @@ jobs:
           case "$AUTHENTICATION" in
             oidc|token) ;;
             *) fail "Unsupported authentication method '$AUTHENTICATION'." ;;
+          esac
+          case "$PREPARE_MODE" in
+            reuse|fresh) ;;
+            *) fail "Unsupported prepare mode '$PREPARE_MODE'." ;;
           esac
 
           # Releases may only ever run from the tip of main. The npm-release
@@ -140,7 +154,7 @@ jobs:
             echo "package=$PKG_NAME"
             echo "version=$PKG_VERSION"
             echo "filename=$FILENAME"
-            echo "artifact=release-candidate-$PKG_VERSION"
+            echo "artifact=release-candidate-$PKG_VERSION-attempt-$GITHUB_RUN_ATTEMPT"
             echo "tag=v$PKG_VERSION"
             echo "previous_tag=$PREVIOUS_TAG"
           } >> "$GITHUB_OUTPUT"
@@ -152,12 +166,13 @@ jobs:
 
   prepare:
     name: Prepare release candidate
-    if: inputs.operation == 'prepare'
-    needs: guard
+    if: ${{ always() && inputs.operation == 'prepare' && needs.guard.result == 'success' && (inputs.prepare_mode != 'fresh' || needs.fresh.result == 'success') }}
+    needs: [guard, fresh]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
     env:
       PKG_NAME: ${{ needs.guard.outputs.package }}
       VERSION: ${{ needs.guard.outputs.version }}
@@ -169,24 +184,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-
-      - name: Pin the npm CLI
-        run: |
-          set -euo pipefail
-          npm install --global --no-audit --no-fund "npm@${NPM_VERSION}"
-          ACTUAL_NPM="$(npm --version)"
-          [ "$ACTUAL_NPM" = "$NPM_VERSION" ] || { echo "::error::Expected npm $NPM_VERSION, got $ACTUAL_NPM"; exit 1; }
-          case "$(node --version)" in
-            "v${NODE_VERSION}") ;;
-            *) echo "::error::Expected Node $NODE_VERSION, got $(node --version)"; exit 1 ;;
-          esac
-          node --version
-          npm --version
 
       - name: Verify the release version is unused
         run: |
@@ -214,156 +214,39 @@ jobs:
             *) fail "Cannot verify npm availability (HTTP $STATUS); nothing will be prepared." ;;
           esac
 
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+      - name: Select verified current-main CI
+        id: source
+        if: inputs.prepare_mode != 'fresh'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: node scripts/release-actions.js select "$CANDIDATE_RUN_ID"
 
-      - name: Run unit tests
-        run: npm run test:unit
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        if: inputs.prepare_mode != 'fresh'
+        with:
+          name: verified-main-candidate-${{ steps.source.outputs.candidate_attempt }}
+          path: adopted
+          run-id: ${{ steps.source.outputs.candidate_run_id }}
+          github-token: ${{ github.token }}
 
-      - name: Install Chromium
-        run: npm run browser:install:ci
+      - name: Adopt exact candidate bytes
+        if: inputs.prepare_mode != 'fresh'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-actions.js adopt adopted dist
 
-      - name: Run browser tests
-        run: npm run test:browser
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        if: inputs.prepare_mode == 'fresh'
+        with:
+          name: browser-verified-candidate-${{ github.run_attempt }}
+          path: dist
 
-      - name: Pack the release candidate
-        run: |
-          set -euo pipefail
-          rm -rf dist
-          mkdir -p dist
-          npm pack --json --pack-destination "$PWD/dist" > dist/pack.json
-          jq -e '. | length == 1' dist/pack.json > /dev/null \
-            || { echo "::error::npm pack produced an unexpected number of tarballs"; cat dist/pack.json; exit 1; }
-
-          PACKED_FILENAME="$(jq -r 'to_entries[0].value.filename' dist/pack.json)"
-          [ "$PACKED_FILENAME" = "$FILENAME" ] \
-            || { echo "::error::npm pack produced '$PACKED_FILENAME', expected '$FILENAME'"; exit 1; }
-          test -f "dist/$FILENAME" || { echo "::error::dist/$FILENAME is missing"; exit 1; }
-
-      - name: Validate packed contents
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-
-          TGZ="dist/$FILENAME"
-          tar -tzf "$TGZ" | sed 's#/$##' | grep -v -e '^$' -e '^package$' | sort -u > dist/contents.txt
-          echo "Packed entries:"
-          cat dist/contents.txt
-
-          if grep -v '^package/' dist/contents.txt > dist/unexpected-root.txt; then
-            cat dist/unexpected-root.txt
-            fail "Tarball contains entries outside the package/ root."
-          fi
-
-          if grep -Eqi '(^|/)node_modules/|^package/(src|test|e2e|scripts|dist)/|\.tsx?$|(^|/)[^/]*\.(test|spec)\.[cm]?[jt]s$|(^|/)\.env($|\.)|(^|/)\.git($|/)|(^|/)\.npmrc$|(^|/)\.github/|^package/playwright\.config\.' dist/contents.txt; then
-            fail "Tarball contains forbidden content (node_modules, tests, e2e or environment files)."
-          fi
-
-          # Everything shipped must be covered by the package.json files list or be
-          # a file npm always includes.
-          mapfile -t ALLOWED < <(jq -r '.files[]?' package.json)
-          [ "${#ALLOWED[@]}" -gt 0 ] || fail "package.json has no files allowlist."
-          while read -r entry; do
-            rel="${entry#package/}"
-            case "$rel" in
-              package.json|README|README.md|LICENSE|LICENSE.md|LICENCE|CHANGELOG.md|npm-shrinkwrap.json) continue ;;
-            esac
-            ok=0
-            for allowed in "${ALLOWED[@]}"; do
-              allowed="${allowed#./}"
-              allowed="${allowed%/}"
-              if [ "$rel" = "$allowed" ] || [ "${rel#"$allowed"/}" != "$rel" ]; then ok=1; break; fi
-            done
-            [ "$ok" = 1 ] || fail "Unexpected packed file '$entry'."
-          done < dist/contents.txt
-
-          for required in package/package.json package/README.md package/LICENSE package/lib/cli.js package/lib/server-entry.js package/lib/chrome.html package/lib/ui/chrome.js package/lib/ui/chrome.css package/lib/ui/THIRD_PARTY_NOTICES.md package/lib/sdk.js package/lib/SKILL.md; do
-            grep -qx "$required" dist/contents.txt || fail "Tarball is missing $required."
-          done
-
-          tar -xzOf "$TGZ" package/package.json > dist/packed-package.json
-          PACKED_NAME="$(jq -r '.name' dist/packed-package.json)"
-          PACKED_VERSION="$(jq -r '.version' dist/packed-package.json)"
-          [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Packed name '$PACKED_NAME' != '$PKG_NAME'."
-          [ "$PACKED_VERSION" = "$VERSION" ] || fail "Packed version '$PACKED_VERSION' != '$VERSION'."
-          jq -e '.bin["doc-review"] == "lib/cli.js" and .engines.node == ">=24.21.0"' dist/packed-package.json > /dev/null \
-            || fail "Packed runtime must use compiled lib and the supported Node floor."
-
-          EXPECTED_BIN="${PKG_NAME##*/}"
-          jq -e --arg bin "$EXPECTED_BIN" '(.bin | type) == "object" and (.bin | keys) == [$bin]' \
-            dist/packed-package.json > /dev/null \
-            || fail "Packed bin mapping must expose exactly one command named '$EXPECTED_BIN'."
-          while read -r target; do
-            target="${target#./}"
-            grep -qx "package/$target" dist/contents.txt || fail "bin target '$target' is not present in the tarball."
-          done < <(jq -r '.bin[]' dist/packed-package.json)
-
-          jq -e '.publishConfig.access == "public"' dist/packed-package.json > /dev/null \
-            || fail "Packed publishConfig.access must be public."
-          jq -e --arg registry "$NPM_REGISTRY" '.publishConfig.registry == $registry' dist/packed-package.json > /dev/null \
-            || fail "Packed publishConfig.registry must be $NPM_REGISTRY."
-
-      - name: Smoke test the packed tarball
-        run: npm run test:package:browser -- "$PWD/dist/$FILENAME"
-
-      - name: Build release metadata
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-
-          cd dist
-          SHA256="$(sha256sum "$FILENAME" | cut -d' ' -f1)"
-          sha256sum "$FILENAME" > "$FILENAME.sha256"
-          sha256sum --check --status "$FILENAME.sha256" || fail "SHA-256 checksum file does not verify."
-
-          PACK_INTEGRITY="$(jq -r 'to_entries[0].value.integrity' pack.json)"
-          CALC_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
-          [ "$PACK_INTEGRITY" = "$CALC_INTEGRITY" ] \
-            || fail "npm pack integrity '$PACK_INTEGRITY' does not match recomputed '$CALC_INTEGRITY'."
-
-          jq -n \
-            --arg package "$PKG_NAME" \
-            --arg version "$VERSION" \
-            --arg filename "$FILENAME" \
-            --arg repository "$GITHUB_REPOSITORY" \
-            --arg commit "$GITHUB_SHA" \
-            --arg workflow_run_id "$GITHUB_RUN_ID" \
-            --arg workflow_run_attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg node_version "$(node --version)" \
-            --arg npm_version "$(npm --version)" \
-            --arg registry "$NPM_REGISTRY" \
-            --arg sha256 "$SHA256" \
-            --arg integrity "$CALC_INTEGRITY" \
-            '{
-              package: $package,
-              version: $version,
-              filename: $filename,
-              repository: $repository,
-              commit: $commit,
-              workflow_run_id: $workflow_run_id,
-              workflow_run_attempt: $workflow_run_attempt,
-              node_version: $node_version,
-              npm_version: $npm_version,
-              registry: $registry,
-              sha256: $sha256,
-              integrity: $integrity
-            }' > release-metadata.json
-
-          rm -f pack.json packed-package.json contents.txt unexpected-root.txt
-          ls -l
-          cat release-metadata.json
-
-          {
-            echo "## Release candidate \`$PKG_NAME@$VERSION\`"
-            echo
-            echo "| field | value |"
-            echo "| --- | --- |"
-            echo "| tarball | \`$FILENAME\` |"
-            echo "| commit | \`$GITHUB_SHA\` |"
-            echo "| prepare run ID | \`$GITHUB_RUN_ID\` |"
-            echo "| sha256 | \`$SHA256\` |"
-            echo "| integrity | \`$CALC_INTEGRITY\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Bind fresh validation to this prepare run
+        if: inputs.prepare_mode == 'fresh'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-actions.js fresh dist
 
       - name: Upload the release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -375,6 +258,15 @@ jobs:
             dist/release-metadata.json
           if-no-files-found: error
           retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  fresh:
+    name: Fresh validation
+    if: ${{ inputs.operation == 'prepare' && inputs.prepare_mode == 'fresh' }}
+    needs: guard
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/test.yml
 
   verify:
     name: Verify prepared candidate
@@ -396,6 +288,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Inspect the referenced prepare run
         env:
@@ -424,66 +320,20 @@ jobs:
           check '.head_sha' "$GITHUB_SHA"
 
           echo "Prepare run $PREPARE_RUN_ID verified against commit $GITHUB_SHA."
+          echo "PREPARE_RUN_ATTEMPT=$(jq -r '.run_attempt' prepare-run.json)" >> "$GITHUB_ENV"
 
       - name: Download the prepared artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ needs.guard.outputs.artifact }}
+          name: release-candidate-${{ needs.guard.outputs.version }}-attempt-${{ env.PREPARE_RUN_ATTEMPT }}
           path: candidate
           run-id: ${{ inputs.prepare_run_id }}
           github-token: ${{ github.token }}
 
       - name: Verify the artifact against its metadata
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-
-          cd candidate
-          test -f release-metadata.json || fail "release-metadata.json is missing from the artifact."
-          cat release-metadata.json
-
-          META_PACKAGE="$(jq -r '.package' release-metadata.json)"
-          META_VERSION="$(jq -r '.version' release-metadata.json)"
-          META_FILENAME="$(jq -r '.filename' release-metadata.json)"
-          META_COMMIT="$(jq -r '.commit' release-metadata.json)"
-          META_REPO="$(jq -r '.repository' release-metadata.json)"
-          META_RUN_ID="$(jq -r '.workflow_run_id' release-metadata.json)"
-          META_SHA256="$(jq -r '.sha256' release-metadata.json)"
-          META_INTEGRITY="$(jq -r '.integrity' release-metadata.json)"
-
-          [ "$META_PACKAGE" = "$PKG_NAME" ] || fail "Artifact package '$META_PACKAGE' != '$PKG_NAME'."
-          [ "$META_VERSION" = "$VERSION" ] || fail "Artifact version '$META_VERSION' != '$VERSION'."
-          [ "$META_FILENAME" = "$FILENAME" ] || fail "Artifact filename '$META_FILENAME' != '$FILENAME'."
-          [ "$META_COMMIT" = "$GITHUB_SHA" ] || fail "Artifact commit '$META_COMMIT' != '$GITHUB_SHA'."
-          [ "$META_REPO" = "$GITHUB_REPOSITORY" ] || fail "Artifact repository '$META_REPO' != '$GITHUB_REPOSITORY'."
-          [ "$META_RUN_ID" = "$PREPARE_RUN_ID" ] || fail "Artifact run ID '$META_RUN_ID' != '$PREPARE_RUN_ID'."
-          test -f "$FILENAME" || fail "$FILENAME is missing from the artifact."
-
-          ACTUAL_SHA256="$(sha256sum "$FILENAME" | cut -d' ' -f1)"
-          [ "$ACTUAL_SHA256" = "$META_SHA256" ] || fail "SHA-256 mismatch: $ACTUAL_SHA256 != $META_SHA256."
-          sha256sum --check --status "$FILENAME.sha256" || fail "Recorded checksum file does not verify."
-
-          ACTUAL_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
-          [ "$ACTUAL_INTEGRITY" = "$META_INTEGRITY" ] || fail "Integrity mismatch: $ACTUAL_INTEGRITY != $META_INTEGRITY."
-
-          PACKED_NAME="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.name')"
-          PACKED_VERSION="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.version')"
-          [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Tarball manifest name '$PACKED_NAME' != '$PKG_NAME'."
-          [ "$PACKED_VERSION" = "$VERSION" ] || fail "Tarball manifest version '$PACKED_VERSION' != '$VERSION'."
-
-          echo "Artifact verified: $FILENAME ($ACTUAL_INTEGRITY)"
-
-          {
-            echo "## Verified candidate \`$PKG_NAME@$VERSION\`"
-            echo
-            echo "Prepared by run \`$PREPARE_RUN_ID\` from commit \`$GITHUB_SHA\`."
-            echo
-            echo "- sha256: \`$ACTUAL_SHA256\`"
-            echo "- integrity: \`$ACTUAL_INTEGRITY\`"
-            echo
-            echo "Awaiting \`npm-release\` environment approval."
-          } >> "$GITHUB_STEP_SUMMARY"
-
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-actions.js verify candidate "$PREPARE_RUN_ID"
   publish:
     name: Publish release
     if: inputs.operation == 'release'
@@ -504,6 +354,11 @@ jobs:
       PREPARE_RUN_ID: ${{ inputs.prepare_run_id }}
       AUTHENTICATION: ${{ inputs.authentication }}
     steps:
+      - name: Check out trusted verification tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -565,55 +420,20 @@ jobs:
           check '.head_branch' 'main'
           check '.head_repository.full_name' "$GITHUB_REPOSITORY"
           check '.head_sha' "$GITHUB_SHA"
+          echo "PREPARE_RUN_ATTEMPT=$(jq -r '.run_attempt' prepare-run.json)" >> "$GITHUB_ENV"
 
       - name: Download the prepared artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ needs.guard.outputs.artifact }}
+          name: release-candidate-${{ needs.guard.outputs.version }}-attempt-${{ env.PREPARE_RUN_ATTEMPT }}
           path: candidate
           run-id: ${{ inputs.prepare_run_id }}
           github-token: ${{ github.token }}
 
       - name: Re-verify the artifact
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$*"; exit 1; }
-
-          cd candidate
-          test -f release-metadata.json || fail "release-metadata.json is missing from the artifact."
-          test -f "$FILENAME" || fail "$FILENAME is missing from the artifact."
-
-          META_PACKAGE="$(jq -r '.package' release-metadata.json)"
-          META_VERSION="$(jq -r '.version' release-metadata.json)"
-          META_FILENAME="$(jq -r '.filename' release-metadata.json)"
-          META_COMMIT="$(jq -r '.commit' release-metadata.json)"
-          META_REPO="$(jq -r '.repository' release-metadata.json)"
-          META_RUN_ID="$(jq -r '.workflow_run_id' release-metadata.json)"
-          META_SHA256="$(jq -r '.sha256' release-metadata.json)"
-          META_INTEGRITY="$(jq -r '.integrity' release-metadata.json)"
-
-          [ "$META_PACKAGE" = "$PKG_NAME" ] || fail "Artifact package '$META_PACKAGE' != '$PKG_NAME'."
-          [ "$META_VERSION" = "$VERSION" ] || fail "Artifact version '$META_VERSION' != '$VERSION'."
-          [ "$META_FILENAME" = "$FILENAME" ] || fail "Artifact filename '$META_FILENAME' != '$FILENAME'."
-          [ "$META_COMMIT" = "$GITHUB_SHA" ] || fail "Artifact commit '$META_COMMIT' != '$GITHUB_SHA'."
-          [ "$META_REPO" = "$GITHUB_REPOSITORY" ] || fail "Artifact repository '$META_REPO' != '$GITHUB_REPOSITORY'."
-          [ "$META_RUN_ID" = "$PREPARE_RUN_ID" ] || fail "Artifact run ID '$META_RUN_ID' != '$PREPARE_RUN_ID'."
-
-          ACTUAL_SHA256="$(sha256sum "$FILENAME" | cut -d' ' -f1)"
-          [ "$ACTUAL_SHA256" = "$META_SHA256" ] || fail "SHA-256 mismatch: $ACTUAL_SHA256 != $META_SHA256."
-          sha256sum --check --status "$FILENAME.sha256" || fail "Recorded checksum file does not verify."
-
-          ACTUAL_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$FILENAME" | base64 -w0)"
-          [ "$ACTUAL_INTEGRITY" = "$META_INTEGRITY" ] || fail "Integrity mismatch: $ACTUAL_INTEGRITY != $META_INTEGRITY."
-
-          PACKED_NAME="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.name')"
-          PACKED_VERSION="$(tar -xzOf "$FILENAME" package/package.json | jq -r '.version')"
-          [ "$PACKED_NAME" = "$PKG_NAME" ] || fail "Tarball manifest name '$PACKED_NAME' != '$PKG_NAME'."
-          [ "$PACKED_VERSION" = "$VERSION" ] || fail "Tarball manifest version '$PACKED_VERSION' != '$VERSION'."
-
-          echo "EXPECTED_INTEGRITY=$ACTUAL_INTEGRITY" >> "$GITHUB_ENV"
-          echo "EXPECTED_SHA256=$ACTUAL_SHA256" >> "$GITHUB_ENV"
-
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-actions.js verify candidate "$PREPARE_RUN_ID"
       - name: Inspect the GitHub tag and release state
         env:
           GH_TOKEN: ${{ github.token }}
@@ -775,7 +595,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate
-          npm publish "$FILENAME" --access public --registry="$NPM_REGISTRY"
+          npm publish "$FILENAME" --ignore-scripts --access public --registry="$NPM_REGISTRY"
 
       - name: Publish to npm with the protected token fallback
         if: env.NPM_ALREADY_PUBLISHED == 'false' && inputs.authentication == 'token'
@@ -795,7 +615,7 @@ jobs:
           chmod 600 "$NPMRC"
 
           cd candidate
-          NPM_CONFIG_USERCONFIG="$NPMRC" npm publish "$FILENAME" --access public --registry="$NPM_REGISTRY"
+          NPM_CONFIG_USERCONFIG="$NPMRC" npm publish "$FILENAME" --ignore-scripts --access public --registry="$NPM_REGISTRY"
 
       - name: Verify the published npm version
         run: |

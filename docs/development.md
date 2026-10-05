@@ -35,6 +35,9 @@ the runtime and do not require TypeScript or an installation build.
 | `npm run test:browser` | Rebuild and run browser tests |
 | `npm run test:package` | Pack and check an isolated production installation |
 | `npm run test:package:browser` | Also open an installed package review in Chromium |
+| `npm run test:package:browser -- candidate.tgz --suite=full --workers=1` | Run complete browser coverage against one installed archive |
+| `npm run test:package:browser -- candidate.tgz --suite=full --shard=1/2 --workers=1` | Run one explicit shard and emit coverage evidence |
+| `node scripts/release-preflight.js --previous-tag vMAJOR.MINOR.PATCH` | Read-only release readiness, defaulting to protected token authentication |
 | `npm run test:all` | Build, run unit and browser suites, then check packaging |
 
 Install Chromium before the browser commands. CI uses
@@ -42,7 +45,7 @@ Install Chromium before the browser commands. CI uses
 `test:all` runs the browser suite but uses the nonbrowser package smoke; run
 `test:package:browser` when validating the installed browser experience too.
 
-The installed browser gate also runs the approved Field Notes geometry, responsive
+The default local installed browser gate also runs the approved Field Notes geometry, responsive
 draft/readability, toolbar, contextual, card, result and deterministic anchor-ordering
 tests against the installed package's **own** `lib`, not the checkout runtime.
 The configured engine is Playwright Chromium; this is not cross-browser certification.
@@ -50,6 +53,57 @@ There are no pixel-snapshot baselines. `test/fixtures/approved-ui-parity.js` rec
 the reviewed STEP6 geometry/build provenance; natural text clipping, actual pointer
 hits and preserved editors remain behavioral assertions rather than screenshot-box
 proxies.
+
+### CI candidate and browser gates
+
+CI retains the four OS/Node unit jobs. One canonical minimum-Node build produces
+an archive, checksum and versioned build metadata. The interaction preflight
+checks that installed package before two independent full-suite shards run, with
+one worker each. `chromium` is the stable aggregate gate: it rejects missing
+stages, failed/flaky tests, repeated tests, or a shard union that differs from the
+complete collected plan. There is no second checkout-plus-installed parity pass.
+
+A local Windows comparison covered the same 375 planned cases, including three
+source-gallery cases, with no retries: 36.1 minutes serially versus 19.5 minutes
+across the two one-worker shards, a 46% reduction in browser wall time. This
+supports conservative sharding, not a GitHub-hosted duration guarantee; setup
+and other CI stages are measured separately.
+
+`--suite=smoke` runs installation and durable browser lifecycle checks only;
+`--suite=preflight` adds the small interaction/isolation gate; `--suite=parity`
+retains the selected local parity set; `--suite=full` collects and runs the
+complete installed suite. Unknown options, invalid worker/shard counts and empty
+coverage fail explicitly. Product runtime imports and SDK serving use
+`test/fixtures/runtime.js`; the source component gallery is recorded separately
+as `ui-foundations.spec.js`, not claimed as installed-runtime certification.
+
+Each test receives its own short source namespace and fresh durable store inside
+its worker-managed server. This prevents both identity collisions and cumulative
+history growth from slowing unrelated tests. Same
+filenames are stable within a test but never share review identity across tests,
+projects, retries or shards. Do not bypass this by writing into another test's
+directory. Use the fixture's `root` and shared `writeFile` helper.
+
+Package checks stream progress and preserve `phases.jsonl`, browser JSON and
+`browser-evidence.json` beside their existing runtime/installation evidence.
+Candidate build/restore/sealing and release selection/adoption/verification also
+record durations in CI job summaries and `RUNNER_TEMP/doc-review-phases`.
+Build, unit/UI, approval, publication and propagation step timings remain
+available in Actions; these timing records never authorize a release.
+Trace and screenshot capture is enabled for failed browser cases. CI uploads
+failed or cancelled stage diagnostics with attempt/shard-specific names.
+Before upload, the diagnostic sanitizer redacts credential/header values,
+browser storage and frame nonces in JSON, text and trace ZIP entries. It retains
+resource references and screenshots, and fails closed on unsafe entries; unsafe
+or unsanitized evidence is not uploaded. Successful main-push finalization issues
+`verified-main-candidate-<attempt>` only after all unit and browser gates pass.
+PR artifacts are diagnostic/test inputs, not release-eligible candidates.
+
+Ordinary local `npm pack` still rebuilds through prepack. The controlled CI pack
+suppresses prepack only after the canonical build and verifies every packed
+runtime file against the build manifest. Both browser shards consume that same
+archive. Artifact adoption, source binding and publication are documented in
+[Releasing](../RELEASING.md).
 
 For a final acceptance run, set `DOC_REVIEW_SMOKE_ARTIFACTS` to an evidence directory.
 Set `DOC_REVIEW_SMOKE_KEEP=1` to preserve the isolated installation, authored sources,

@@ -45,11 +45,14 @@ test("release preparation and publication accept the exact pinned Node version",
   const pin = workflow.match(/^\s+NODE_VERSION: "([^"]+)"/m)?.[1];
   assert.equal(`>=${pin}`, pkg.engines.node);
   const checks = [...workflow.matchAll(/case "\$\(node --version\)" in([\s\S]*?)esac/g)];
-  assert.equal(checks.length, 2);
+  assert.equal(checks.length, 1);
   for (const [, branches] of checks) {
     assert.ok(branches.includes('"v${NODE_VERSION}") ;;'));
     assert.ok(!branches.includes("v${NODE_VERSION}.*"));
   }
+  const workflowCI = fs.readFileSync(path.join(root, ".github", "workflows", "test.yml"), "utf8");
+  assert.match(workflowCI, /node-version: "24\.21\.0"/);
+  assert.match(workflowCI, /NPM_VERSION: "12\.0\.2"/);
 });
 
 test("state discovery uses only the doc-review namespace", () => {

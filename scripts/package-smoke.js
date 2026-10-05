@@ -10,15 +10,15 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import ts from "typescript";
 import { conversationSmoke } from "./package-conversation-smoke.js";
+import { packageOptions } from "./package-options.js";
+import { toolingPhase } from "./tooling-phase.js";
+import { installedBrowserSuite } from "./installed-browser.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const run = promisify(execFile);
 const runShell = promisify(exec);
-const args = process.argv.slice(2);
-const browserRequested = args.includes("--browser");
-const tarballs = args.filter((arg) => arg !== "--browser");
-assert.ok(tarballs.length <= 1 && tarballs.every((arg) => !arg.startsWith("--")),
-  "Usage: npm run test:package -- [candidate.tgz] [--browser]");
+const options = packageOptions(process.argv.slice(2));
+const browserRequested = options.browser;
 const npm = process.env.npm_execpath;
 assert.ok(npm, "Run through npm run test:package so the selected npm CLI is reused");
 const expected = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
@@ -80,10 +80,11 @@ async function runtimeHashes(directory) {
   return hashes;
 }
 
+async function main() {
 try {
   await Promise.all([prefix, home, project, evidenceDir].map((directory) => mkdir(directory, { recursive: true })));
   await writeFile(path.join(project, "package.json"), JSON.stringify({ name: "clean-doc-review-consumer", private: true }));
-  let tarball = tarballs[0] && path.resolve(tarballs[0]);
+  let tarball = options.archive && path.resolve(options.archive);
   if (!tarball) {
     // prepack rebuilds; this local test archive is never a publishable candidate.
     const packed = await npmRun(["pack", "--json", "--pack-destination", work]);
@@ -97,7 +98,8 @@ try {
     private: true,
     dependencies: { [expected.name]: `file:${tarball}` },
   }));
-  await npmRun(["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"], prefix);
+  await toolingPhase(evidenceDir, "install-package", () =>
+    npmRun(["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"], prefix));
   installed = path.join(prefix, "node_modules", ...expected.name.split("/"));
   const runtime = await runtimeHashes(path.join(installed, "lib"));
   const repositoryRuntime = await runtimeHashes(path.join(root, "lib"));
@@ -148,6 +150,12 @@ try {
   const help = (await cliRun(["--help"])).stdout;
   assert.match(help, /doc-review/);
   assert.doesNotMatch(help, /human-review/i);
+  if (browserRequested && options.suite === "full") {
+    await installedBrowserSuite({ root, installed, work, evidenceDir, env, options, tarBytes: await readFile(tarball) });
+    succeeded = true;
+    console.log(`Full installed suite passed: ${expected.name}@${expected.version}`);
+    return;
+  }
   await cliRun(["setup", "--global"]);
   for (const directory of [".claude", ".codex", ".agents"]) {
     const skill = await readFile(path.join(home, directory, "skills", "doc-review", "SKILL.md"), "utf8");
@@ -367,25 +375,13 @@ try {
       playwright: JSON.parse(await readFile(path.join(root, "node_modules", "@playwright", "test", "package.json"), "utf8")).version,
       platform: process.platform, node: process.version,
     }, null, 2));
-    await conversationSmoke({
+    await toolingPhase(evidenceDir, "installed-lifecycle", () => conversationSmoke({
       browser, expect, project, state: env.DOC_REVIEW_STATE_DIR, evidenceDir, contracts, cliRun,
       connection: () => ({ base, token: info.token }),
       restart: async () => { const port = info.port; await stopServer(); await startServer(port); },
-    });
-    const selectors = "approved-parity.spec.js|responsive-conversation.spec.js|new-comment.spec.js|toolbar.spec.js|anchor-ordering.spec.js|result-discovery.spec.js|conversation-cards.spec.js|feedback-overlay.spec.js|local-placement.spec.js|conversation-adjacent.spec.js|thread-anchors.spec.js|source-save-compat.spec.js|frontend-refinement.spec.js|feedback-readability.spec.js|changes-controls.spec.js";
-    try {
-      const parity = await npmRun(["exec", "--", "playwright", "test", selectors, "--workers=2",
-        `--output=${path.join(evidenceDir, "installed-parity")}`], root, {
-        DOC_REVIEW_TEST_RUNTIME: path.join(installed, "lib"),
-        DOC_REVIEW_TEST_ROOT: path.join(work, "parity-fixtures"),
-        DOC_REVIEW_TEST_KEEP: keep ? "1" : "0",
-        ...browserEnv,
-      }, 600_000);
-      await writeFile(path.join(evidenceDir, "installed-parity.log"), parity.stdout + parity.stderr);
-      console.log(parity.stdout.trim().split("\n").at(-1));
-    } catch (error) {
-      await writeFile(path.join(evidenceDir, "installed-parity.log"), (error.stdout || "") + (error.stderr || ""));
-      throw error;
+    }));
+    if (options.suite !== "smoke") {
+      await installedBrowserSuite({ root, installed, work, evidenceDir, env, options, tarBytes });
     }
   }
   for (const [file, bytes] of obsolete) assert.equal(await readFile(file, "utf8"), bytes);
@@ -435,3 +431,5 @@ try {
   if (succeeded && !keep) await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   else if (succeeded) console.log(`Installed runtime and disposable fixtures retained: ${work}`);
 }
+}
+await main();

@@ -83,105 +83,117 @@ test("the rounded brand scales cleanly and belongs only to the outer shell", asy
   } finally { await study.close(); }
 });
 
-test("coherent toolbar grouping, selected paint, hit targets and lifecycle geometry across both themes", async ({ page, review }, testInfo) => {
-  test.setTimeout(90_000);
-  const ref = await openReview(page, review, writeFile(review, "toolbar-layout.html", fixture));
-  for (const selector of ["#intro", "#detail"]) await seedThread(review, ref, "Clarify this section", {
-    kind: "element", anchor: { selector, label: "Sample review" },
-  });
-  await feedback(page);
-  await expect(page.locator(".conversation-thread")).toHaveCount(2);
-  for (const theme of ["light", "dark"]) {
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
-    for (const [width, height] of [[1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844], [390, 480], [320, 400], [761, 700], [760, 700], [601, 700], [481, 700], [480, 700], [390, 700], [320, 700], [900, 450], [899, 450], [320, 450]]) {
-      await page.setViewportSize({ width, height });
-      await expect(page.locator("#reviewPage")).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
-      await expect(page.locator("#reviewDetails")).toHaveCount(0);
-      await expect(page.locator(".conversation-title")).toHaveCount(0);
-      await expect(page.locator(".shell-toolbar")).not.toContainText("toolbar-layout.html");
-      await expect(async () => {
-        const toolbar = await page.locator(".shell-toolbar").boundingBox();
-        expect(toolbar.width).toBe(width);
-        for (const control of await page.locator(".shell-toolbar button").all()) {
-          if (!await control.isVisible()) continue;
-          const box = await control.boundingBox();
-          expect(box.x).toBeGreaterThanOrEqual(0);
-          expect(box.x + box.width).toBeLessThanOrEqual(width);
-          expect(box.height).toBe(32);
-          if (await control.isEnabled()) expect(await control.evaluate((element) => {
-            const rect = element.getBoundingClientRect();
-            return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-          })).toBe(true);
-        }
-      }).toPass({ timeout: 5000 });
-      const toolbar = await page.locator(".shell-toolbar").boundingBox();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const brand = page.getByRole("img", { name: "Doc Review", exact: true });
-      expect(await brand.evaluate((image) => image.complete && image.naturalWidth === 64)).toBe(true);
-      const icon = await brand.boundingBox(), destination = page.getByRole("group", { name: "Review destination" });
-      const group = await destination.boundingBox();
-      expect([icon.width, icon.height, group.height]).toEqual([32, 32, 32]);
-      expect(group.y).toBe(icon.y); expect(group.x - icon.x - icon.width).toBe(8);
-      expect(await destination.evaluate((element) => getComputedStyle(element).borderRadius)).toBe("8px");
-      await expect.poll(() => page.locator("#latestVersion").evaluate((element) => ({
-        fill: getComputedStyle(element).backgroundColor, ink: getComputedStyle(element).color,
-        inset: getComputedStyle(element, "::before").top, radius: getComputedStyle(element, "::before").borderRadius,
-        selected: getComputedStyle(element, "::before").backgroundColor,
-      }))).toEqual({ fill: "rgba(0, 0, 0, 0)", ink: theme === "light" ? "rgb(23, 104, 95)" : "rgb(133, 199, 184)",
-        inset: "3px", radius: "5px", selected: theme === "light" ? "rgb(225, 238, 234)" : "rgb(41, 63, 55)" });
-      await expect(page.locator(".conversation-lifecycle")).toHaveCount(1);
-      await expect(page.locator(".conversation-lifecycle")).toHaveAttribute("data-variant", "outline");
-      const badgePaint = await page.locator(".conversation-lifecycle").evaluate((element) => {
-        const style = getComputedStyle(element);
-        return { width: style.borderTopWidth, style: style.borderTopStyle, color: style.borderTopColor,
-          radius: parseFloat(style.borderTopLeftRadius), surface: getComputedStyle(element.closest(".shell-toolbar")).backgroundColor };
-      });
-      expect(badgePaint.width).toBe("1px");
-      expect(badgePaint.style).toBe("solid");
-      expect(badgePaint.color).not.toBe("rgba(0, 0, 0, 0)");
-      expect(badgePaint.color).not.toBe(badgePaint.surface);
-      expect(badgePaint.radius).toBeGreaterThanOrEqual(10);
-      await expect(page.locator(".conversation-global-status")).toHaveCount(0);
-      const lifecycle = await page.locator(".conversation-lifecycle").boundingBox();
-      const mode = await page.locator("#modeButton").boundingBox();
-      if (width > 760) expect(Math.abs(lifecycle.y + lifecycle.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
-      if (width > 640) expect(Math.abs(lifecycle.x + lifecycle.width / 2 - width / 2)).toBeLessThanOrEqual(1);
-      expect(lifecycle.height).toBe(20);
-      expect(lifecycle.x + lifecycle.width).toBeLessThanOrEqual(width);
-      expect(toolbar.height, `${theme} ${width}x${height} toolbar`).toBe(width > 760 ? 49 : 89);
-      const stage = await page.locator(".stage").boundingBox();
-      expect(stage.y).toBe(toolbar.y + toolbar.height);
-      const panel = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
-      expect(panel.y).toBeGreaterThanOrEqual(stage.y);
-      expect(panel.x).toBeGreaterThanOrEqual(0);
-      expect(panel.x + panel.width).toBeLessThanOrEqual(width);
-      await page.screenshot({ path: testInfo.outputPath(`toolbar-${theme}-${width}x${height}.png`), animations: "disabled" });
-      await page.locator("#modeButton").click();
-      await expect(page.getByRole("menu")).toBeVisible();
-      const menu = await page.getByRole("menu").boundingBox();
-      expect(menu.x).toBeGreaterThanOrEqual(0); expect(menu.x + menu.width).toBeLessThanOrEqual(width);
-      await page.getByRole("menuitemradio", { name: /^Edit/ }).click();
-      await expect(page.locator("#modeLabel")).toHaveText("Edit");
-      await expect(page.frameLocator("#frame").locator("body")).toHaveAttribute("contenteditable", "true");
-      await page.locator("#modeButton").click();
-      await expect(page.getByRole("menuitemradio", { name: /^Edit/ })).toHaveAttribute("aria-checked", "true");
-      await page.screenshot({ path: testInfo.outputPath(`toolbar-edit-${theme}-${width}x${height}.png`), animations: "disabled" });
-      await page.keyboard.press("Escape"); await expect(page.locator("#modeButton")).toBeFocused();
-      await selectReviewMode(page, "View");
-      await setReviewTheme(page); await setReviewTheme(page);
-      await page.locator("#seeChanges").click();
-      await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No responses yet");
-      await expect(page.locator("#commentsButton")).toBeHidden();
-      await expect(page.locator(".conversation-lifecycle")).toBeVisible();
-      const changesBadge = await page.locator(".conversation-lifecycle").boundingBox();
-      if (width > 640) expect(Math.abs(changesBadge.x + changesBadge.width / 2 - width / 2)).toBeLessThanOrEqual(1);
-      await expect(page.locator(".conversation-global-status")).toHaveCount(0);
-      await expect(page.locator("#seeChanges")).toHaveAttribute("aria-pressed", "true");
-      await page.locator("#latestVersion").click();
-    }
-  }
-});
+for (const theme of ["light", "dark"])
+    for (const [width, height] of [
+        [1440, 900], [1280, 720], [900, 700], [899, 700], [768, 900], [390, 844],
+        [390, 480], [320, 400], [761, 700], [760, 700], [601, 700], [481, 700],
+        [480, 700], [390, 700], [320, 700], [900, 450], [899, 450], [320, 450],
+    ])
+        test(`coherent toolbar grouping, paint and geometry ${theme} ${width}x${height}`, async ({ page, review }, testInfo) => {
+            const ref = await openReview(page, review, writeFile(review, "toolbar-layout.html", fixture));
+            for (const selector of ["#intro", "#detail"])
+                await seedThread(review, ref, "Clarify this section", {
+                    kind: "element", anchor: { selector, label: "Sample review" },
+                });
+            await feedback(page);
+            await expect(page.locator(".conversation-thread")).toHaveCount(2);
+            if (await page.locator("html").getAttribute("data-theme") !== theme)
+                await setReviewTheme(page);
+            await page.setViewportSize({ width, height });
+            await expect(page.locator("#reviewPage")).toHaveCount(0);
+            await expect(page.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+            await expect(page.locator("#reviewDetails")).toHaveCount(0);
+            await expect(page.locator(".conversation-title")).toHaveCount(0);
+            await expect(page.locator(".shell-toolbar")).not.toContainText("toolbar-layout.html");
+            await expect(async () => {
+                const toolbar = await page.locator(".shell-toolbar").boundingBox();
+                expect(toolbar.width).toBe(width);
+                for (const control of await page.locator(".shell-toolbar button").all()) {
+                    if (!await control.isVisible())
+                        continue;
+                    const box = await control.boundingBox();
+                    expect(box.x).toBeGreaterThanOrEqual(0);
+                    expect(box.x + box.width).toBeLessThanOrEqual(width);
+                    expect(box.height).toBe(32);
+                    if (await control.isEnabled())
+                        expect(await control.evaluate((element) => {
+                            const rect = element.getBoundingClientRect();
+                            return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+                        })).toBe(true);
+                }
+            }).toPass({ timeout: 5000 });
+            const toolbar = await page.locator(".shell-toolbar").boundingBox();
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+            const brand = page.getByRole("img", { name: "Doc Review", exact: true });
+            expect(await brand.evaluate((image) => image.complete && image.naturalWidth === 64)).toBe(true);
+            const icon = await brand.boundingBox(), destination = page.getByRole("group", { name: "Review destination" });
+            const group = await destination.boundingBox();
+            expect([icon.width, icon.height, group.height]).toEqual([32, 32, 32]);
+            expect(group.y).toBe(icon.y);
+            expect(group.x - icon.x - icon.width).toBe(8);
+            expect(await destination.evaluate((element) => getComputedStyle(element).borderRadius)).toBe("8px");
+            await expect.poll(() => page.locator("#latestVersion").evaluate((element) => ({
+                fill: getComputedStyle(element).backgroundColor, ink: getComputedStyle(element).color,
+                inset: getComputedStyle(element, "::before").top, radius: getComputedStyle(element, "::before").borderRadius,
+                selected: getComputedStyle(element, "::before").backgroundColor,
+            }))).toEqual({ fill: "rgba(0, 0, 0, 0)", ink: theme === "light" ? "rgb(23, 104, 95)" : "rgb(133, 199, 184)",
+                inset: "3px", radius: "5px", selected: theme === "light" ? "rgb(225, 238, 234)" : "rgb(41, 63, 55)" });
+            await expect(page.locator(".conversation-lifecycle")).toHaveCount(1);
+            await expect(page.locator(".conversation-lifecycle")).toHaveAttribute("data-variant", "outline");
+            const badgePaint = await page.locator(".conversation-lifecycle").evaluate((element) => {
+                const style = getComputedStyle(element);
+                return { width: style.borderTopWidth, style: style.borderTopStyle, color: style.borderTopColor,
+                    radius: parseFloat(style.borderTopLeftRadius), surface: getComputedStyle(element.closest(".shell-toolbar")).backgroundColor };
+            });
+            expect(badgePaint.width).toBe("1px");
+            expect(badgePaint.style).toBe("solid");
+            expect(badgePaint.color).not.toBe("rgba(0, 0, 0, 0)");
+            expect(badgePaint.color).not.toBe(badgePaint.surface);
+            expect(badgePaint.radius).toBeGreaterThanOrEqual(10);
+            await expect(page.locator(".conversation-global-status")).toHaveCount(0);
+            const lifecycle = await page.locator(".conversation-lifecycle").boundingBox();
+            const mode = await page.locator("#modeButton").boundingBox();
+            if (width > 760)
+                expect(Math.abs(lifecycle.y + lifecycle.height / 2 - mode.y - mode.height / 2)).toBeLessThanOrEqual(1);
+            if (width > 640)
+                expect(Math.abs(lifecycle.x + lifecycle.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+            expect(lifecycle.height).toBe(20);
+            expect(lifecycle.x + lifecycle.width).toBeLessThanOrEqual(width);
+            expect(toolbar.height, `${theme} ${width}x${height} toolbar`).toBe(width > 760 ? 49 : 89);
+            const stage = await page.locator(".stage").boundingBox();
+            expect(stage.y).toBe(toolbar.y + toolbar.height);
+            const panel = await page.getByRole("complementary", { name: "Feedback" }).boundingBox();
+            expect(panel.y).toBeGreaterThanOrEqual(stage.y);
+            expect(panel.x).toBeGreaterThanOrEqual(0);
+            expect(panel.x + panel.width).toBeLessThanOrEqual(width);
+            await page.screenshot({ path: testInfo.outputPath(`toolbar-${theme}-${width}x${height}.png`), animations: "disabled" });
+            await page.locator("#modeButton").click();
+            await expect(page.getByRole("menu")).toBeVisible();
+            const menu = await page.getByRole("menu").boundingBox();
+            expect(menu.x).toBeGreaterThanOrEqual(0);
+            expect(menu.x + menu.width).toBeLessThanOrEqual(width);
+            await page.getByRole("menuitemradio", { name: /^Edit/ }).click();
+            await expect(page.locator("#modeLabel")).toHaveText("Edit");
+            await expect(page.frameLocator("#frame").locator("body")).toHaveAttribute("contenteditable", "true");
+            await page.locator("#modeButton").click();
+            await expect(page.getByRole("menuitemradio", { name: /^Edit/ })).toHaveAttribute("aria-checked", "true");
+            await page.screenshot({ path: testInfo.outputPath(`toolbar-edit-${theme}-${width}x${height}.png`), animations: "disabled" });
+            await page.keyboard.press("Escape");
+            await expect(page.locator("#modeButton")).toBeFocused();
+            await selectReviewMode(page, "View");
+            await setReviewTheme(page);
+            await setReviewTheme(page);
+            await page.locator("#seeChanges").click();
+            await expect(page.getByRole("region", { name: "Changes", exact: true })).toContainText("No responses yet");
+            await expect(page.locator("#commentsButton")).toBeHidden();
+            await expect(page.locator(".conversation-lifecycle")).toBeVisible();
+            const changesBadge = await page.locator(".conversation-lifecycle").boundingBox();
+            if (width > 640)
+                expect(Math.abs(changesBadge.x + changesBadge.width / 2 - width / 2)).toBeLessThanOrEqual(1);
+            await expect(page.locator(".conversation-global-status")).toHaveCount(0);
+            await expect(page.locator("#seeChanges")).toHaveAttribute("aria-pressed", "true");
+            await page.locator("#latestVersion").click();
+        });
 
 test("editing is disabled while the initial page is loading", async ({ page, review }) => {
   const target = writeFile(review, "toolbar-loading.html", fixture);
