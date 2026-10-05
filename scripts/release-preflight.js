@@ -8,6 +8,30 @@ import { readJson } from "./release-candidate.js";
 import { UNIT_JOBS, validateProducer } from "./release-evidence.js";
 import { validateArtifact } from "./release-actions.js";
 
+export function repositoryFromOrigin(origin) {
+  const match = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(origin);
+  assert(match, "Origin must identify a github.com repository; use --repo owner/name for an SSH alias");
+  return match[1];
+}
+
+export function readCandidateFacts(repository, main, read) {
+  const runs = read(["run", "list", "--repo", repository, "--workflow", "test.yml", "--branch", "main", "--limit", "30",
+    "--json", "databaseId,headSha,event,status,conclusion"]);
+  const run = runs.find(run => run.headSha === main && run.event === "push" && run.status === "completed" && run.conclusion === "success");
+  const producer = run ? read(["api", `repos/${repository}/actions/runs/${run.databaseId}`]) : null;
+  const attempt = producer?.run_attempt ?? null;
+  const checks = run ? read(["run", "view", String(run.databaseId), "--repo", repository, "--json", "jobs"]).jobs : [];
+  const artifacts = run ? read(["api", `repos/${repository}/actions/runs/${run.databaseId}/artifacts`]).artifacts : [];
+  const matches = artifacts.filter(artifact => artifact.name === `verified-main-candidate-${attempt}` && !artifact.expired);
+  assert(matches.length <= 1, "Ambiguous candidate artifact");
+  const artifact = matches[0];
+  if (artifact) {
+    validateProducer(producer, { repository, commit: main, runId: String(run.databaseId), attempt: String(attempt) }, checks);
+    validateArtifact(artifact, producer);
+  }
+  return { checks, candidate: artifact ? { runId: String(run.databaseId), attempt: String(attempt), artifactId: artifact.id } : null };
+}
+
 export function releaseReadiness({ manifest, registry, sha, main, previousTag, authentication, checks, candidate }) {
   assert(["token", "oidc"].includes(authentication));
   assert.match(manifest.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
@@ -37,36 +61,24 @@ export function releaseReadiness({ manifest, registry, sha, main, previousTag, a
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const { values } = parseArgs({ options: { "previous-tag": { type: "string" }, authentication: { type: "string", default: "token" },
-    output: { type: "string" } } });
+    output: { type: "string" }, repo: { type: "string" } } });
   assert.match(values["previous-tag"] ?? "", /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, "Provide --previous-tag vMAJOR.MINOR.PATCH");
   assert(["token", "oidc"].includes(values.authentication));
   const manifest = readJson("package.json");
   const git = args => execFileSync("git", args, { encoding: "utf8" }).trim();
   const gh = args => JSON.parse(execFileSync("gh", args, { encoding: "utf8" }));
   assert.equal(git(["status", "--porcelain"]), "", "Commit pending changes before release preflight");
-  const repository = gh(["repo", "view", "--json", "nameWithOwner"]).nameWithOwner;
+  const selected = values.repo ?? repositoryFromOrigin(git(["remote", "get-url", "origin"]));
+  assert.match(selected, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "Provide --repo owner/name");
+  const repository = gh(["repo", "view", selected, "--json", "nameWithOwner"]).nameWithOwner;
   gh(["api", `repos/${repository}/git/ref/tags/${values["previous-tag"]}`]);
   const sha = git(["rev-parse", "HEAD"]), main = gh(["api", `repos/${repository}/git/ref/heads/main`]).object.sha;
   const response = await fetch(`https://registry.npmjs.org/${manifest.name}`, { signal: AbortSignal.timeout(30_000) });
   assert(response.ok || response.status === 404, `Registry read failed (${response.status})`);
   const registry = response.status === 404 ? {} : await response.json();
-  const runs = gh(["run", "list", "--workflow", "test.yml", "--branch", "main", "--limit", "30",
-    "--json", "databaseId,headSha,event,status,conclusion"]);
-  const run = runs.find(run => run.headSha === main && run.event === "push" && run.status === "completed" && run.conclusion === "success");
-  const producer = run ? gh(["api", `repos/${repository}/actions/runs/${run.databaseId}`]) : null;
-  const attempt = producer?.run_attempt ?? null;
-  const checks = run ? gh(["run", "view", String(run.databaseId), "--json", "jobs"]).jobs : [];
-  const artifacts = run ? gh(["api", `repos/${repository}/actions/runs/${run.databaseId}/artifacts`]).artifacts : [];
-  const matches = artifacts.filter(artifact => artifact.name === `verified-main-candidate-${attempt}` && !artifact.expired);
-  assert(matches.length <= 1, "Ambiguous candidate artifact");
-  const artifact = matches[0];
-  if (artifact) {
-    validateProducer(producer, { repository, commit: main, runId: String(run.databaseId), attempt: String(attempt) }, checks);
-    validateArtifact(artifact, producer);
-  }
+  const { checks, candidate } = readCandidateFacts(repository, main, gh);
   const result = releaseReadiness({ manifest, registry, sha, main, previousTag: values["previous-tag"],
-    authentication: values.authentication, checks,
-    candidate: artifact ? { runId: String(run.databaseId), attempt: String(attempt), artifactId: artifact.id } : null });
+    authentication: values.authentication, checks, candidate });
   if (values.output) fs.writeFileSync(values.output, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx" });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ready) process.exitCode = 1;

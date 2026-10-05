@@ -4,7 +4,7 @@ import { validateCoverage, validateProducer, CANDIDATE_POLICY, UNIT_JOBS } from 
 import { validateEntries, validateManifest, candidateContext } from "../scripts/release-candidate.js";
 import { packageOptions } from "../scripts/package-options.js";
 import { validateArtifact } from "../scripts/release-actions.js";
-import { releaseReadiness } from "../scripts/release-preflight.js";
+import { releaseReadiness, repositoryFromOrigin, readCandidateFacts } from "../scripts/release-preflight.js";
 import { toolingPhase, ciToolingPhase } from "../scripts/tooling-phase.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -136,6 +136,40 @@ test("read-only preflight identifies blockers without changing release state", (
     registry: { name: input.manifest.name, versions: { "0.15.0": {} } }, main: "b".repeat(40) });
   assert.equal(result.ready, false);
   assert.equal(result.blockers.length, 3);
+});
+
+test("preflight resolves the fork's origin instead of GitHub CLI's upstream default", () => {
+  for (const origin of ["https://github.com/erdemtuna/doc-review.git", "https://github.com/erdemtuna/doc-review",
+    "git@github.com:erdemtuna/doc-review.git", "ssh://git@github.com/erdemtuna/doc-review.git"]) {
+    assert.equal(repositoryFromOrigin(origin), "erdemtuna/doc-review");
+  }
+  for (const origin of ["https://github.com/owner/repo/extra", "https://other.example/owner/repo.git",
+    "https://user:credential@github.com/owner/repo.git", "git@personal-alias:owner/repo.git"]) {
+    assert.throws(() => repositoryFromOrigin(origin), /--repo/);
+  }
+});
+
+test("every preflight run lookup remains bound to the selected fork", () => {
+  const repository = "erdemtuna/doc-review", main = "a".repeat(40);
+  const run = { id: 123, repository: { full_name: repository }, head_repository: { full_name: repository },
+    path: ".github/workflows/test.yml", event: "push", head_branch: "main", head_sha: main,
+    run_attempt: 1, status: "completed", conclusion: "success" };
+  const checks = [...UNIT_JOBS, "chromium", "Verified main candidate"].map(name => ({ name, conclusion: "success" }));
+  const calls = [];
+  const read = args => {
+    calls.push(args);
+    if (args[0] === "run") {
+      assert.equal(args[args.indexOf("--repo") + 1], repository, "Never inherit the upstream CLI default");
+      return args[1] === "list" ? [{ databaseId: run.id, headSha: main, ...run }] : { jobs: checks };
+    }
+    assert.equal(args[0], "api");
+    assert(args[1].startsWith(`repos/${repository}/`));
+    return args[1].endsWith("/artifacts") ? { artifacts: [{ id: 4, name: "verified-main-candidate-1",
+      expired: false, workflow_run: { id: run.id, head_sha: main } }] } : run;
+  };
+  assert.deepEqual(readCandidateFacts(repository, main, read), { checks, candidate: { runId: "123", attempt: "1", artifactId: 4 } });
+  assert.equal(calls.length, 4);
+  assert.deepEqual(readCandidateFacts(repository, main, () => []), { checks: [], candidate: null });
 });
 
 test("phase records preserve failures without persisting command arguments or credentials", async t => {

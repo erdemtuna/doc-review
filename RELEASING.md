@@ -45,7 +45,9 @@ artifact bytes, registry integrity and latest ordering.
 `node scripts/release-preflight.js --previous-tag vMAJOR.MINOR.PATCH` reports
 readiness without dispatching workflows or modifying releases. Optional
 `--output <new-json-path>` preserves the handoff; `--authentication oidc` is
-explicit. Do not supply or store secret values in this output.
+explicit. Repository selection follows the checkout's `origin`, not GitHub CLI's
+upstream default for forks. Use `--repo owner/name` for an SSH alias. Do not supply
+or store secret values in this output.
 
 ## v0.14.0 release checklist
 
