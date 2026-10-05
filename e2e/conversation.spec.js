@@ -208,8 +208,16 @@ test("reconnected history bridges missed pages and retains loaded records and th
   // Do not interrupt the initial paged refresh and then mistake its request timeout for reconnect failure.
   await expect(page.locator("#toolbarCount")).toHaveText("0");
   await submissionHistory(page);
+  // Chromium can coalesce brief offline toggles; observe native events before the fast backend batch.
+  await page.evaluate(() => {
+    const observe = () => { document.documentElement.dataset.testNetworkState = navigator.onLine ? "online" : "offline"; };
+    window.addEventListener("offline", observe);
+    window.addEventListener("online", observe);
+    observe();
+  });
   const completeOffline = async (start) => {
     await context.setOffline(true);
+    await expect(page.locator("html")).toHaveAttribute("data-test-network-state", "offline");
     for (let index = start; index < start + 55; index++) {
       await mutate(review, ref, "send", { pageKeys: [ref.entryKey], messages: [], edits: [],
         overallNote: { body: `Offline note ${index}`, intent: "discuss" } });
@@ -217,6 +225,7 @@ test("reconnected history bridges missed pages and retains loaded records and th
       await call(review, responseFor(work, { resultNote: `Offline result ${index}` }));
     }
     await context.setOffline(false);
+    await expect(page.locator("html")).toHaveAttribute("data-test-network-state", "online");
     await expect(page.locator(".conversation-submission .conversation-result > .message-markdown").first()).toHaveText(`Offline result ${start + 54}`, { timeout: 15_000 });
   };
   await completeOffline(0);
