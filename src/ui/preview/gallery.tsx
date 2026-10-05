@@ -17,6 +17,7 @@ import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmente
 import { FilterButton } from "@/components/ui/filter-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { IconButton } from "@/components/ui/icon-button";
+import { WaitingIndicator } from "@/components/waiting-indicator";
 import { Timeline, TimelineItem } from "@/components/ui/timeline";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -167,6 +168,14 @@ export function Gallery() {
         </Section>
         <div className="grid content-start gap-5">
           <Section title="Color & surfaces" description="Semantic tokens, shared by every component.">
+            <div className="preview-field">
+              <p className="preview-kicker">Waiting for agent</p>
+              <div className="preview-row">
+                <Badge className="conversation-lifecycle" variant="warning"><WaitingIndicator active />Waiting for agent</Badge>
+                <Badge className="conversation-lifecycle" variant="warning"><WaitingIndicator active={false} />Waiting for agent</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">The production six-dot indicator, running and paused with synthetic state. Motion means a submission is waiting, not that the agent is active. Reduced-motion preferences keep all dots static.</p>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               {[
                 ["Canvas", "--background"], ["Surface", "--card"], ["Muted", "--muted"],

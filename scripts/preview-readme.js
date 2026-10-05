@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { marked } from "marked";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const images = new Map(["doc-review", "doc-review-feedback", "doc-review-changes", "doc-review-social"]
+const images = new Map(["doc-review", "doc-review-feedback", "doc-review-waiting", "doc-review-changes", "doc-review-social"]
   .map((name) => [`/assets/${name}.png`, path.join(root, "assets", `${name}.png`)]));
 const documents = new Map([["/", "README.md"], ["/usage", path.join("docs", "usage.md")]]);
 const server = http.createServer(async (req, res) => {

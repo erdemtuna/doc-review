@@ -50,6 +50,17 @@ want the agent to change the document.
 
 *Review your comments and edits before sending. Add a note only if you need one.*
 
+While **Waiting for agent**, you can keep adding comments, but cannot send
+another batch yet. The six-dot indicator shows outstanding work, not proof
+that the agent is actively running. Hover or focus the disabled Send area
+to see its reason; touch devices show a compact explanation above the actions.
+The shared Feedback badge keeps open conversations and edits awaiting handling
+separate from the number ready to send.
+
+![Waiting for agent with the six-dot status indicator, shared conversation and edit counts, and an explanation beside disabled Send](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-waiting.png)
+
+*One consistent waiting state, with the reason for unavailable Send beside the action.*
+
 ![The completed Field Notes submission in Changes, comparing the revised description and call to action with their originals](https://raw.githubusercontent.com/erdemtuna/doc-review/main/assets/doc-review-changes.png)
 
 *See what changed, then continue the conversation.*

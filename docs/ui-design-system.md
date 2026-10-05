@@ -301,8 +301,14 @@ entry still exposes the hint normally.
 
 Feedback and binary disclosures use subtle neutral expanded fills with strong
 neutral labels, icons and counts. Teal distinguishes selected destinations/filters,
-not generic expansion. Feedback's count inherits its label ink while retaining a
-distinct neutral capsule at rest and when expanded; other Badge tokens are unchanged.
+not generic expansion. Feedback has one neutral capsule with two icon/count spans:
+open conversations and manual edits awaiting handling. Both use equal ink and
+padding, with a short decorative divider and no inner badges. The whole capsule
+changes surface together when expanded; other Badge tokens are unchanged.
+Each value has a precise hover explanation, while keyboard focus on the single
+Feedback command explains both. One Tooltip root owns these hints; no nested
+commands or additional count tab stops are introduced. Unknown values remain
+ellipses and exact counts stay accessible. Touch opens the labelled panel in one tap.
 
 `DisclosureTrigger` owns binary button appearance and expanded/controls semantics,
 not state or mounting. Comments, Your edits, Note to agent, thread collapse,
@@ -401,6 +407,10 @@ Responsive tests measure natural text Range rectangles after every ancestor's
 overflow clip, before scrolling or refocusing the editor. The full first glyph
 line, not a guessed line-height or visible card box, must survive at 390×480
 and 320×400. Intentional inventory scrolling remains independent of theme changes.
+The inventory's existing ResizeObserver retains a previously readable message
+line when the independent note/footer changes its available space. Deliberate
+scrolling updates that context; color-only theme changes do not scroll it or
+steal focus from the composing editor.
 
 One shared Badge occupies its own centered grid track and remains
 visible in Changes: quiet outlined Reviewing, muted amber Waiting for agent, subdued
@@ -409,6 +419,12 @@ or action: the installed Radix Tooltip primitive/provider explains its state on
 hover or focus, dismisses with Escape, and preserves receipt/source-save details
 in the accessible description (and submission details in Feedback). No competing
 native title is rendered. Ended outstanding work explicitly remains accepted.
+Waiting adds a decorative six-dot matrix: two rows, three columns, 3px dots and
+2px gaps (13x8px) centered in a 16px slot. A 2.4-second opacity cadence uses 120ms
+staggered delays without geometry changes or repeated live announcements.
+Only confirmed own-review work with a complete connected inventory animates.
+Loading, failed reads and uncertain acceptance pause it; End removes the waiting
+decoration. Reduced-motion and print render static dots. Motion is not liveness.
 Normal lifecycle
 states reserve no extra row. Errors, uncertain receipts, disconnection and
 actionable recovery alone create a full-width row beneath the controls; closed
@@ -426,10 +442,11 @@ Changes retains the last valid submission/page/format selection, otherwise
 selects handled history or shows an explicit empty state without issuing a
 request with fabricated IDs. Review, Changes, Feedback, theme and page navigation
 remain readable after End; writing stays guarded. Mode/theme/destination changes
-do not replace the frame or the conversation editor. The Feedback count shows
-saved pending messages plus edits across every review page, independently of
-unread activity. Its accessible description retains the
-exact count even above the compact 99+ display. The footer separately describes
+do not replace the frame or the conversation editor. The shared Feedback capsule
+shows open conversations and manual edits awaiting handling across every review
+page, independently of unread activity and Send selection. Accessible descriptions
+retain exact counts; generic single-count callers retain their compact 99+ policy.
+The footer separately describes
 all saved pending messages, edits and an optional overall note; Send counts all
 three. The controller derives presentation and Send payload from one selection
 helper over complete paginated pending contexts and edits, including versions
@@ -490,7 +507,16 @@ cannot strand the reviewer or reopen an obsolete result. Discussion-only results
 do not render comparison tools. Summary widths stay readable, while actual diffs
 may expand. Lifecycle status is centered in the desktop toolbar, separate from View/Edit.
 Waiting has one centered toolbar status rather than repeated queued/sent notices.
-Feedback contains no waiting explanation or technical disclosure after Send.
+Disabled Send uses one typed presentation derivation for disablement, reason and
+selection wording. Desktop hover/focus explains every blocker; a compact neutral
+strip appears on no-hover/coarse-pointer input, not at an arbitrary width.
+The own-review restriction consistently says Waiting for agent. Nonempty locked
+selection is described as Selected, not Ready to send. A non-action wrapper is
+focusable only while the native Button is disabled; it cannot activate Send.
+On enablement, a focused wrapper hands focus to that same Button. First Escape
+dismisses its hint without closing Feedback. Descriptions remain in the accessible
+tree outside hidden disclosures. Reconnect, receipt reconciliation and error
+recovery stay visible; the hint does not replace them or add another global headline.
 The panel header uses the same navigation SegmentedControl as **Review | Changes**:
 **Feedback | History** stay visible, and selecting the current destination is a no-op.
 The **History** destination holds submission status, notes and results without

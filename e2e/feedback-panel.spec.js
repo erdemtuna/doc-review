@@ -115,7 +115,7 @@ test("Send selects all saved items across authorized pages beyond one page of re
   }
   await feedback(page);
   await expect(page.locator(".conversation-edits .conversation-edit-list > li")).toHaveCount(102);
-  await expect(page.locator("#toolbarCount")).toHaveText("2 open");
+  await expect(page.locator("#toolbarCount")).toHaveText("2");
   await expect(page.locator("#commentsButton")).toHaveAccessibleDescription("2 open conversations; 102 manual edits awaiting handling");
   await expect(page.locator("#send")).toHaveText("Send to agent (104)");
   await beginComment(page);
@@ -132,5 +132,5 @@ test("Send selects all saved items across authorized pages beyond one page of re
   expect(work.overallNote).toEqual({ body: "A submission-level note, not a conversation", intent: "discuss" });
   await expect(draft).toHaveValue("Unsaved contextual draft is excluded");
   expect((await listed(review, ref, "threads")).totalCount).toBe(2);
-  await expect(page.locator("#toolbarCount")).toHaveText("2 open");
+  await expect(page.locator("#toolbarCount")).toHaveText("2");
 });

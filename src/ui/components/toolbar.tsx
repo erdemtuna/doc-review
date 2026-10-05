@@ -8,6 +8,8 @@ import { ChoiceMenu } from "./ui/choice-menu";
 import { ReviewOptions } from "./review-options";
 import { Icon } from "./icon";
 import { Brand } from "./brand";
+import { ControlHint } from "./ui/control-hint";
+import { FeedbackInventory, inventoryDescriptions, type InventoryHint } from "./feedback-inventory";
 
 export function Toolbar({ runtime }: { runtime: ToolbarController }) {
   const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -31,6 +33,10 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
   onOptionsOpen?(): void;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [inventoryHint, setInventoryHint] = useState<InventoryHint>("all");
+  const countDescription = feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`;
+  const inventoryDescription = inventoryDescriptions(feedbackInventory ?? null);
+  const feedbackDescription = feedbackInventory === undefined ? countDescription : inventoryDescription.all;
   useEffect(() => {
     if (state.modeMenuOpen || pageMenuOpen) setOptionsOpen(false);
   }, [state.modeMenuOpen, pageMenuOpen]);
@@ -62,21 +68,19 @@ export function ToolbarControls({ state, commands, readOnlyNavigation = false, e
         onOpenChange={commands.setModeMenu}
         onValueChange={mode => { if (mode === "view" || mode === "edit") commands.setMode(mode); }} />
     </div>;
-  const feedback = <Button id="commentsButton" variant="ghost"
+  const feedback = <ControlHint dismissOnActivation hint={feedbackInventory === undefined ? countDescription : inventoryDescription[inventoryHint]}
+      disabled={state.ended && !readOnlyNavigation || state.comparing}>
+      <Button id="commentsButton" variant="ghost"
         aria-controls="drawer" aria-label="Feedback" aria-describedby="feedbackCountDescription" aria-expanded={state.drawerOpen}
-        hidden={state.comparing} disabled={state.ended && !readOnlyNavigation} onMouseDown={(event) => event.preventDefault()} onClick={commands.openComments}>
-        <Icon name="messages" /><span className="shell-comments-label">Feedback</span>
-        <Badge id="toolbarCount" variant="secondary" title={feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`}
-          aria-label={feedbackCount === null ? `Count unavailable: ${feedbackCountLabel}` : `${feedbackCount} ${feedbackCountLabel}`}>
-          {feedbackCount === null ? "…" : feedbackInventory ? `${feedbackInventory.openThreads} open` : feedbackCount > 99 ? "99+" : feedbackCount}
-        </Badge>
-        {feedbackInventory !== undefined && <Badge variant="secondary"
-          aria-label={feedbackInventory ? `${feedbackInventory.edits} manual edits awaiting handling` : "Manual edit count unavailable"}>
-          {feedbackInventory ? `${feedbackInventory.edits} ${feedbackInventory.edits === 1 ? "edit" : "edits"}` : "…"}
-        </Badge>}
-        <span id="feedbackCountDescription" className="sr-only">{feedbackCount === null ? "Count unavailable:" : feedbackCount} {feedbackCountLabel}
-          {feedbackInventory && `; ${feedbackInventory.edits} manual edits awaiting handling`}</span>
-      </Button>;
+        hidden={state.comparing} disabled={state.ended && !readOnlyNavigation} onFocus={() => setInventoryHint("all")}
+        onPointerEnter={() => setInventoryHint("all")} onMouseDown={(event) => event.preventDefault()} onClick={commands.openComments}>
+        {feedbackInventory === undefined && <Icon name="messages" />}<span className="shell-comments-label">Feedback</span>
+        {feedbackInventory === undefined ? <Badge id="toolbarCount" className="feedback-inventory-badge" variant="secondary" aria-label={countDescription}>
+          {feedbackCount === null ? "…" : feedbackCount > 99 ? "99+" : feedbackCount}
+        </Badge> : <FeedbackInventory inventory={feedbackInventory} onHint={setInventoryHint} />}
+        <span id="feedbackCountDescription" className="sr-only">{feedbackDescription}</span>
+      </Button>
+    </ControlHint>;
   const options = <ReviewOptions open={optionsOpen} onOpenChange={setOptions} disabled={state.ended && !readOnlyNavigation}
     theme={state.theme} onThemeChange={commands.setTheme} target={documentTarget} loading={documentLoading} />;
   return <>

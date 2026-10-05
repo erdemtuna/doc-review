@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ControlHint, IconButton } from "./ui/icon-button";
+import { IconButton } from "./ui/icon-button";
+import { ControlHint } from "./ui/control-hint";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./ui/dropdown-menu";
 import { Icon, type IconName } from "./icon";
 import type { ConversationTarget } from "../../contracts/feedback";

@@ -23,6 +23,9 @@ import { SegmentedControl, SegmentedControlItem } from "./ui/segmented-control";
 import { FilterButton } from "./ui/filter-button";
 import { Timeline, TimelineItem } from "./ui/timeline";
 import { MessageMarkdown } from "./message-markdown";
+import { lifecyclePresentation, sendAvailability, selectionDescription as describeSelection } from "./conversation-presentation";
+import { WaitingIndicator } from "./waiting-indicator";
+import { ConversationSend } from "./conversation-send";
 
 type Snapshot = ReturnType<ConversationController["getSnapshot"]>;
 type Thread = Snapshot["threads"][number];
@@ -41,6 +44,18 @@ function rememberExchange(owner: ConversationController, id: string, transcript:
   if (visible?.dataset.message) owner.rememberReadingAnchor(id, {
     messageId: visible.dataset.message, offset: visible.getBoundingClientRect().top - bounds.top,
   });
+}
+function visibleMessageLine(container: HTMLElement): Range | null {
+  const bounds = container.getBoundingClientRect();
+  for (const message of container.querySelectorAll<HTMLElement>(".conversation-body")) {
+    const text = document.createTreeWalker(message, NodeFilter.SHOW_TEXT).nextNode();
+    if (!text) continue;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const line = [...range.getClientRects()].find(rect => rect.width && rect.height);
+    if (line && line.top >= bounds.top && line.bottom <= bounds.top + container.clientTop + container.clientHeight) return range;
+  }
+  return null;
 }
 function Draft({ owner, id, draft, disabled, saving }: { owner: ConversationController; id: string; draft: Readonly<ConversationDraft>; disabled: boolean; saving: boolean }) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -569,15 +584,30 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   useLayoutEffect(() => {
     const node = inventory.current, panel = node?.closest<HTMLElement>(".conversation-panel");
     if (!node || !panel) return;
+    let width = node.clientWidth, height = node.clientHeight, context = visibleMessageLine(node);
+    const rememberContext = () => { context = visibleMessageLine(node); };
     const measure = () => {
       if (!node.offsetWidth || !getComputedStyle(node).scrollbarGutter.includes("both-edges")) return;
+      if (node.clientWidth !== width || node.clientHeight !== height) {
+        // Preserve readable context when the independent note/footer changes the inventory's space.
+        const line = context && [...context.getClientRects()].find(rect => rect.width && rect.height);
+        const bounds = node.getBoundingClientRect();
+        if (line && !snapshot.focusId) {
+          const top = bounds.top + node.clientTop, bottom = top + node.clientHeight;
+          if (line.top < top) node.scrollTop += line.top - top;
+          else if (line.bottom > bottom) node.scrollTop += line.bottom - bottom;
+        }
+        width = node.clientWidth; height = node.clientHeight;
+      }
       const reserved = Math.max(0, node.offsetWidth - node.clientWidth);
       const gutter = reserved / 2;
       panel.style.setProperty("--conversation-scrollbar", `${gutter}px`);
+      rememberContext();
     };
     const observer = new ResizeObserver(measure);
+    node.addEventListener("scroll", rememberContext);
     observer.observe(node); measure();
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); node.removeEventListener("scroll", rememberContext); };
   }, [snapshot.host, snapshot.focusId]);
   const navigateReply = async (detail: ResultDetail, index: number, origin: ReplyOrigin) => {
     const reply = detail.result?.responses[index];
@@ -692,17 +722,8 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
   const confirmation = snapshot.confirmation && confirmationPresentation(snapshot.confirmation.action,
     snapshot.threads.some(item => item.thread.threadId === snapshot.confirmation?.id && item.thread.status === "resolved"));
   const disabled = readonly || snapshot.busy || !!snapshot.uncertain;
-  const work = snapshot.status?.work;
-  const status = !snapshot.review ? "Loading review" : readonly ? "Review ended" : work ? "Waiting for agent" : "Reviewing";
-  const workDetails = !work ? "" : work.state === "queued" ? "Your feedback is waiting for the agent." : "The agent has your feedback. Waiting for a response.";
-  const statusDetails = [
-    !snapshot.review ? "Loading the shared review." : readonly
-      ? `This review has ended. Unsent messages and edits remain available to read.${work ? " Work already sent to the agent can still finish." : ""}`
-      : work ? workDetails
-      : "Review the page, add feedback, or switch to Edit. Saved feedback stays here until you choose Send to agent.",
-    readonly && workDetails,
-    chrome.save.status === "saved" ? "Changes saved." : chrome.save.status === "saving" ? "Saving changes." : null,
-  ].filter(Boolean).join(" ");
+  const lifecycle = lifecyclePresentation(snapshot, chrome.save);
+  const availability = sendAvailability(snapshot, chrome.loading);
   const outsideFeedback = !snapshot.open || chrome.comparisonOpen || contextual;
   const feedbackErrors = [
     snapshot.connected && !snapshot.uncertain ? snapshot.error : "",
@@ -721,13 +742,7 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
     width: paneWidth, height: Math.max(0, chrome.viewport.top + chrome.viewport.height - paneTop),
   };
   const selection = snapshot.selection;
-  const selectionDescription = selection
-    ? selection.total ? `Ready to send: ${[
-      selection.messages ? `${selection.messages} comment${selection.messages === 1 ? "" : "s"}` : "",
-      selection.edits ? `${selection.edits} edit${selection.edits === 1 ? "" : "s"}` : "",
-      selection.note ? "1 note" : "",
-    ].filter(Boolean).join(" · ")}` : "Nothing to send."
-    : !snapshot.connected ? "" : snapshot.loading ? "Checking pending feedback…" : "Couldn't check what's ready to send. Refresh the review.";
+  const selectionDescription = describeSelection(selection, availability);
   // Keep a focused editor mounted and focusable while waiting for current-frame geometry.
   const measuring = { ...fallbackBounds, width: Math.min(contextual ? 340 : 360, chrome.viewport.width - 24), height: "auto", opacity: 0, pointerEvents: "none" as const };
   const panel = <aside aria-label={contextual ? "Add comment" : "Feedback"} data-host={snapshot.host}
@@ -863,15 +878,14 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
         <Draft owner={owner} id="note" draft={snapshot.note} disabled={readonly} saving={snapshot.busy || !!snapshot.uncertain} />
       </div>
       </div>
-      <div className="conversation-footer-support" hidden={!snapshot.unsavedMessageDraftCount && (selection !== null || !snapshot.connected)}>
-        <p id="sendSelectionDescription" className={selection ? "sr-only" : "feedback-help"} role="status">{selectionDescription}</p>
+      <div className="conversation-footer-support" hidden={!snapshot.unsavedMessageDraftCount}>
         {!!snapshot.unsavedMessageDraftCount && <p id="sendDraftExclusion" className="feedback-help" role="status">{snapshot.unsavedMessageDraftCount} unfinished {snapshot.unsavedMessageDraftCount === 1 ? "draft" : "drafts"} excluded from Send.</p>}
       </div>
+      {availability.disabled && <p className="send-touch-reason">{availability.reason.compact}</p>}
       <div className="feedback-actions">
         <Button id="endReview" variant="ghost" className="feedback-end" disabled={disabled || chrome.loading} onClick={() => owner.commands.confirm("end")}>End review</Button>
-        <Button id="send" className="feedback-send" aria-label="Send" aria-describedby={[snapshot.connected ? "sendSelectionDescription" : "conversationConnectionStatus", snapshot.unsavedMessageDraftCount ? "sendDraftExclusion" : ""].filter(Boolean).join(" ")} aria-busy={snapshot.busy}
-          disabled={disabled || chrome.loading || snapshot.sendBlocked || !selection?.total || snapshot.note.composing}
-          onClick={() => act(owner, owner.commands.send)}>{selection ? `Send to agent (${selection.total})` : "Send to agent"}</Button>
+        <ConversationSend availability={availability} count={selection?.total ?? null} selection={selectionDescription}
+          excludedDrafts={snapshot.unsavedMessageDraftCount} busy={snapshot.busy} onSend={() => act(owner, owner.commands.send)} />
       </div>
     </footer>
   </aside>;
@@ -883,10 +897,12 @@ export function ConversationApp({ shell }: { shell: ConversationShell }) {
       feedbackInventory={snapshot.inventory} feedbackCount={snapshot.inventory?.openThreads ?? null} feedbackCountLabel="open conversations"
       status={<TooltipProvider delayDuration={300}><Tooltip open={statusTooltipOpen} onOpenChange={setStatusTooltipOpen}>
         <TooltipTrigger asChild>
-          <Badge ref={statusTrigger} className="conversation-lifecycle" variant={readonly && snapshot.review ? "secondary" : work ? "warning" : snapshot.review ? "outline" : "quiet"}
-            tabIndex={0} role="status" aria-label={status} aria-description={statusDetails}>{status}</Badge>
+          <Badge ref={statusTrigger} className="conversation-lifecycle" variant={lifecycle.variant}
+            tabIndex={0} role="status" aria-label={lifecycle.label} aria-description={lifecycle.description}>
+            {lifecycle.waiting && <WaitingIndicator active={lifecycle.animate} />}{lifecycle.label}
+          </Badge>
         </TooltipTrigger>
-        <TooltipContent side="bottom" onEscapeKeyDown={(event) => event.stopPropagation()}>{statusDetails}</TooltipContent>
+        <TooltipContent side="bottom" onEscapeKeyDown={(event) => event.stopPropagation()}>{lifecycle.description}</TooltipContent>
       </Tooltip></TooltipProvider>}
       state={{ comparing: chrome.comparisonOpen, mode: chrome.mode, modeDisabled: chrome.loading, modeMenuOpen,
         restoreModeFocus: modeFocus.current, editDescription: chrome.policy === "writable" ? "Edits save directly to the file" : "Edits are sent to the agent",

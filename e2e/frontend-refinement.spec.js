@@ -177,23 +177,23 @@ for (const theme of ["light", "dark"]) test(`settled neutral expansion, readable
   });
   const ref = await openReview(page, review, writeFile(review, `refinement-paint-${theme}.html`, source));
   await waitForSdk(page);
-  const trigger = page.locator("#commentsButton"), count = page.locator("#toolbarCount");
+  const trigger = page.locator("#commentsButton"), count = page.locator("#toolbarCount"), capsule = trigger.locator(".feedback-inventory-badge");
   for (const desired of [0, 1, 11, 100]) {
     if (desired) {
       for (let i = parseInt(await count.textContent(), 10); i < desired; i++) {
         await seedThread(review, ref, `Saved feedback ${i}`);
       }
     }
-    await expect(count).toHaveText(`${desired} open`);
+    await expect(count).toHaveText(`${desired}`);
     for (const expanded of [true, false]) {
       await trigger.click(); await page.mouse.move(0, 0);
       await expect(trigger).toHaveAttribute("aria-expanded", String(expanded));
-      await expect(count).toHaveText(`${desired} open`);
+      await expect(count).toHaveText(`${desired}`);
       await settled(trigger);
       await expect(count).toHaveCSS("color", await trigger.evaluate(n => getComputedStyle(n).color));
       expect(await renderedContrast(count)).toBeGreaterThanOrEqual(4.5);
       expect(await renderedContrast(trigger)).toBeGreaterThanOrEqual(4.5);
-      expect(await count.evaluate(n => getComputedStyle(n).backgroundColor)).not.toBe(await trigger.evaluate(n => getComputedStyle(n).backgroundColor));
+      expect(await capsule.evaluate(n => getComputedStyle(n).backgroundColor)).not.toBe(await trigger.evaluate(n => getComputedStyle(n).backgroundColor));
     }
   }
   await feedback(page);
@@ -229,7 +229,7 @@ for (const theme of ["light", "dark"]) test(`settled neutral expansion, readable
   await intercept(page, "status", route => failure(route, "Count temporarily unavailable", "INVALID_INPUT"));
   await page.evaluate(() => { window.refinementEvents.close(); window.refinementEvents.dispatchEvent(new Event("error")); });
   await expect(count).toHaveText("…");
-  await expect(trigger).toHaveAccessibleDescription("Count unavailable: open conversations");
+  await expect(trigger).toHaveAccessibleDescription("Open conversation count unavailable; Manual edit count unavailable");
   await trigger.click(); await settled(trigger);
   expect(await renderedContrast(count)).toBeGreaterThanOrEqual(4.5);
   await page.screenshot({ path: info.outputPath(`count-unavailable-${theme}.png`), animations: "disabled" });
@@ -280,7 +280,7 @@ test("Review options copies the current original document, reports failure, coor
   for (let i = 0; i < 2; i++) { await options.click(); await options.click(); }
   await expect(menu).toHaveCount(0);
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
-  await expect(page.getByText("Review ended", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Review ended", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 320, height: 400 });
   for (const theme of ["light", "dark"]) {
     await setReviewTheme(page, theme);
