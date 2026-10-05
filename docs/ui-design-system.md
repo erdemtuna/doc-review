@@ -309,6 +309,8 @@ Each value has a precise hover explanation, while keyboard focus on the single
 Feedback command explains both. One Tooltip root owns these hints; no nested
 commands or additional count tab stops are introduced. Unknown values remain
 ellipses and exact counts stay accessible. Touch opens the labelled panel in one tap.
+Feedback's informational popup does not capture pointer input on document or
+panel controls beneath it, including when focus is restored programmatically.
 
 `DisclosureTrigger` owns binary button appearance and expanded/controls semantics,
 not state or mounting. Comments, Your edits, Note to agent, thread collapse,

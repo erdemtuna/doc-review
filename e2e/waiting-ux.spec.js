@@ -108,3 +108,22 @@ for (const [width, height] of [[390, 480], [320, 400]]) test(`touch ${width}x${h
     await page.screenshot({ path: info.outputPath(`touch-${width}.png`), animations: "disabled" });
   } finally { await context.close(); }
 });
+
+test("focused Feedback hints allow direct document and panel interaction beneath the popup", async ({ page, review }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  const ref = await openReview(page, review, writeFile(review, `hint-${randomUUID()}.html`, "<p id='copy'>An interactive passage.</p>"));
+  const frame = await waitForSdk(page);
+  await seedThread(review, ref, "A saved comment.");
+  await feedback(page);
+  const trigger = page.locator("#commentsButton");
+  await trigger.evaluate(node => node.blur());
+  await trigger.focus();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.getByRole("group", { name: "Feedback destination" }).getByRole("button", { name: "Feedback", exact: true }).click();
+  await trigger.click();
+  await trigger.evaluate(node => node.blur());
+  await trigger.focus();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await frame.locator("#copy").click();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+});

@@ -77,6 +77,9 @@
   }
 }
 @layer utilities {
+  /* Feedback's informational popup must not capture document/panel clicks beneath it. */
+  [data-radix-popper-content-wrapper]:has(> [data-hint-pass-through="true"]),
+  [data-hint-pass-through="true"] { pointer-events: none; }
   .filter-button[aria-pressed="true"] { background: var(--accent); color: var(--accent-foreground); border-color: var(--border); }
   .filter-button[aria-pressed="true"]:hover { background: color-mix(in oklab, var(--accent) 80%, var(--card)); }
   .feedback-inventory-badge { gap: 8px; color: inherit; background: var(--muted); }

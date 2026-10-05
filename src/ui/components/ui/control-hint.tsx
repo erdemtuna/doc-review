@@ -35,6 +35,7 @@ export function ControlHint({ children, hint, disabled = false, dismissOnActivat
       onClick={() => { if (dismissOnActivation) { activated.current = true; setOpen(false); } }}
       onPointerLeave={() => { activated.current = false; }}
       onFocus={() => { activated.current = false; }}>{children}</TooltipTrigger>
-    <TooltipContent onEscapeKeyDown={event => event.stopPropagation()}>{hint}</TooltipContent>
+    <TooltipContent data-hint-pass-through={dismissOnActivation || undefined}
+      onEscapeKeyDown={event => event.stopPropagation()}>{hint}</TooltipContent>
   </Tooltip></TooltipProvider>;
 }

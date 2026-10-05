@@ -53,7 +53,7 @@ for (const touch of [false, true]) test.describe(touch ? "touch input" : "pointe
 test.use({ hasTouch: touch, isMobile: touch });
 for (const host of ["inventory", "reply", "focus", "adjacent", "note"]) test(`integrated ${host} initially exposes real message text at every audited size without editor refocus`, async ({ page, review }, info) => {
   test.setTimeout(120_000);
-  const { card, message } = await fixture(page, review, `responsive-${host}.html`);
+  const { card, message } = await fixture(page, review, `responsive-${touch ? "touch" : "pointer"}-${host}.html`);
   let editor;
   if (host !== "inventory") {
     if (host === "note") {
