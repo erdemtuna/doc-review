@@ -28,6 +28,11 @@ test("real diff comes first; long Markdown, summaries, metadata and plain drafts
   const work = (await conversation(review, ref, "poll")).submission;
   fs.writeFileSync(file, "<p id='human'>Saved human</p><p id='agent'>Changed agent</p>");
   await expect(page.frameLocator("#frame").locator("#agent")).toHaveText("Changed agent");
+  // Readability checks need the settled agent version, not an in-progress source handoff.
+  await page.reload();
+  await waitForSdk(page);
+  await expect(page.frameLocator("#frame").locator("#agent")).toHaveText("Changed agent");
+  await feedback(page);
   const summary = "**Changed the agent passage.** " + "Long orientation sentence. ".repeat(100);
   const prose = "## Answer\n\n" + "Readable explanation. ".repeat(1000) +
     "\n\n- One\n  - Nested\n\n```text\n" + "long-token".repeat(100) + "\n```\n\n| Key | Value |\n| --- | --- |\n| a | b |\n\n![No image](https://tracker.invalid/pixel)\n\n<svg onload='alert(1)'></svg>\n\n[safe](https://example.com) [unsafe](javascript:alert%281%29)";
