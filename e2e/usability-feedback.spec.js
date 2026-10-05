@@ -21,7 +21,7 @@ for (const theme of ["light", "dark"]) for (const [width, height] of [[1280, 800
     const feedbackButton = page.locator("#commentsButton");
     const feedbackPaint = () => feedbackButton.evaluate(button => ({
       background: getComputedStyle(button).backgroundColor,
-      count: getComputedStyle(button.querySelector("#toolbarCount")).backgroundColor,
+      count: getComputedStyle(button.querySelector(".feedback-inventory-badge")).backgroundColor,
     }));
     await expect(feedbackButton).toHaveAttribute("aria-expanded", "false");
     await expect.poll(() => feedbackButton.evaluate(button => button.getAnimations().some(animation => animation.playState === "running"))).toBe(false);
@@ -241,12 +241,12 @@ test("lifecycle notifications expire while reading the iframe; ended information
   await expect(page.locator(".conversation-toast")).toHaveCount(0, { timeout: 7000 });
   await expect(frame.locator("#copy")).toBeFocused();
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
-  await expect(page.getByText("Review ended", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Review ended", exact: true })).toBeVisible();
   await expect(page.getByRole("status", { name: "Submission details" })).toContainText("read-only");
   await expect(page.locator(".conversation-toast")).toHaveText("Review ended.");
   await expect(page.locator(".conversation-toast")).toHaveCount(0, { timeout: 7000 });
   await expect(page.getByRole("status", { name: "Submission details" })).toContainText("read-only");
   await page.reload(); await waitForSdk(page);
-  await expect(page.getByText("Review ended", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Review ended", exact: true })).toBeVisible();
   await expect(page.locator(".conversation-toast")).toHaveCount(0);
 });

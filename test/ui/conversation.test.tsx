@@ -352,7 +352,7 @@ it("Feedback counts open conversations independently of pending Send, unread act
   const { owner, shell } = await fixture();
   expect(screen.queryByRole("textbox", { name: "Note to agent" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Note to agent/ }));
-  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1 open");
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   const note = screen.getByRole("textbox", { name: "Note to agent" });
   fireEvent.change(note, { target: { value: "Only the note" } });
@@ -360,7 +360,7 @@ it("Feedback counts open conversations independently of pending Send, unread act
   expect(send).toHaveTextContent("Send to agent (1)");
   expect(send).toHaveAccessibleDescription("Ready to send: 1 note");
   expect(send).toBeEnabled();
-  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1 open");
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1");
   const permission = screen.getByRole("checkbox", { name: "Request a change" });
   expect(permission).toHaveAttribute("data-slot", "checkbox"); expect(permission).not.toBeChecked();
   fireEvent.click(permission);

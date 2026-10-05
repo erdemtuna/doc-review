@@ -1,6 +1,6 @@
 {
   "name": "@erdemtuna/doc-review",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Review files and localhost pages with durable conversations, precise edit permissions, and complete agent responses.",
   "author": "Peter Yang",
   "homepage": "https://github.com/erdemtuna/doc-review#readme",

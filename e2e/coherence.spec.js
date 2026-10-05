@@ -551,7 +551,7 @@ for (const host of ["feedback", "focus", "adjacent"]) test(`visible Resolve and 
   await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Undo resolve", exact: true })).toHaveCount(0);
   await mutate(review, ref, "end", { confirmUnsentReadOnly: true });
-  await expect(page.getByText("Review ended", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Review ended", exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Resolve conversation", exact: true })).toHaveCount(0);
   await card.getByRole("button", { name: "Conversation actions" }).click();
   await expect(page.getByRole("menuitem", { name: /^(Resolve|Reopen) conversation$/ })).toHaveCount(0);

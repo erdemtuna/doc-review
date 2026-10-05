@@ -4,6 +4,17 @@
   .durable-review[data-conversation-docked="true"] .conversation-panel { box-shadow: none; }
   .durable-review .shell-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "destinations status tools"; }
   .durable-review .shell-status { grid-area: status; justify-self: center; display: flex; align-items: center; }
+  .conversation-lifecycle { gap: 6px; }
+  .waiting-indicator { display: grid; flex: 0 0 16px; width: 16px; height: 16px; grid-template-columns: repeat(3, 3px); grid-template-rows: repeat(2, 3px); gap: 2px; place-content: center; }
+  .waiting-indicator > span { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+  .waiting-indicator[data-active="true"] > span { animation: waiting-cadence 2.4s ease-in-out infinite; }
+  @keyframes waiting-cadence { 0%, 100% { opacity: .45; } 35% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .waiting-indicator[data-active="true"] > span { animation: none; }
+  }
+  @media print {
+    .waiting-indicator[data-active="true"] > span { animation: none; }
+  }
   .durable-review .shell-tools { grid-area: tools; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
   .durable-review .shell-mode { justify-self: end; }
   .durable-review #reviewPage { max-width: min(14rem, 100%); }
@@ -107,6 +118,12 @@
   .conversation-footer-support { flex-shrink: 0; min-height: 28px; max-height: 100px; overflow: auto; padding: 0 var(--conversation-rail) 8px; overflow-wrap: anywhere; }
   .conversation-footer .feedback-actions { flex-shrink: 0; padding-inline: var(--conversation-rail); }
   .conversation-footer .feedback-help { margin: 0; font-size: 12px; line-height: 1.5; }
+  .send-explanation { display: inline-flex; min-width: 0; max-width: 100%; border-radius: var(--radius); outline: none; }
+  .send-explanation:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .send-touch-reason { display: none; }
+  @media (hover: none), (pointer: coarse) {
+    .conversation-footer .send-touch-reason { display: block; flex-shrink: 0; margin: 0 var(--conversation-rail) 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
+  }
   .conversation-note-content { flex: 0 0 auto; min-height: 0; }
   .conversation-bottom { padding: 0 8px 8px; justify-content: space-between; }
   .review-recovery { padding: 6px 10px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; color: var(--foreground); font-size: 12px; }

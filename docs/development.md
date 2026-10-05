@@ -29,7 +29,7 @@ the runtime and do not require TypeScript or an installation build.
 | `npm run preview:recovery` | Build and serve the isolated recovery-state gallery |
 | `npm run preview:shell` | Build and serve a disposable shell review on an isolated runtime snapshot |
 | `npm run preview:review` | Alias for the same durable shell preview |
-| `npm run media:readme` | Build and capture the three README screenshots and social cover into `output/readme` |
+| `npm run media:readme` | Build and capture four product screenshots and the social cover into `output/readme` |
 | `npm run media:preview` | Preview the README, usage guide, and tracked social cover on loopback |
 | `npm run browser:install` | Install the matching Chromium |
 | `npm run test:browser` | Rebuild and run browser tests |
@@ -219,13 +219,15 @@ The response includes an authored summary and Markdown prose. The Feedback
 capture collapses one conversation and leaves the optional note empty and
 collapsed so the manual-edit evidence has room. The note is filled after that
 capture to retain coverage of the complete submission;
-the Changes capture shows the summary and diff before the closed full-response
+the Waiting capture shows the six-dot indicator, the shared inventory capsule,
+and the real hover explanation for disabled Send before the agent claims work.
+The Changes capture shows the summary and diff before the closed full-response
 disclosure. Transient notifications are dismissed through the normal UI.
 
 Product captures use a 1120 x 800 viewport at 1.5 device scale (1680 x 1200 PNG),
 light mode, English locale, and UTC. `scripts/readme-cover.js` composes the
 1280 x 640 social PNG from the entire actual Review capture, without clipping
-its toolbar or conversation. All four outputs must be
+its toolbar or conversation. All five outputs must be
 below 1 MB. The script checks the saved edit, feedback inventory, successful
 response, cleared handled-edit count, diff-first order, visible edit evidence,
 social preview bounds, expected changed text, image dimensions, and browser
@@ -233,19 +235,20 @@ errors. It leaves staged PNGs in ignored `output/readme`; use
 `node scripts/capture-readme.js --output <directory>` after a build to stage
 elsewhere. It does not overwrite tracked images by default.
 
-Inspect all four images at full size and typical README width before copying
+Inspect all five images at full size and typical README width before copying
 the corresponding PNGs into `assets`. Keep the filenames stable:
 
 | Asset | Use |
 | --- | --- |
 | `doc-review.png` | README hero and highlight-adjacent conversation |
 | `doc-review-feedback.png` | Conversation inventory, pending edits, overall note and Send/End actions |
+| `doc-review-waiting.png` | Waiting lifecycle, shared inventory counts and disabled Send explanation |
 | `doc-review-changes.png` | Authored summary and diff-first comparison of the same submission |
 | `doc-review-social.png` | GitHub social-sharing cover |
 
 Run `npm run media:preview` to inspect the rendered README, usage guide and
 social cover using the tracked images. It prints a loopback URL; stop with
-Ctrl+C. The preview only serves those documents and four explicitly named assets.
+Ctrl+C. The preview only serves those documents and five explicitly named assets.
 The README retains absolute `raw.githubusercontent.com/.../main/assets/...`
 image URLs for npm compatibility: the GitHub Markdown API used by npm leaves
 relative image sources relative. Consequently, GitHub branch previews show

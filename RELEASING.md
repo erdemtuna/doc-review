@@ -14,6 +14,26 @@ archive that did not come from a successful `prepare` run.** A locally packed
 archive is unverified, may contain untracked or ignored local files, and will
 not match the recorded SHA-256/SHA-512 digests.
 
+## v0.14.0 release checklist
+
+This minor release refines waiting feedback: a reduced-motion-aware six-dot
+indicator, accurate explanations for every disabled Send state, and one shared
+Feedback capsule for the separate conversation and edit inventories. Keyboard
+focus, touch fallback, draft/caret/IME state, and readable short-screen context
+are covered by regression tests. Keep the README concise; the usage and design
+guides hold the detailed behavior, supported by refreshed production captures.
+
+Use `version=0.14.0` and `previous_tag=v0.13.0` for both workflow phases.
+Require the full PR test matrix before merge, then prepare from the exact current
+`main` commit. Publish only the verified immutable candidate from that successful
+prepare run through `npm-release`, using OIDC by default.
+
+Server protocol remains **25**, with no API, persistence, dependency or edit
+permission change. Node **24.21.0** and npm **12.0.2** are unchanged. Verify the
+official registry's version, `latest` tag and integrity against the prepared
+metadata before refreshing the installed CLI and its setup instructions.
+Do not overwrite a live installation or discard retained review state.
+
 ## v0.13.0 release checklist
 
 This minor release introduces identity-bound durable review conversations,

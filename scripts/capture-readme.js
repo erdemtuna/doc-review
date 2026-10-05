@@ -49,15 +49,19 @@ try {
     await page.getByRole("menuitemradio", { name: new RegExp(`^${name}`) }).click();
     await expect(page.locator("#modeLabel")).toHaveText(name);
   }
-  async function capture(name) {
+  async function capture(name, { lifecycle = "Reviewing", hoverSend = false } = {}) {
     const notification = page.getByRole("button", { name: "Dismiss notification", exact: true });
     if (await notification.isVisible()) await notification.click();
     await expect(notification).toHaveCount(0);
     await page.mouse.move(0, 0);
     await page.evaluate(() => document.fonts.ready);
-    await expect(page.locator(".conversation-lifecycle")).toHaveText("Reviewing");
+    await expect(page.locator(".conversation-lifecycle")).toHaveText(lifecycle);
     await expect(page.getByRole("img", { name: "Doc Review", exact: true })).toBeVisible();
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    if (hoverSend) {
+      await page.getByRole("group", { name: "Send unavailable", exact: true }).hover();
+      await expect(page.getByRole("tooltip")).toContainText("can't send another batch yet");
+    }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: path.join(output, name), animations: "disabled" });
     captures.push({ name, toolbar: await page.locator(".shell-toolbar").boundingBox(),
@@ -113,6 +117,10 @@ try {
   await expect(page.locator('[data-composer="note"]').getByLabel("Request a change")).not.toBeChecked();
   await page.locator("#send").click();
   await expect(page.getByRole("status", { name: "Waiting for agent", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Note to agent", exact: true }).click();
+  await expect(page.locator("#send")).toBeDisabled();
+  await expect(page.locator(".waiting-indicator > span")).toHaveCount(6);
+  await capture("doc-review-waiting.png", { lifecycle: "Waiting for agent", hoverSend: true });
   const delivered = contracts.pollResponseSchema.parse(await request({ operation: "poll", ...reference }));
   assert.equal(delivered.state, "work");
   await writeFile(target, fieldNotes({ edited: true, revised: true }));
@@ -151,7 +159,7 @@ try {
   assert.ok(preview.x >= 0 && preview.y >= 0 && preview.x + preview.width <= 1280 &&
     preview.y + preview.height <= 640, "Social cover must show the entire product capture.");
   await cover.screenshot({ path: path.join(output, "doc-review-social.png") });
-  for (const name of ["doc-review", "doc-review-feedback", "doc-review-changes", "doc-review-social"]) {
+  for (const name of ["doc-review", "doc-review-feedback", "doc-review-waiting", "doc-review-changes", "doc-review-social"]) {
     const png = await readFile(path.join(output, `${name}.png`));
     assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], name === "doc-review-social" ? [1280, 640] : [1680, 1200]);
     assert.ok(png.length < 1_000_000, `${name} must stay below 1 MB.`);

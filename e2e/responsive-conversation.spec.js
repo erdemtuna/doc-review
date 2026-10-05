@@ -49,13 +49,20 @@ async function fixture(page, review, name) {
   return { ref, card, message: card.locator(".conversation-exchange > .conversation-body").first() };
 }
 
-for (const host of ["inventory", "reply", "focus", "adjacent"]) test(`integrated ${host} initially exposes real message text at every audited size without editor refocus`, async ({ page, review }, info) => {
+for (const touch of [false, true]) test.describe(touch ? "touch input" : "pointer input", () => {
+test.use({ hasTouch: touch, isMobile: touch });
+for (const host of ["inventory", "reply", "focus", "adjacent", "note"]) test(`integrated ${host} initially exposes real message text at every audited size without editor refocus`, async ({ page, review }, info) => {
   test.setTimeout(120_000);
-  const { card, message } = await fixture(page, review, `responsive-${host}.html`);
+  const { card, message } = await fixture(page, review, `responsive-${touch ? "touch" : "pointer"}-${host}.html`);
   let editor;
   if (host !== "inventory") {
-    await card.getByRole("button", { name: "Reply", exact: true }).click();
-    editor = card.getByRole("textbox", { name: "Reply", exact: true });
+    if (host === "note") {
+      await page.getByRole("button", { name: "Note to agent", exact: true }).click();
+      editor = page.getByRole("textbox", { name: "Note to agent", exact: true });
+    } else {
+      await card.getByRole("button", { name: "Reply", exact: true }).click();
+      editor = card.getByRole("textbox", { name: "Reply", exact: true });
+    }
     await editor.fill("Keep the same draft and permission.");
     await editor.evaluate(node => {
       window.responsiveEditor = node; node.setSelectionRange(4, 12);
@@ -70,6 +77,7 @@ for (const host of ["inventory", "reply", "focus", "adjacent"]) test(`integrated
     }
   }
   await auditHost(page, card, message, editor, host, info);
+});
 });
 
 test("saved and source-pending edit evidence is reachable and included in Send across the matrix", async ({ page, review }, info) => {
@@ -189,13 +197,19 @@ async function auditHost(page, card, message, editor, host, info) {
     if (field) {
       expect.soft(field.same).toBe(true); expect.soft(field.selection).toEqual([4, 12]);
       expect.soft(field.visible + 0.1, `draft initially readable at ${width}x${height}`).toBeGreaterThanOrEqual(Math.min(36, field.height));
-      await expect.soft(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
+      if (host === "note") await expect.soft(page.locator("#send")).toBeDisabled();
+      else await expect.soft(card.getByRole("button", { name: /^(Add comment|Add reply|Update comment)$/, exact: true })).toBeDisabled();
     }
     await expect.soft(page.locator("#reviewOptions")).toBeFocused();
   }
   fs.writeFileSync(info.outputPath(`${host}-geometry.json`), JSON.stringify(samples, null, 2));
   if (editor) {
     await editor.evaluate(node => node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
+    if (host === "note") {
+      await expect(editor).toHaveValue("Keep the same draft and permission.");
+      await expect(page.locator("#send")).toBeEnabled();
+      return;
+    }
     const permission = card.getByRole("checkbox", { name: "Request a change" });
     await expect(permission).not.toBeChecked();
     await permission.scrollIntoViewIfNeeded();

@@ -51,7 +51,8 @@ it("owns accessible destinations with stable controls and one command per Strict
   expect(commands.setTheme).toHaveBeenCalledExactlyOnceWith("dark");
   expect(screen.getByRole("button", { name: "Review options" })).toBe(theme);
   act(() => { state.feedbackCount = 1000; runtime.publish(); });
-  expect(screen.getByTitle("1000 feedback items")).toHaveTextContent("99+");
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("99+");
+  expect(document.querySelector("#toolbarCount")).not.toHaveAttribute("title");
   expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("1000 feedback items");
   expect(screen.getByRole("button", { name: "Review" })).toBe(review);
   expect(screen.getByRole("button", { name: "Changes" })).toBe(changes);
@@ -128,4 +129,34 @@ it("write exclusion disables only Edit in the open menu and accurately labels at
   expect(screen.getByRole("menuitemradio", { name: /^Edit/ })).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByRole("menuitemradio", { name: /^View/ })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Feedback" })).toHaveAccessibleDescription("3 conversations with new activity");
+});
+
+it("uses one inventory capsule and one hint root for precise pointer and combined keyboard meaning", async () => {
+  const { state, commands } = fixture(), user = userEvent.setup();
+  render(<ToolbarControls state={state} commands={commands} feedbackInventory={{ openThreads: 6, edits: 0 }} />);
+  const feedback = screen.getByRole("button", { name: "Feedback" });
+  expect(feedback).toHaveAccessibleDescription("6 open conversations; 0 manual edits awaiting handling");
+  expect(feedback.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
+  expect(feedback.querySelectorAll("button")).toHaveLength(0);
+  await user.hover(feedback.querySelector('[data-inventory="edits"]')!);
+  expect(await screen.findByRole("tooltip")).toHaveTextContent("0 manual edits awaiting handling");
+  await user.unhover(feedback);
+  feedback.focus();
+  expect(await screen.findByRole("tooltip")).toHaveTextContent("6 open conversations; 0 manual edits awaiting handling");
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  await user.keyboard("{Enter}");
+  expect(commands.openComments).toHaveBeenCalledOnce();
+});
+
+it("keeps unavailable counts distinct from zero and exact large inventories accessible", () => {
+  const { state, commands } = fixture();
+  const { rerender } = render(<ToolbarControls state={state} commands={commands} feedbackInventory={null} />);
+  const button = screen.getByRole("button", { name: "Feedback" });
+  expect(button).toHaveAccessibleDescription("Open conversation count unavailable; Manual edit count unavailable");
+  expect(button.querySelectorAll(".feedback-inventory-value")).toHaveLength(2);
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("…");
+  rerender(<ToolbarControls state={state} commands={commands} feedbackInventory={{ openThreads: 1000, edits: 42 }} />);
+  expect(button).toHaveAccessibleDescription("1000 open conversations; 42 manual edits awaiting handling");
+  expect(document.querySelector("#toolbarCount")).toHaveTextContent("1000");
 });

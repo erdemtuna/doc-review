@@ -221,7 +221,7 @@ test("card filters keep selected paint and defaults; actions are keyboard menus 
   await feedback(page);
   await expect(page.getByRole("checkbox", { name: /^Include message:/ })).toHaveCount(0);
   await expect(page.locator("#send")).toHaveText("Send to agent (2)");
-  await expect(page.locator("#toolbarCount")).toHaveText("1 open");
+  await expect(page.locator("#toolbarCount")).toHaveText("1");
   for (const theme of ["light", "dark"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await setReviewTheme(page);
     await expect(card.getByRole("img", { name: "Not sent", exact: true })).toHaveCount(2);

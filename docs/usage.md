@@ -203,7 +203,9 @@ text and caret; a composing note cannot be collapsed. End and Send remain availa
 including note-only Send when no saved comments or edits are pending.
 No disclosure saves, clears or changes a draft's permission.
 The toolbar shows separate review-wide counts of **open conversations** and
-**manual edits awaiting handling**, independent of filters, replies, unread
+**manual edits awaiting handling** in one shared capsule, with conversation and
+pencil icons. Hover a value for its meaning; keyboard focus on Feedback explains
+both. Touch opens the labelled panel directly. Counts are independent of filters, replies, unread
 activity and the pending Send count. Sent edits remain visible until an accepted
 exact-version `applied` or `already-saved` outcome. Deferred and abandoned edits
 keep their reason and original-submission navigation; they are never automatically
@@ -215,6 +217,12 @@ or note typing during preparation remains unsent. If a selected item changes dur
 the source-save barrier, Send stops and asks you to review the selection.
 During loading, failed reads or unknown
 acceptance, the count is unavailable rather than zero and Send stays disabled.
+Every disabled Send state has an explanation. On desktop, hover the Send area
+or focus its informational wrapper; first Escape dismisses the hint without
+closing Feedback. On no-hover/coarse-pointer devices, a compact neutral line
+above the actions shows the reason. **Waiting for agent** uses the same wording
+as the toolbar, even with a nonempty next-round note. The native Send button
+remains disabled; hints never send feedback or replace reconnect/receipt recovery.
 The overall note can be sent on its own. It stays in this tab when you close
 Feedback, inspect a comparison, or change theme. Open message drafts are not
 included until explicitly saved. Drafts are never persisted or synchronized
@@ -265,6 +273,11 @@ Reviewing, Waiting for agent and Review ended have hover/focus explanations in
 the centered status badge. View/Edit is at the far right. Frame reload handling preserves
 in-memory drafts and reports source conflicts; a full browser reload does not
 recover unsaved drafts.
+**Waiting for agent** includes a two-row, three-column dot matrix. Its slow
+opacity sequence runs only while the review's outstanding work and inventory
+are confirmed. Disconnection, uncertain acceptance and unverified refresh pause
+it; reduced-motion preferences render static dots. Delivery and animation do
+not establish agent liveness or progress.
 
 Separate script files, application imports, workers, and embedded applications
 are outside the self contained file mode. Use localhost for app workflows.
@@ -293,6 +306,11 @@ An incomplete comparison appears as a supporting notice after sending, not
 another confirmation gate. Unknown acceptance exposes the original request ID,
 **Check receipt**, and **Retry same request**. A lookup miss remains unknown.
 Never repeat source edits because the response was lost.
+
+![Waiting for agent with the six-dot indicator, shared Feedback counts and an explanation for disabled Send](../assets/doc-review-waiting.png)
+
+*Waiting stays explicit beside the work. Hover or focus the Send area for its
+reason; no-hover devices show a compact explanation above the actions.*
 
 **Revert** and **End review** ask for confirmation with **Cancel** focused.
 Escape cancels just that confirmation. Revert keeps comments and the overall
@@ -529,7 +547,7 @@ comparisons or zero changes.
 This version requires Node **24.21.0 or newer**; Node 20, Node 22, and earlier
 Node 24 patches are not supported by the compiled runtime.
 
-The current CLI requires server protocol **23**. End active reviews and stop the
+The current CLI requires server protocol **25**. End active reviews and stop the
 specific old server, or let it exit when idle, before restarting. Older servers
 are not silently reused or forcibly replaced. Keep `.doc-review`: pending
 accepted submissions and exact receipt IDs survive a controlled restart.

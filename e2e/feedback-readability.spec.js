@@ -108,8 +108,8 @@ test("deferred and abandoned edits survive history paging, reload and End withou
     await handled(review, ref);
   }
   await page.reload(); await waitForSdk(page); await feedback(page);
-  await expect(page.locator("#toolbarCount")).toHaveText("0 open");
-  await expect(page.getByLabel("2 manual edits awaiting handling", { exact: true })).toHaveText("2 edits");
+  await expect(page.locator("#toolbarCount")).toHaveText("0");
+  await expect(page.getByRole("img", { name: "2 manual edits awaiting handling", exact: true })).toHaveText("2");
   await expect(page.locator("#send")).toBeDisabled();
   const edits = page.getByRole("region", { name: "Your edits", exact: true });
   await expect(edits).toContainText("Deferred; needs follow-up");
